@@ -5,6 +5,8 @@ import { askClaude } from '../services/claude.js';
 import { updateJob } from '../store/jobStore.js';
 import { detectBeats, getBeatsForMode, snapToNearestBeat } from '../services/beatDetect.js';
 import { planKineticTypography, addKineticTextCommand } from '../services/kineticTypography.js';
+import { buildRemotionProps } from '../services/remotionDataConverter.js';
+import { renderVideo } from '../../src/remotion/render.js';
 import type { Job, ExecutionPlan, GenerateResult, TranscriptResult, EditResult, Segment } from '../types.js';
 
 function updateProgress(job: Job, step: string): void {
@@ -386,97 +388,121 @@ Rules:
   }
 
   // ========================================================
-  // STEP 11: KINETIC TYPOGRAPHY (basic FFmpeg version)
+  // STEP 11: KINETIC TYPOGRAPHY — plan data for Remotion
   // ========================================================
+  let kineticTextPlan: any[] | null = null;
   if (plan.edit.kineticTypography && transcript) {
     try {
-      updateProgress(job, 'טקסט מונפש...');
-
+      updateProgress(job, 'תכנון טקסט מונפש...');
       const elements = await planKineticTypography(transcript);
-
-      // Save kinetic data for Remotion (Phase 9)
+      kineticTextPlan = elements;
       saveJSON(`temp/${job.id}/kinetic_typography.json`, elements);
-
-      // Apply basic FFmpeg text overlays
-      for (const element of elements) {
-        const output = nextOutput();
-        await ffmpeg.runFFmpeg(addKineticTextCommand(currentVideo, element, output));
-        currentVideo = output;
-      }
+      updateJob(job.id, { kineticTextPlan: elements });
     } catch (error: any) {
-      console.error('Kinetic typography failed:', error.message);
-      warnings.push('Kinetic typography failed: ' + error.message);
+      console.error('Kinetic typography planning failed:', error.message);
+      warnings.push('Kinetic typography planning failed: ' + error.message);
     }
   }
 
   // ========================================================
-  // STEP 12: SUBTITLES
+  // STEP 12-14: REMOTION RENDER (subtitles, lower thirds, CTA, kinetic typography, logo)
+  // Replaces individual FFmpeg text overlay steps with a single Remotion render
   // ========================================================
-  if (plan.edit.subtitles && transcript) {
+  const useRemotion = plan.edit.subtitles || plan.edit.lowerThirds || plan.edit.cta ||
+                      plan.edit.kineticTypography || plan.edit.logoWatermark;
+
+  if (useRemotion) {
     try {
-      updateProgress(job, 'כתוביות...');
+      updateProgress(job, 'רינדור Remotion (כתוביות מונפשות, אנימציות)...');
 
-      const srtPath = `${editDir}/subtitles.srt`;
-      subtitles.generateSRT(transcript, srtPath);
+      const videoDuration = await ffmpeg.getVideoDuration(currentVideo);
 
-      if (plan.edit.subtitleHighlightKeywords) {
+      // Store kinetic text plan and zoom plan on job for Remotion data converter
+      if (kineticTextPlan) {
+        (job as any).kineticTextPlan = kineticTextPlan;
+      }
+      if (zoomPlan) {
+        (job as any).zoomPlan = zoomPlan;
+      }
+
+      // Build Remotion props from pipeline data
+      const remotionProps = buildRemotionProps(
+        job,
+        plan,
+        currentVideo, // the FFmpeg-processed video (trimmed, colored, with audio)
+        transcript || null,
+        generateResult || null,
+        videoDuration
+      );
+
+      // Determine composition (landscape vs vertical)
+      const compositionId = plan.export.formats.includes('9:16')
+        ? 'VerticalComposition'
+        : 'MainComposition';
+
+      const remotionOutput = nextOutput();
+      await renderVideo(remotionProps, remotionOutput, compositionId);
+      currentVideo = remotionOutput;
+
+    } catch (error: any) {
+      console.error('Remotion render failed, falling back to FFmpeg:', error.message);
+      warnings.push('Remotion render failed — using FFmpeg fallback for text overlays');
+
+      // FALLBACK: use existing FFmpeg text rendering
+      if (plan.edit.kineticTypography && kineticTextPlan) {
         try {
-          await subtitles.getKeywordsForHighlight(transcript);
+          for (const element of kineticTextPlan) {
+            const output = nextOutput();
+            await ffmpeg.runFFmpeg(addKineticTextCommand(currentVideo, element, output));
+            currentVideo = output;
+          }
         } catch {
-          // Non-critical
+          warnings.push('FFmpeg kinetic typography fallback also failed');
         }
       }
-
-      const output = nextOutput();
-      await ffmpeg.runFFmpeg(ffmpeg.addSubtitlesSimple(currentVideo, srtPath, output));
-      currentVideo = output;
-    } catch (error: any) {
-      console.error('Subtitles failed:', error.message);
-      warnings.push('Subtitles failed: ' + error.message);
-    }
-  }
-
-  // ========================================================
-  // STEP 13: LOWER THIRDS
-  // ========================================================
-  if (plan.edit.lowerThirds && plan.edit.lowerThirdsName) {
-    try {
-      updateProgress(job, 'שם ותפקיד...');
-      const output = nextOutput();
-      await ffmpeg.runFFmpeg(ffmpeg.addLowerThird(
-        currentVideo,
-        plan.edit.lowerThirdsName,
-        plan.edit.lowerThirdsTitle || '',
-        2,
-        4,
-        output
-      ));
-      currentVideo = output;
-    } catch (error: any) {
-      console.error('Lower thirds failed:', error.message);
-      warnings.push('Lower thirds failed: ' + error.message);
-    }
-  }
-
-  // ========================================================
-  // STEP 14: CTA
-  // ========================================================
-  if (plan.edit.cta && plan.edit.ctaText) {
-    try {
-      updateProgress(job, 'CTA...');
-      const duration = await ffmpeg.getVideoDuration(currentVideo);
-      const output = nextOutput();
-      await ffmpeg.runFFmpeg(ffmpeg.addCTA(
-        currentVideo,
-        plan.edit.ctaText,
-        Math.max(0, duration - 5),
-        duration,
-        output
-      ));
-      currentVideo = output;
-    } catch (error: any) {
-      console.error('CTA failed:', error.message);
-      warnings.push('CTA failed: ' + error.message);
+      if (plan.edit.subtitles && transcript) {
+        try {
+          const srtPath = `${editDir}/subtitles.srt`;
+          subtitles.generateSRT(transcript, srtPath);
+          const output = nextOutput();
+          await ffmpeg.runFFmpeg(ffmpeg.addSubtitlesSimple(currentVideo, srtPath, output));
+          currentVideo = output;
+        } catch {
+          warnings.push('FFmpeg subtitles fallback also failed');
+        }
+      }
+      if (plan.edit.lowerThirds && plan.edit.lowerThirdsName) {
+        try {
+          const output = nextOutput();
+          await ffmpeg.runFFmpeg(ffmpeg.addLowerThird(
+            currentVideo,
+            plan.edit.lowerThirdsName,
+            plan.edit.lowerThirdsTitle || '',
+            2,
+            4,
+            output
+          ));
+          currentVideo = output;
+        } catch {
+          warnings.push('FFmpeg lower thirds fallback also failed');
+        }
+      }
+      if (plan.edit.cta && plan.edit.ctaText) {
+        try {
+          const duration = await ffmpeg.getVideoDuration(currentVideo);
+          const output = nextOutput();
+          await ffmpeg.runFFmpeg(ffmpeg.addCTA(
+            currentVideo,
+            plan.edit.ctaText,
+            Math.max(0, duration - 5),
+            duration,
+            output
+          ));
+          currentVideo = output;
+        } catch {
+          warnings.push('FFmpeg CTA fallback also failed');
+        }
+      }
     }
   }
 
@@ -523,9 +549,9 @@ Rules:
   }
 
   // ========================================================
-  // STEP 17: LOGO WATERMARK
+  // STEP 17: LOGO WATERMARK (only if Remotion was not used — Remotion handles logo too)
   // ========================================================
-  if (plan.edit.logoWatermark && plan.edit.logoFile) {
+  if (plan.edit.logoWatermark && plan.edit.logoFile && !useRemotion) {
     try {
       updateProgress(job, 'לוגו...');
       if (fs.existsSync(plan.edit.logoFile)) {
