@@ -1,4 +1,4 @@
-export type JobStatus = 'pending' | 'planning' | 'processing' | 'done' | 'error';
+export type JobStatus = 'pending' | 'planning' | 'preview' | 'approved' | 'processing' | 'done' | 'error';
 
 export type EditStyle = 'cinematic' | 'energetic' | 'minimal' | 'trendy';
 
@@ -138,6 +138,9 @@ export interface Job {
   sourceDocument?: FileInfo;
   aiTwinPhoto?: FileInfo;
   plan?: ExecutionPlan;
+  previewData?: PreviewData;
+  previewHistory?: PreviewData[];
+  approvedAt?: string;
   progress: number;
   currentStep?: string;
   steps: StepProgress[];
@@ -154,4 +157,71 @@ export interface RevisionRequest {
   startTime?: number;
   endTime?: number;
   newDuration?: number;
+}
+
+// --- Preview & Approve Types ---
+
+export interface PreviewData {
+  id: string;
+  createdAt: string;
+  keyFrames: PreviewKeyFrame[];
+  storyboard: StoryboardScene[];
+  timeline: PreviewTimeline;
+  enabledFeatures: string[];
+  enabledFeaturesCount: number;
+  totalFeatures: number;
+  subtitlePreview?: string;
+  brollPrompts: BRollPreviewItem[];
+  musicMood?: string;
+  voiceoverStyle?: string;
+  editStyle?: string;
+  estimatedDuration: number;
+  estimatedRenderTime: string;
+  estimatedCost: string;
+  viralityEstimate?: number;
+  script?: ScriptPreview[];
+  plan: ExecutionPlan;
+  changeRequest?: string;
+}
+
+export interface PreviewKeyFrame {
+  timestamp: number;
+  imagePath: string;
+  label: string;
+}
+
+export interface StoryboardScene {
+  sceneNumber: number;
+  title: string;
+  description: string;
+  framePath?: string | null;
+  duration: number;
+  elements: string[];
+}
+
+export interface PreviewTimeline {
+  totalDuration: number;
+  segments: PreviewSegment[];
+}
+
+export interface PreviewSegment {
+  start: number;
+  end: number;
+  type: 'original' | 'broll' | 'music' | 'sfx' | 'subtitle' | 'cta' | 'lower-third';
+  label: string;
+  color: string;
+}
+
+export interface BRollPreviewItem {
+  timestamp: number;
+  duration: number;
+  prompt: string;
+  reason: string;
+}
+
+export interface ScriptPreview {
+  section: string;
+  text: string;
+  duration: number;
+  visualDescription: string;
 }

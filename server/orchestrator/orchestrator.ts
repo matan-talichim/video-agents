@@ -12,6 +12,7 @@ import { calculateViralityScore } from '../services/viralityScore.js';
 import { createVersion } from '../services/versionManager.js';
 import { cleanupJobTemp } from '../services/cleanup.js';
 import { runPromptOnlyPipeline } from '../agents/promptOnly.js';
+import { generatePreview } from '../services/previewGenerator.js';
 import { importDocument, summarizeForVideo } from '../services/documentImport.js';
 import { generateMultiPageStory } from '../templates/multiPageStories.js';
 import { applyBrandKitToPlan, getBrandPromptPrefix } from '../services/brandKit.js';
@@ -85,6 +86,44 @@ function generateViralityScore(): ViralityScore {
     trends,
     tips: selectedTips,
   };
+}
+
+// startJob: generates plan + preview, then waits for user approval
+export async function startJob(job: Job): Promise<void> {
+  try {
+    // Step 1: Brain already generated plan (done in routes/jobs.ts)
+    // Step 2: Generate preview (NOT render — just plan + frames)
+    updateJob(job.id, {
+      status: 'planning',
+      currentStep: 'מכין תצוגה מקדימה...',
+      progress: 5,
+    });
+
+    const plan = job.plan;
+    if (!plan) {
+      throw new Error('No execution plan found');
+    }
+
+    const preview = await generatePreview(job, plan);
+
+    updateJob(job.id, {
+      previewData: preview,
+      previewHistory: [],
+      status: 'preview',
+      currentStep: '',
+      progress: 10,
+    } as any);
+
+    // Pipeline STOPS HERE — waits for user to approve or request changes
+    // When user clicks "approve", the POST /preview/approve endpoint calls runPipeline()
+    console.log(`[Orchestrator] Job ${job.id} preview ready — waiting for user approval`);
+  } catch (error: any) {
+    console.error('Job start failed:', error);
+    updateJob(job.id, {
+      status: 'error',
+      currentStep: `שגיאה: ${error.message}`,
+    });
+  }
 }
 
 export async function runPipeline(job: Job): Promise<void> {

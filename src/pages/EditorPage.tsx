@@ -121,7 +121,7 @@ export default function EditorPage() {
 
     try {
       const jobId = await createJob(fd);
-      navigate(`/jobs/${jobId}`);
+      navigate(`/jobs/${jobId}/preview`);
     } catch {
       // error already in store
     }
