@@ -1,7 +1,9 @@
-import type { Job, Segment, ViralityScore } from '../types.js';
+import type { Job, Segment, ViralityScore, TranscriptResult } from '../types.js';
 import { updateJob } from '../store/jobStore.js';
 import { addVersion } from '../store/versionStore.js';
 import { getEnabledSteps, calculateProgress } from './progressTracker.js';
+import { runIngestAgent } from '../agents/ingest.js';
+import { runCleanAgent } from '../agents/clean.js';
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -92,10 +94,69 @@ export async function runPipeline(job: Job): Promise<void> {
 
     const steps = getEnabledSteps(job.plan);
     const totalSteps = steps.length;
+    let completedSteps = 0;
+    const allWarnings: string[] = [];
 
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-      const progress = calculateProgress(i, totalSteps);
+    // --- REAL INGEST AGENT ---
+    const hasIngestSteps =
+      job.plan.ingest.transcribe ||
+      job.plan.ingest.multiCamSync ||
+      job.plan.ingest.lipSyncVerify ||
+      job.plan.ingest.footageClassification ||
+      job.plan.ingest.shotSelection ||
+      job.plan.ingest.smartVariety ||
+      job.plan.ingest.speakerClassification;
+
+    let transcript: TranscriptResult | null = null;
+
+    if (hasIngestSteps) {
+      console.log(`[Pipeline] Running real ingest agent for job ${job.id}`);
+      const ingestResult = await runIngestAgent(job, job.plan);
+      transcript = ingestResult.transcript;
+      allWarnings.push(...ingestResult.warnings);
+
+      // Count completed ingest steps
+      const ingestStepCount = steps.filter(s => s.stage === 'ingest').length;
+      completedSteps += ingestStepCount;
+      updateJob(job.id, {
+        progress: calculateProgress(completedSteps, totalSteps),
+      });
+    }
+
+    // --- REAL CLEAN AGENT ---
+    const hasCleanSteps =
+      job.plan.clean.removeSilences ||
+      job.plan.clean.removeFillerWords ||
+      job.plan.clean.selectBestTake ||
+      job.plan.clean.removeShakyBRoll;
+
+    if (hasCleanSteps) {
+      console.log(`[Pipeline] Running real clean agent for job ${job.id}`);
+      const cleanResult = await runCleanAgent(job, job.plan, transcript);
+      allWarnings.push(...cleanResult.warnings);
+
+      // Update job with clean video path for next stages
+      if (cleanResult.cleanVideoPath) {
+        updateJob(job.id, { cleanVideoPath: cleanResult.cleanVideoPath });
+      }
+
+      // Count completed clean steps
+      const cleanStepCount = steps.filter(s => s.stage === 'clean').length;
+      completedSteps += cleanStepCount;
+      updateJob(job.id, {
+        progress: calculateProgress(completedSteps, totalSteps),
+      });
+    }
+
+    // --- REMAINING STAGES (still simulated for now) ---
+    const remainingSteps = steps.filter(
+      s => s.stage !== 'ingest' && s.stage !== 'clean'
+    );
+
+    for (let i = 0; i < remainingSteps.length; i++) {
+      const step = remainingSteps[i];
+      completedSteps++;
+      const progress = calculateProgress(completedSteps, totalSteps);
 
       updateJob(job.id, {
         currentStep: `${step.name}...`,
@@ -103,9 +164,12 @@ export async function runPipeline(job: Job): Promise<void> {
       });
 
       // Simulate processing time — varies by stage
-      const delayMs = step.stage === 'generate' ? randomBetween(1000, 2000) :
-                      step.stage === 'edit' ? randomBetween(800, 1500) :
-                      randomBetween(500, 1000);
+      const delayMs =
+        step.stage === 'generate'
+          ? randomBetween(1000, 2000)
+          : step.stage === 'edit'
+            ? randomBetween(800, 1500)
+            : randomBetween(500, 1000);
       await delay(delayMs);
     }
 
@@ -148,6 +212,7 @@ export async function runPipeline(job: Job): Promise<void> {
       versions: [version.id],
       viralityScore,
       enabledFeaturesCount: totalSteps,
+      warnings: allWarnings.length > 0 ? allWarnings : undefined,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
