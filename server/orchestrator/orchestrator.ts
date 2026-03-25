@@ -1,10 +1,11 @@
-import type { Job, Segment, ViralityScore, TranscriptResult, GenerateResult } from '../types.js';
+import type { Job, Segment, ViralityScore, TranscriptResult, GenerateResult, EditResult } from '../types.js';
 import { updateJob } from '../store/jobStore.js';
 import { addVersion } from '../store/versionStore.js';
 import { getEnabledSteps, calculateProgress } from './progressTracker.js';
 import { runIngestAgent } from '../agents/ingest.js';
 import { runCleanAgent } from '../agents/clean.js';
 import { runGenerateAgent, hasAnyGenerateFeature } from '../agents/generate.js';
+import { runEditAgent, buildEditTimeline } from '../agents/edit.js';
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -164,9 +165,47 @@ export async function runPipeline(job: Job): Promise<void> {
       });
     }
 
-    // --- REMAINING STAGES (edit, export — still simulated) ---
+    // --- REAL EDIT AGENT ---
+    const hasEditSteps = steps.some(s => s.stage === 'edit' || s.stage === 'export');
+
+    let editResult: EditResult | null = null;
+
+    if (hasEditSteps) {
+      console.log(`[Pipeline] Running real edit agent for job ${job.id}`);
+      updateJob(job.id, { currentStep: 'עריכה והרכבה...' });
+
+      const cleanVideoPath = job.cleanVideoPath || (job.files[0]?.path || '');
+      const emptyGenerateResult: GenerateResult = {
+        brollClips: [],
+        voiceoverPath: null,
+        musicPath: null,
+        sfxMoments: [],
+        thumbnailPath: null,
+        stockClips: [],
+        additionalAssets: {},
+      };
+
+      editResult = await runEditAgent(
+        job,
+        job.plan,
+        cleanVideoPath,
+        generateResult || emptyGenerateResult,
+        transcript
+      );
+
+      allWarnings.push(...editResult.warnings);
+
+      // Count completed edit + export steps
+      const editStepCount = steps.filter(s => s.stage === 'edit' || s.stage === 'export').length;
+      completedSteps += editStepCount;
+      updateJob(job.id, {
+        progress: calculateProgress(completedSteps, totalSteps),
+      });
+    }
+
+    // --- REMAINING STAGES (templates — still simulated) ---
     const remainingSteps = steps.filter(
-      s => s.stage !== 'ingest' && s.stage !== 'clean' && s.stage !== 'generate' && s.stage !== 'analyze'
+      s => s.stage !== 'ingest' && s.stage !== 'clean' && s.stage !== 'generate' && s.stage !== 'analyze' && s.stage !== 'edit' && s.stage !== 'export'
     );
 
     for (let i = 0; i < remainingSteps.length; i++) {
@@ -179,12 +218,7 @@ export async function runPipeline(job: Job): Promise<void> {
         progress,
       });
 
-      // Simulate processing time — varies by stage
-      const delayMs =
-        step.stage === 'edit'
-          ? randomBetween(800, 1500)
-          : randomBetween(500, 1000);
-      await delay(delayMs);
+      await delay(randomBetween(500, 1000));
     }
 
     // Phase 3: Finalize
@@ -194,9 +228,11 @@ export async function runPipeline(job: Job): Promise<void> {
     });
     await delay(500);
 
-    const duration = randomBetween(30, 180);
-    const timeline = generateSimulatedTimeline(duration);
     const videoUrl = `/api/jobs/${job.id}/video`;
+    const duration = editResult?.duration || randomBetween(30, 180);
+    const timeline = editResult
+      ? buildEditTimeline(generateResult || { brollClips: [], voiceoverPath: null, musicPath: null, sfxMoments: [], thumbnailPath: null, stockClips: [], additionalAssets: {} }, duration)
+      : generateSimulatedTimeline(duration);
 
     // Generate virality score if enabled
     const viralityScore = job.plan.analyze.viralityScore
@@ -219,7 +255,7 @@ export async function runPipeline(job: Job): Promise<void> {
       currentStep: 'הושלם בהצלחה!',
       result: {
         videoUrl,
-        thumbnailUrl: `/api/jobs/${job.id}/thumbnail`,
+        thumbnailUrl: editResult ? `/api/jobs/${job.id}/thumbnail` : undefined,
         duration,
         timeline,
       },
