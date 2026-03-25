@@ -6,6 +6,8 @@ import { runIngestAgent } from '../agents/ingest.js';
 import { runCleanAgent } from '../agents/clean.js';
 import { runGenerateAgent, hasAnyGenerateFeature } from '../agents/generate.js';
 import { runEditAgent, buildEditTimeline } from '../agents/edit.js';
+import { applyEditStyle, EDIT_STYLES } from '../services/editStyles.js';
+import { calculateViralityScore } from '../services/viralityScore.js';
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -165,6 +167,13 @@ export async function runPipeline(job: Job): Promise<void> {
       });
     }
 
+    // --- APPLY EDIT STYLE (if user selected one) ---
+    if (job.editStyle && EDIT_STYLES[job.editStyle]) {
+      console.log(`[Pipeline] Applying edit style: ${job.editStyle}`);
+      job.plan = applyEditStyle(job.plan!, job.editStyle);
+      updateJob(job.id, { plan: job.plan });
+    }
+
     // --- REAL EDIT AGENT ---
     const hasEditSteps = steps.some(s => s.stage === 'edit' || s.stage === 'export');
 
@@ -234,10 +243,17 @@ export async function runPipeline(job: Job): Promise<void> {
       ? buildEditTimeline(generateResult || { brollClips: [], voiceoverPath: null, musicPath: null, sfxMoments: [], thumbnailPath: null, stockClips: [], additionalAssets: {} }, duration)
       : generateSimulatedTimeline(duration);
 
-    // Generate virality score if enabled
-    const viralityScore = job.plan.analyze.viralityScore
-      ? generateViralityScore()
-      : undefined;
+    // Generate virality score if enabled (real Claude-powered scoring)
+    let viralityScore: ViralityScore | undefined;
+    if (job.plan.analyze.viralityScore) {
+      try {
+        updateJob(job.id, { currentStep: 'ציון ויראליות...' });
+        viralityScore = await calculateViralityScore(job, transcript);
+      } catch (error: any) {
+        console.error('Virality score failed:', error.message);
+        viralityScore = generateViralityScore(); // fallback to simulated
+      }
+    }
 
     // Create version
     const version = addVersion({
