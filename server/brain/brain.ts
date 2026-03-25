@@ -321,32 +321,5 @@ export function countEnabledFeatures(plan: ExecutionPlan): number {
   return count;
 }
 
-/** Estimate cost based on enabled paid features */
-export function estimateCost(plan: ExecutionPlan): { total: number; breakdown: Record<string, number> } {
-  const breakdown: Record<string, number> = {};
-
-  // Claude API (Brain) — always used
-  breakdown['Claude API (Brain)'] = 0.02;
-
-  // Paid features cost estimates (in USD)
-  if (plan.generate.voiceClone) breakdown['Voice Clone (ElevenLabs)'] = 0.30;
-  if (plan.generate.aiVoiceover) breakdown['AI Voiceover (ElevenLabs)'] = 0.15;
-  if (plan.generate.musicGeneration) breakdown['Music Generation (Suno)'] = 0.10;
-  if (plan.generate.aiDubbing) breakdown['AI Dubbing (ElevenLabs)'] = 0.50;
-  if (plan.generate.broll) breakdown['B-Roll Generation'] = plan.generate.stockFootageSearch ? 0.00 : 0.25;
-  if (plan.generate.faceSwap) breakdown['Face Swap (KIE.ai)'] = 0.40;
-  if (plan.generate.lipsync) breakdown['Lipsync (KIE.ai)'] = 0.35;
-  if (plan.generate.motionTransfer) breakdown['Motion Transfer (KIE.ai)'] = 0.30;
-  if (plan.generate.aiTwin) breakdown['AI Twin (KIE.ai)'] = 0.50;
-  if (plan.generate.textToVFX) breakdown['Text to VFX (KIE.ai)'] = 0.20;
-  if (plan.edit.upscaling) breakdown['4K Upscaling (KIE.ai)'] = 0.15;
-  if (plan.generate.aiSoundEffects) breakdown['AI Sound Effects'] = 0.05;
-  if (plan.generate.videoToVideo) breakdown['Video to Video (KIE.ai)'] = 0.25;
-
-  // Free features
-  if (plan.generate.stockFootageSearch) breakdown['Stock Footage (Pexels)'] = 0.00;
-  if (plan.ingest.transcribe) breakdown['Transcription (Deepgram)'] = 0.01;
-
-  const total = Object.values(breakdown).reduce((sum, v) => sum + v, 0);
-  return { total: Math.round(total * 100) / 100, breakdown };
-}
+/** Estimate cost based on enabled paid features — uses real-world API pricing */
+export { calculateJobCostLegacy as estimateCost } from '../services/pricing.js';

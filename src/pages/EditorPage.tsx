@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useJobStore from '../store/useJobStore';
 import type {
@@ -9,6 +9,7 @@ import type {
   CaptionTemplate,
   UserOptions,
   BrandKit,
+  PresetAutoConfig,
 } from '../types';
 import FileUpload from '../components/FileUpload';
 import SourceDocumentUpload from '../components/SourceDocumentUpload';
@@ -25,6 +26,8 @@ import StoryPageCount from '../components/StoryPageCount';
 import DurationPicker from '../components/DurationPicker';
 import LogoUpload from '../components/LogoUpload';
 import BrandKitEditor from '../components/BrandKitEditor';
+import LiveCostBreakdown from '../components/LiveCostBreakdown';
+import { calculateLiveCost } from '../utils/costCalculator';
 
 export default function EditorPage() {
   const { mode } = useParams<{ mode: string }>();
@@ -90,10 +93,39 @@ export default function EditorPage() {
     });
   }, []);
 
-  const handlePresetChange = useCallback((p: PresetType, text: string) => {
+  const handlePresetChange = useCallback((p: PresetType, text: string, autoConfig?: PresetAutoConfig) => {
     setPreset(p);
     if (text) setPrompt(text);
+
+    // Apply auto-config from preset
+    if (autoConfig) {
+      if (autoConfig.editStyle) setEditStyle(autoConfig.editStyle);
+      if (typeof autoConfig.duration === 'number') setTargetDuration(autoConfig.duration);
+      if (autoConfig.targetLanguage) setTargetLanguage(autoConfig.targetLanguage);
+      if (autoConfig.storyPages) setStoryPages(autoConfig.storyPages);
+
+      // Apply options overrides
+      if (autoConfig.options) {
+        setOptions((prev) => ({ ...prev, ...autoConfig.options }));
+      }
+    }
   }, []);
+
+  // Live cost calculation — recalculates on every selection change
+  const liveCost = useMemo(() => {
+    return calculateLiveCost({
+      model: videoModel,
+      duration: targetDuration ?? 60,
+      options: options as unknown as Record<string, boolean>,
+      editStyle,
+      voiceoverStyle: isPrompt ? voiceoverStyle : undefined,
+      preset,
+      aiTwin: options.aiTwin,
+      aiDubbing: preset === 'dubbing',
+      voiceClone: false,
+      hasFiles: isUpload ? files.length > 0 : false,
+    });
+  }, [videoModel, targetDuration, options, editStyle, voiceoverStyle, preset, files.length, isUpload, isPrompt]);
 
   const isValid = isUpload ? files.length > 0 : prompt.trim().length > 0;
 
@@ -128,7 +160,7 @@ export default function EditorPage() {
   };
 
   return (
-    <div className="min-h-screen bg-dark-bg pb-20">
+    <div className="min-h-screen bg-dark-bg pb-32">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-dark-bg/80 backdrop-blur-lg border-b border-dark-border-light/30">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -235,6 +267,9 @@ export default function EditorPage() {
           )}
         </div>
       </div>
+
+      {/* Live Cost Breakdown — sticky footer */}
+      <LiveCostBreakdown items={liveCost.items} total={liveCost.total} />
     </div>
   );
 }

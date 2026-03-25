@@ -1,3 +1,6 @@
+import { useState } from 'react';
+import type { CostItem } from '../types';
+
 interface Props {
   enabledFeaturesCount: number;
   totalFeatures: number;
@@ -5,6 +8,7 @@ interface Props {
   estimatedRenderTime: string;
   estimatedCost: string;
   viralityEstimate?: number;
+  costItems?: CostItem[];
 }
 
 export default function EstimatesCard({
@@ -14,7 +18,13 @@ export default function EstimatesCard({
   estimatedRenderTime,
   estimatedCost,
   viralityEstimate,
+  costItems,
 }: Props) {
+  const [showBreakdown, setShowBreakdown] = useState(false);
+
+  const paidItems = costItems?.filter((i) => !i.free) ?? [];
+  const freeItems = costItems?.filter((i) => i.free) ?? [];
+
   return (
     <div>
       <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
@@ -58,16 +68,60 @@ export default function EstimatesCard({
           </div>
         </div>
 
-        {/* Cost */}
-        <div className="bg-dark-card border border-dark-border-light rounded-xl p-3 text-center">
+        {/* Cost — clickable if breakdown available */}
+        <button
+          onClick={() => costItems && setShowBreakdown(!showBreakdown)}
+          className={`bg-dark-card border border-dark-border-light rounded-xl p-3 text-center ${
+            costItems ? 'cursor-pointer hover:border-amber-500/30 transition-colors' : ''
+          }`}
+        >
           <div className="text-2xl font-bold text-amber-400 font-mono">
             {estimatedCost}
           </div>
           <div className="text-[10px] text-gray-400 mt-1">
-            עלות משוערת
+            עלות משוערת {costItems ? '(לחץ לפירוט)' : ''}
+          </div>
+        </button>
+      </div>
+
+      {/* Itemized cost breakdown */}
+      {showBreakdown && costItems && (
+        <div className="mt-3 bg-dark-card border border-dark-border-light rounded-xl p-4 space-y-2">
+          <h4 className="text-xs text-gray-500 mb-2">פירוט עלויות</h4>
+
+          {/* Paid */}
+          {paidItems
+            .sort((a, b) => b.cost - a.cost)
+            .map((item, i) => (
+              <div key={i} className="flex items-center justify-between text-sm" dir="rtl">
+                <span className="text-gray-300">{item.service}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] text-gray-600">{item.unit}</span>
+                  <span className="font-mono text-amber-400 w-16 text-left">${item.cost.toFixed(3)}</span>
+                </div>
+              </div>
+            ))}
+
+          {/* Free */}
+          {freeItems.length > 0 && (
+            <div className="border-t border-dark-border-light/50 pt-2 mt-2 space-y-1">
+              {freeItems.map((item, i) => (
+                <div key={i} className="flex items-center justify-between text-xs" dir="rtl">
+                  <span className="text-green-500/70">{item.service}</span>
+                  <span className="text-green-500/70">{item.unit}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Comparison */}
+          <div className="border-t border-dark-border-light/50 pt-2 text-center text-xs text-gray-600">
+            עלות עורך אנושי: <span className="line-through text-gray-500">₪500+</span>
+            <span className="mx-1">|</span>
+            עלות AI: <span className="text-amber-400 font-mono font-bold">{estimatedCost}</span>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Virality estimate */}
       {viralityEstimate !== undefined && (
