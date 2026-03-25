@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { getAllEffects, getEffectsByCategory } from '../services/effectsLibrary.js';
+import { getTrendingSoundsForAPI } from '../services/trendingSounds.js';
 
 const router = Router();
 
@@ -123,6 +125,18 @@ router.get('/edit-styles', (_req, res) => {
     },
   ];
   res.json(styles);
+});
+
+// GET /api/effects-library — all effects with FFmpeg filters
+router.get('/effects-library', (req, res) => {
+  const category = req.query.category as string;
+  res.json(category ? getEffectsByCategory(category) : getAllEffects());
+});
+
+// GET /api/trending-sounds — trending sounds list
+router.get('/trending-sounds', (req, res) => {
+  const platform = req.query.platform as string;
+  res.json(getTrendingSoundsForAPI());
 });
 
 export default router;

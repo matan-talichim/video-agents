@@ -11,7 +11,10 @@ import brandKitRouter from './routes/brandKit.js';
 import chatEditorRouter from './routes/chatEditor.js';
 import visualDNARouter from './routes/visualDNA.js';
 import { startCleanupSchedule } from './services/cleanup.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
+const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
@@ -31,7 +34,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/output', express.static(path.join(rootDir, 'output')));
 
 // Create required directories on startup
-const dirs = ['uploads', 'output', 'temp'];
+const dirs = ['uploads', 'output', 'temp', 'data/brand-kits'];
 for (const dir of dirs) {
   const dirPath = path.join(rootDir, dir);
   if (!fs.existsSync(dirPath)) {
@@ -68,11 +71,51 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ error: 'שגיאת שרת פנימית' });
 });
 
+// Health check function — runs on startup
+async function healthCheck(): Promise<void> {
+  const checks: Record<string, boolean> = {};
+
+  // Check API keys exist
+  checks['ANTHROPIC_API_KEY'] = !!process.env.ANTHROPIC_API_KEY;
+  checks['DEEPGRAM_API_KEY'] = !!process.env.DEEPGRAM_API_KEY;
+  checks['KIE_API_KEY'] = !!process.env.KIE_API_KEY;
+  checks['ELEVENLABS_API_KEY'] = !!process.env.ELEVENLABS_API_KEY;
+  checks['PEXELS_API_KEY'] = !!process.env.PEXELS_API_KEY;
+
+  // Check FFmpeg
+  try {
+    await execAsync('ffmpeg -version');
+    checks['ffmpeg'] = true;
+  } catch {
+    checks['ffmpeg'] = false;
+    console.warn('FFmpeg not found — video processing will fail');
+  }
+
+  // Check directories
+  for (const dir of ['uploads', 'output', 'temp']) {
+    fs.mkdirSync(path.join(rootDir, dir), { recursive: true });
+    checks[`dir_${dir}`] = true;
+  }
+
+  console.log('Health check results:');
+  for (const [key, value] of Object.entries(checks)) {
+    console.log(`  ${value ? 'OK' : 'MISSING'} ${key}`);
+  }
+
+  const missing = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
+  if (missing.length > 0) {
+    console.warn(`Missing: ${missing.join(', ')} — some features may not work`);
+  }
+}
+
 app.listen(PORT, () => {
-  console.log(`🚀 Video Agents server running on http://localhost:${PORT}`);
-  console.log(`📁 Uploads: ${path.join(rootDir, 'uploads')}`);
-  console.log(`📁 Output: ${path.join(rootDir, 'output')}`);
-  console.log(`📁 Temp: ${path.join(rootDir, 'temp')}`);
+  console.log(`Video Agents server running on http://localhost:${PORT}`);
+  console.log(`Uploads: ${path.join(rootDir, 'uploads')}`);
+  console.log(`Output: ${path.join(rootDir, 'output')}`);
+  console.log(`Temp: ${path.join(rootDir, 'temp')}`);
+
+  // Run health check
+  healthCheck();
 
   // Start hourly cleanup of old jobs and temp files
   startCleanupSchedule();

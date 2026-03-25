@@ -40,6 +40,7 @@ export interface Job {
   musicSyncData?: MusicSyncData;
   generateResult?: GenerateResult;
   transcript?: TranscriptResult;
+  sourceDocumentContent?: string;
 }
 
 export interface FileInfo {
@@ -254,6 +255,29 @@ export interface EditResult {
 }
 
 // --- Phase 8: Advanced AI Types ---
+
+// --- Phase 9: Prompt-Only Types ---
+
+export interface ScenePlan {
+  scene_number: number;
+  section: string;
+  narration_text: string;
+  duration_seconds: number;
+  visual_description: string;
+  camera_movement: string;
+  mood: string;
+  text_overlay?: string;
+  broll_prompt: string;
+}
+
+export interface PromptOnlyResult {
+  videoPath: string;
+  scenes: ScenePlan[];
+  voiceoverPath: string;
+  musicPath: string | null;
+  sceneClips: string[];
+  duration: number;
+}
 
 export interface AITwinResult {
   success: boolean;
