@@ -33,6 +33,7 @@ export interface Job {
   brandKit?: BrandKit;
   viralityScore?: ViralityScore;
   enabledFeaturesCount?: number;
+  costEstimate?: { total: number; breakdown: Record<string, number> };
 }
 
 export interface FileInfo {
@@ -179,6 +180,7 @@ export interface ExecutionPlan {
     aiTwinSourceImage?: string;
     aiDubbing: boolean;
     aiDubbingTargetLanguage?: string;
+    aiScriptGenerator: boolean;
     aiSoundEffects: boolean;
   };
   edit: {
