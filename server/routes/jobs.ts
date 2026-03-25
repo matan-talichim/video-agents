@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 import type { FileInfo, UserOptions, BRollModel } from '../types.js';
 import { createJob, getJob, updateJob, listJobs } from '../store/jobStore.js';
 import { addVersion, getVersions, getVersion } from '../store/versionStore.js';
@@ -115,12 +116,45 @@ router.get('/:id/video', (req, res) => {
   if (!job) {
     return res.status(404).json({ error: 'עבודה לא נמצאה' });
   }
-  // For now, return a placeholder response since no real video is generated
-  res.status(404).json({
-    error: 'הסרטון עדיין לא זמין — מצב סימולציה',
-    jobId: job.id,
-    status: job.status,
-  });
+
+  // Support format query parameter (e.g., ?format=9x16)
+  const format = req.query.format as string | undefined;
+  let videoPath: string;
+
+  if (format && format !== '16x9') {
+    videoPath = path.resolve(`output/${job.id}/final_${format}.mp4`);
+  } else {
+    videoPath = path.resolve(`output/${job.id}/final.mp4`);
+  }
+
+  if (fs.existsSync(videoPath)) {
+    const stat = fs.statSync(videoPath);
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    // Support range requests for video seeking
+    const range = req.headers.range;
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+      const chunkSize = end - start + 1;
+
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+      res.setHeader('Content-Length', chunkSize);
+      fs.createReadStream(videoPath, { start, end }).pipe(res);
+    } else {
+      fs.createReadStream(videoPath).pipe(res);
+    }
+  } else {
+    res.status(404).json({
+      error: 'הסרטון עדיין לא זמין',
+      jobId: job.id,
+      status: job.status,
+    });
+  }
 });
 
 // GET /api/jobs/:id/thumbnail — serve thumbnail
@@ -129,7 +163,14 @@ router.get('/:id/thumbnail', (req, res) => {
   if (!job) {
     return res.status(404).json({ error: 'עבודה לא נמצאה' });
   }
-  res.status(404).json({ error: 'תמונה ממוזערת לא זמינה — מצב סימולציה' });
+
+  const thumbPath = path.resolve(`output/${job.id}/thumbnail.jpg`);
+  if (fs.existsSync(thumbPath)) {
+    res.setHeader('Content-Type', 'image/jpeg');
+    fs.createReadStream(thumbPath).pipe(res);
+  } else {
+    res.status(404).json({ error: 'תמונה ממוזערת לא זמינה' });
+  }
 });
 
 // GET /api/jobs/:id/versions — list versions

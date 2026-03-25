@@ -196,6 +196,15 @@ export interface GenerateResult {
   additionalAssets: Record<string, any>;
 }
 
+// --- Phase 5: Edit Types ---
+
+export interface EditResult {
+  finalVideoPath: string;
+  duration: number;
+  formats: string[];
+  warnings: string[];
+}
+
 export interface ExecutionPlan {
   mode: 'raw' | 'prompt-only';
   ingest: {

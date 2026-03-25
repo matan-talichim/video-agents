@@ -243,6 +243,186 @@ function extractRMSPeaks(stderr: string): number[] {
   return values;
 }
 
+// === VIDEO ASSEMBLY ===
+
+// Overlay B-Roll at specific timestamps on the main video
+export function overlayBRoll(mainVideo: string, brollClip: string, startTime: number, duration: number, output: string): string {
+  return `ffmpeg -i "${mainVideo}" -i "${brollClip}" -filter_complex "[1:v]trim=0:${duration},setpts=PTS-STARTPTS[broll];[0:v][broll]overlay=enable='between(t,${startTime},${startTime + duration})'" -c:a copy -y "${output}"`;
+}
+
+// Replace video segment with B-Roll (not overlay — full replacement)
+export function replaceBRollSegment(mainVideo: string, brollClip: string, startTime: number, endTime: number, output: string): string {
+  return `ffmpeg -i "${mainVideo}" -i "${brollClip}" -filter_complex "[0:v]trim=0:${startTime},setpts=PTS-STARTPTS[before];[0:a]atrim=0:${startTime},asetpts=PTS-STARTPTS[abefore];[1:v]trim=0:${endTime - startTime},setpts=PTS-STARTPTS[broll];[0:a]atrim=${startTime}:${endTime},asetpts=PTS-STARTPTS[abroll];[0:v]trim=${endTime},setpts=PTS-STARTPTS[after];[0:a]atrim=${endTime},asetpts=PTS-STARTPTS[aafter];[before][abefore][broll][abroll][after][aafter]concat=n=3:v=1:a=1[v][a]" -map "[v]" -map "[a]" -y "${output}"`;
+}
+
+// === COLOR ===
+
+// Apply LUT color grading
+export function applyLUT(input: string, lutFile: string, output: string): string {
+  return `ffmpeg -i "${input}" -vf "lut3d='${lutFile}'" -c:a copy -y "${output}"`;
+}
+
+// Color match camera 2 to camera 1
+export function colorMatchCameras(_reference: string, target: string, output: string): string {
+  return `ffmpeg -i "${target}" -vf "colorbalance=rs=0.05:gs=-0.02:bs=0.05,eq=brightness=0.02:contrast=1.05" -c:a copy -y "${output}"`;
+}
+
+// Skin tone correction
+export function skinToneCorrection(input: string, output: string): string {
+  return `ffmpeg -i "${input}" -vf "eq=saturation=1.1:contrast=1.03,colorbalance=rh=0.02:gh=0.01:bh=-0.01" -c:a copy -y "${output}"`;
+}
+
+// Lighting enhancement
+export function lightingEnhancement(input: string, output: string): string {
+  return `ffmpeg -i "${input}" -vf "eq=brightness=0.05:contrast=1.12:saturation=1.08:gamma=1.08" -c:a copy -y "${output}"`;
+}
+
+// === AUDIO ===
+
+// Mix music with video, with auto-ducking
+export function mixMusicWithDucking(videoInput: string, musicFile: string, output: string): string {
+  return `ffmpeg -i "${videoInput}" -i "${musicFile}" -filter_complex "[1:a]volume=0.15[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[mixed];[0:a]asplit[speech][sc];[sc]aformat=channel_layouts=mono,compand=attacks=0:decays=0.3:points=-80/-80|-20/-20|0/-15[sidechain];[1:a]volume=0.2[musicduck];[musicduck][sidechain]sidechaincompress=threshold=0.03:ratio=6:attack=200:release=1000[ducked];[speech][ducked]amix=inputs=2:duration=first[out]" -map 0:v -map "[out]" -c:v copy -y "${output}"`;
+}
+
+// Simpler music mix (no sidechain, just lower volume)
+export function mixMusicSimple(videoInput: string, musicFile: string, musicVolume: number, output: string): string {
+  return `ffmpeg -i "${videoInput}" -i "${musicFile}" -filter_complex "[1:a]volume=${musicVolume}[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=2" -map 0:v -c:v copy -y "${output}"`;
+}
+
+// Overlay sound effects at specific timestamps
+export function overlaySFX(videoInput: string, sfxList: Array<{file: string, timestamp: number, volume: number}>, output: string): string {
+  if (sfxList.length === 0) return `cp "${videoInput}" "${output}"`;
+
+  let inputs = `ffmpeg -i "${videoInput}"`;
+  const filterParts: string[] = [];
+
+  for (let i = 0; i < sfxList.length; i++) {
+    inputs += ` -i "${sfxList[i].file}"`;
+    filterParts.push(`[${i + 1}:a]volume=${sfxList[i].volume},adelay=${Math.floor(sfxList[i].timestamp * 1000)}|${Math.floor(sfxList[i].timestamp * 1000)}[sfx${i}]`);
+  }
+
+  const mixInputs = sfxList.map((_, i) => `[sfx${i}]`).join('');
+  const filterComplex = `${filterParts.join(';')};[0:a]${mixInputs}amix=inputs=${sfxList.length + 1}:duration=first`;
+
+  return `${inputs} -filter_complex "${filterComplex}" -map 0:v -c:v copy -y "${output}"`;
+}
+
+// Enhance speech clarity
+export function enhanceSpeech(input: string, output: string): string {
+  return `ffmpeg -i "${input}" -af "highpass=f=80,lowpass=f=8000,equalizer=f=3000:t=q:w=1:g=3,acompressor=threshold=-20dB:ratio=4:attack=5:release=50,loudnorm=I=-16:TP=-1.5" -c:v copy -y "${output}"`;
+}
+
+// Noise reduction
+export function noiseReduction(input: string, output: string): string {
+  return `ffmpeg -i "${input}" -af "afftdn=nf=-25:tn=1" -c:v copy -y "${output}"`;
+}
+
+// Replace audio track entirely (for dubbing)
+export function replaceAudio(videoInput: string, audioInput: string, output: string): string {
+  return `ffmpeg -i "${videoInput}" -i "${audioInput}" -map 0:v -map 1:a -c:v copy -shortest -y "${output}"`;
+}
+
+// === VISUAL EFFECTS ===
+
+// Background blur (blurs edges/corners more than center)
+export function backgroundBlur(input: string, blurStrength: number, output: string): string {
+  return `ffmpeg -i "${input}" -vf "split[original][blur];[blur]gblur=sigma=${blurStrength}[blurred];[original][blurred]overlay=shortest=1" -c:a copy -y "${output}"`;
+}
+
+// Smart zooms at keyframe moments
+export function addZoom(input: string, startTime: number, endTime: number, zoomFactor: number, output: string): string {
+  return `ffmpeg -i "${input}" -vf "zoompan=z='if(between(t,${startTime},${endTime}),${zoomFactor},1)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=30" -c:a copy -y "${output}"`;
+}
+
+// Ken Burns effect on still image
+export function photoMotion(imagePath: string, style: string, duration: number, output: string): string {
+  const effects: Record<string, string> = {
+    'ken-burns': `zoompan=z='zoom+0.0008':d=${duration * 30}:s=1920x1080:fps=30`,
+    'zoom': `zoompan=z='1.0+0.2*t/${duration}':d=${duration * 30}:s=1920x1080:fps=30`,
+    'pan': `zoompan=z='1.2':x='iw*t/${duration}':d=${duration * 30}:s=1920x1080:fps=30`,
+  };
+  return `ffmpeg -loop 1 -i "${imagePath}" -vf "${effects[style] || effects['ken-burns']}" -t ${duration} -pix_fmt yuv420p -c:v libx264 -y "${output}"`;
+}
+
+// Add logo watermark
+export function addLogo(input: string, logoFile: string, position: string, opacity: number, output: string): string {
+  const positions: Record<string, string> = {
+    'bottom-right': 'W-w-20:H-h-20',
+    'bottom-left': '20:H-h-20',
+    'top-right': 'W-w-20:20',
+    'top-left': '20:20',
+  };
+  const pos = positions[position] || positions['bottom-right'];
+  return `ffmpeg -i "${input}" -i "${logoFile}" -filter_complex "[1:v]scale=120:-1,format=rgba,colorchannelmixer=aa=${opacity}[logo];[0:v][logo]overlay=${pos}" -c:a copy -y "${output}"`;
+}
+
+// === SUBTITLES ===
+
+// Burn Hebrew RTL subtitles (simple — FFmpeg drawtext)
+export function addSubtitlesSimple(input: string, srtFile: string, output: string, fontFile?: string): string {
+  const font = fontFile || 'Heebo';
+  return `ffmpeg -i "${input}" -vf "subtitles='${srtFile}':force_style='FontName=${font},FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,Alignment=2,MarginV=50'" -c:a copy -y "${output}"`;
+}
+
+// Add lower third (name + title text overlay)
+export function addLowerThird(input: string, name: string, title: string, startTime: number, duration: number, output: string, fontFile?: string): string {
+  const font = fontFile || 'Heebo';
+  const endTime = startTime + duration;
+  return `ffmpeg -i "${input}" -vf "drawtext=text='${name}':fontfile='${font}':fontsize=22:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=8:x=w-text_w-30:y=h-100:enable='between(t,${startTime},${endTime})',drawtext=text='${title}':fontfile='${font}':fontsize=16:fontcolor=gray:box=1:boxcolor=black@0.6:boxborderw=8:x=w-text_w-30:y=h-70:enable='between(t,${startTime},${endTime})'" -c:a copy -y "${output}"`;
+}
+
+// Add CTA text overlay
+export function addCTA(input: string, ctaText: string, startTime: number, endTime: number, output: string): string {
+  return `ffmpeg -i "${input}" -vf "drawtext=text='${ctaText}':fontsize=32:fontcolor=white:box=1:boxcolor=#7c3aed@0.85:boxborderw=15:x=(w-text_w)/2:y=h-130:enable='between(t,${startTime},${endTime})'" -c:a copy -y "${output}"`;
+}
+
+// === CAMERA EFFECTS ===
+
+// Camera shake effect
+export function cameraShake(input: string, intensity: string, output: string): string {
+  const shakeValues: Record<string, number> = { small: 5, medium: 10, large: 20 };
+  const shake = shakeValues[intensity] || 5;
+  return `ffmpeg -i "${input}" -vf "crop=iw-${shake * 2}:ih-${shake * 2}:${shake}+random(0)*${shake}:${shake}+random(1)*${shake},scale=iw+${shake * 2}:ih+${shake * 2}" -c:a copy -y "${output}"`;
+}
+
+// Film grain effect
+export function filmGrain(input: string, amount: number, output: string): string {
+  return `ffmpeg -i "${input}" -vf "noise=alls=${amount}:allf=t" -c:a copy -y "${output}"`;
+}
+
+// CRT/retro effect
+export function crtEffect(input: string, output: string): string {
+  return `ffmpeg -i "${input}" -vf "rgbashift=rh=-2:bh=2,noise=alls=12:allf=t,curves=vintage" -c:a copy -y "${output}"`;
+}
+
+// Glitch effect
+export function glitchEffect(input: string, output: string): string {
+  return `ffmpeg -i "${input}" -vf "rgbashift=rh=-5:rv=3:bh=5:bv=-3,noise=alls=20:allf=t" -c:a copy -y "${output}"`;
+}
+
+// === EXPORT ===
+
+// Export to different aspect ratios
+export function exportFormat(input: string, format: string, output: string, faceX?: number): string {
+  switch (format) {
+    case '9:16': {
+      const cropX = faceX ? `${faceX}-(ih*9/16)/2` : '(iw-ih*9/16)/2';
+      return `ffmpeg -i "${input}" -vf "crop=ih*9/16:ih:${cropX}:0,scale=1080:1920" -c:a copy -y "${output}"`;
+    }
+    case '1:1': {
+      return `ffmpeg -i "${input}" -vf "crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2" -c:a copy -y "${output}"`;
+    }
+    case '16:9':
+    default:
+      return `ffmpeg -i "${input}" -vf "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1" -c:a copy -y "${output}"`;
+  }
+}
+
+// High bitrate 4K export
+export function highBitrateExport(input: string, output: string): string {
+  return `ffmpeg -i "${input}" -c:v libx264 -b:v 20M -maxrate 25M -bufsize 40M -preset slow -c:a aac -b:a 320k -y "${output}"`;
+}
+
 function crossCorrelate(a: number[], b: number[]): number {
   if (a.length === 0 || b.length === 0) return 0;
 
