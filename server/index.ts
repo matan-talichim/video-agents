@@ -8,6 +8,7 @@ import jobsRouter from './routes/jobs.js';
 import modelsRouter from './routes/models.js';
 import effectsRouter from './routes/effects.js';
 import brandKitRouter from './routes/brandKit.js';
+import chatEditorRouter from './routes/chatEditor.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,6 +42,7 @@ app.use('/api/jobs', jobsRouter);
 app.use('/api/models', modelsRouter);
 app.use('/api', effectsRouter);
 app.use('/api/brand-kit', brandKitRouter);
+app.use('/api/jobs', chatEditorRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

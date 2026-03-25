@@ -36,6 +36,7 @@ export interface Job {
   costEstimate?: { total: number; breakdown: Record<string, number> };
   warnings?: string[];
   cleanVideoPath?: string;
+  musicSyncData?: MusicSyncData;
 }
 
 export interface FileInfo {
@@ -194,6 +195,46 @@ export interface GenerateResult {
   thumbnailPath: string | null;
   stockClips: StockClip[];
   additionalAssets: Record<string, any>;
+}
+
+// --- Phase 6: Advanced Edit Types ---
+
+export interface BeatResult {
+  bpm: number;
+  beats: number[];
+  kicks: number[];
+  drums: number[];
+  duration: number;
+}
+
+export interface MusicSyncData {
+  bpm: number;
+  beats: number[];
+  snappedZooms: any[];
+  snappedBroll: number[];
+}
+
+export interface KineticTextElement {
+  text: string;
+  startTime: number;
+  endTime: number;
+  animation: 'explode' | 'bounce' | 'typewriter' | 'wave' | 'shake' | 'fade-in' | 'slide-up';
+  emphasis: 'normal' | 'strong' | 'highlight';
+  fontSize: 'small' | 'medium' | 'large';
+}
+
+export interface EditStylePreset {
+  name: string;
+  nameHebrew: string;
+  pacing: 'fast' | 'normal' | 'calm';
+  colorGradingStyle: string;
+  zoomStyle: string;
+  musicMood: string;
+  transitions: string;
+  beatSync: boolean;
+  musicSync: boolean;
+  vfxTypes: string[];
+  subtitleStyle: string;
 }
 
 // --- Phase 5: Edit Types ---

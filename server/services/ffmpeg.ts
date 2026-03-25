@@ -400,6 +400,23 @@ export function glitchEffect(input: string, output: string): string {
   return `ffmpeg -i "${input}" -vf "rgbashift=rh=-5:rv=3:bh=5:bv=-3,noise=alls=20:allf=t" -c:a copy -y "${output}"`;
 }
 
+// === TRANSITIONS ===
+
+// Crossfade transition between two clips
+export function crossfadeTransition(clip1: string, clip2: string, fadeDuration: number, output: string): string {
+  return `ffmpeg -i "${clip1}" -i "${clip2}" -filter_complex "[0:v][1:v]xfade=transition=fade:duration=${fadeDuration}:offset=auto[v];[0:a][1:a]acrossfade=d=${fadeDuration}[a]" -map "[v]" -map "[a]" -y "${output}"`;
+}
+
+// Zoom pulse effect (zoom in and back on beat)
+export function zoomPulse(input: string, timestamp: number, duration: number, output: string): string {
+  return `ffmpeg -i "${input}" -vf "zoompan=z='if(between(t,${timestamp},${timestamp + duration}),1+0.15*sin(2*PI*(t-${timestamp})/${duration}),1)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=30" -c:a copy -y "${output}"`;
+}
+
+// Flash transition (white flash between cuts)
+export function flashTransition(input: string, timestamp: number, output: string): string {
+  return `ffmpeg -i "${input}" -vf "geq=lum='if(between(t,${timestamp},${timestamp + 0.1}),255,lum(X,Y))':cb='if(between(t,${timestamp},${timestamp + 0.1}),128,cb(X,Y))':cr='if(between(t,${timestamp},${timestamp + 0.1}),128,cr(X,Y))'" -c:a copy -y "${output}"`;
+}
+
 // === EXPORT ===
 
 // Export to different aspect ratios

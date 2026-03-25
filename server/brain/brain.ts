@@ -2,6 +2,7 @@ import type { ExecutionPlan, FileInfo, UserOptions, BRollModel, BrandKit } from 
 import { askClaude } from '../services/claude.js';
 import { BRAIN_SYSTEM_PROMPT } from './systemPrompt.js';
 import { validatePlan } from './planValidator.js';
+import { applyEditStyle, EDIT_STYLES } from '../services/editStyles.js';
 
 interface BrainContext {
   editStyle?: string;
@@ -51,6 +52,12 @@ export async function generatePlan(
 
     // Merge context overrides that the user selected in UI
     applyContextOverrides(plan, context, files);
+
+    // If user selected an edit style, apply its preset overrides
+    if (context?.editStyle && EDIT_STYLES[context.editStyle]) {
+      const styledPlan = applyEditStyle(plan, context.editStyle);
+      Object.assign(plan, styledPlan);
+    }
 
     const enabledCount = countEnabledFeatures(plan);
     console.log(`[Brain] Plan generated — ${enabledCount} features enabled out of 95`);
