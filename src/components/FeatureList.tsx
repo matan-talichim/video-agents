@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import type { CostItem } from '../types';
 
 interface Props {
   enabledFeatures: string[];
   totalFeatures?: number;
   costEstimate?: { total: number; breakdown: Record<string, number> };
+  costBreakdown?: CostItem[];
 }
 
 const ALL_FEATURES = [
@@ -31,9 +33,14 @@ const ALL_FEATURES = [
   'DNA ויזואלי', 'בחירת מודל אוטומטית', 'הפרדת סטמים', 'שיפור תאורה',
 ];
 
-export default function FeatureList({ enabledFeatures, totalFeatures = 95, costEstimate }: Props) {
+export default function FeatureList({ enabledFeatures, totalFeatures = 95, costEstimate, costBreakdown }: Props) {
   const [open, setOpen] = useState(false);
   const [showCost, setShowCost] = useState(false);
+
+  const totalCost = costEstimate?.total ?? 0;
+  const hasCostBreakdown = costBreakdown && costBreakdown.length > 0;
+  const paidItems = costBreakdown?.filter(i => !i.free) ?? [];
+  const freeItems = costBreakdown?.filter(i => i.free) ?? [];
 
   return (
     <div className="space-y-3">
@@ -45,33 +52,72 @@ export default function FeatureList({ enabledFeatures, totalFeatures = 95, costE
         הפיצ׳רים שנבחרו ({enabledFeatures.length} מתוך {totalFeatures})
       </button>
 
-      {/* Estimated Cost */}
-      {costEstimate && (
+      {/* Cost Breakdown — Enhanced */}
+      {(costEstimate || hasCostBreakdown) && (
         <div className="bg-dark-card border border-dark-border-light rounded-xl p-3">
           <button
             onClick={() => setShowCost(!showCost)}
             className="flex items-center justify-between w-full text-sm"
           >
             <span className="text-gray-400">עלות משוערת</span>
-            <span className={`font-mono font-bold ${costEstimate.total === 0 ? 'text-green-400' : costEstimate.total < 0.5 ? 'text-yellow-400' : 'text-orange-400'}`}>
-              ${costEstimate.total.toFixed(2)}
+            <span className={`font-mono font-bold ${totalCost === 0 ? 'text-green-400' : totalCost < 0.5 ? 'text-yellow-400' : 'text-orange-400'}`}>
+              ${totalCost.toFixed(2)}
             </span>
           </button>
           {showCost && (
             <div className="mt-2 pt-2 border-t border-dark-border-light space-y-1">
-              {Object.entries(costEstimate.breakdown)
-                .filter(([, cost]) => cost > 0)
-                .sort(([, a], [, b]) => b - a)
-                .map(([name, cost]) => (
-                  <div key={name} className="flex justify-between text-xs">
-                    <span className="text-gray-500">{name}</span>
-                    <span className="text-gray-400 font-mono">${cost.toFixed(2)}</span>
+              {/* Use detailed breakdown if available */}
+              {hasCostBreakdown ? (
+                <>
+                  {/* Paid services */}
+                  {paidItems
+                    .sort((a, b) => b.cost - a.cost)
+                    .map((item, i) => (
+                      <div key={i} className="flex justify-between text-xs">
+                        <span className="text-gray-400">{item.service}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-gray-600">{item.unit}</span>
+                          <span className="text-amber-400 font-mono w-14 text-left">${item.cost.toFixed(3)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  {/* Free services */}
+                  {freeItems.length > 0 && (
+                    <div className="mt-2 pt-1 border-t border-dark-border-light/50">
+                      {freeItems.map((item, i) => (
+                        <div key={i} className="flex justify-between text-xs">
+                          <span className="text-green-500/70">{item.service}</span>
+                          <span className="text-green-500/70 text-[10px]">{item.unit}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Human editor comparison */}
+                  <div className="mt-2 pt-2 border-t border-dark-border-light text-xs text-center">
+                    <span className="text-gray-600">עלות עורך אנושי: </span>
+                    <span className="text-gray-500 line-through">₪500+</span>
+                    <span className="text-gray-600"> | עלות AI: </span>
+                    <span className="text-amber-400 font-mono font-bold">${totalCost.toFixed(2)}</span>
                   </div>
-                ))}
-              {Object.entries(costEstimate.breakdown).some(([, cost]) => cost === 0) && (
-                <div className="text-xs text-green-500/70 mt-1">
-                  + שירותים חינמיים (Pexels, FFmpeg, Deepgram)
-                </div>
+                </>
+              ) : (
+                /* Legacy breakdown format */
+                <>
+                  {Object.entries(costEstimate!.breakdown)
+                    .filter(([, cost]) => cost > 0)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([name, cost]) => (
+                      <div key={name} className="flex justify-between text-xs">
+                        <span className="text-gray-500">{name}</span>
+                        <span className="text-gray-400 font-mono">${cost.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  {Object.entries(costEstimate!.breakdown).some(([, cost]) => cost === 0) && (
+                    <div className="text-xs text-green-500/70 mt-1">
+                      + שירותים חינמיים (Pexels, FFmpeg, Deepgram)
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

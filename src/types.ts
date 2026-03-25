@@ -41,8 +41,50 @@ export interface FileInfo {
 export interface BrandKit {
   primaryColor: string;
   secondaryColor: string;
+  accentColor?: string;
+  backgroundColor?: string;
   font: string;
+  typography?: 'modern' | 'classic' | 'bold' | 'elegant' | 'playful' | 'minimal';
+  mood?: 'professional' | 'energetic' | 'calm' | 'luxury' | 'friendly' | 'corporate' | 'creative';
+  description?: string;
   enabled: boolean;
+}
+
+export interface ExtractedBrandKit {
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  backgroundColor: string;
+  typography: 'modern' | 'classic' | 'bold' | 'elegant' | 'playful' | 'minimal';
+  mood: 'professional' | 'energetic' | 'calm' | 'luxury' | 'friendly' | 'corporate' | 'creative';
+  suggestedFont: string;
+  description: string;
+  confidence: number;
+}
+
+export interface CostItem {
+  service: string;
+  cost: number;
+  unit: string;
+  free: boolean;
+}
+
+export interface JobCostBreakdown {
+  items: CostItem[];
+  totalCost: number;
+  totalCostFormatted: string;
+  freeServicesCount: number;
+  paidServicesCount: number;
+}
+
+export interface PresetAutoConfig {
+  duration: number | 'auto';
+  editStyle?: EditStyle;
+  formats?: string[];
+  storyPages?: number;
+  targetLanguage?: string;
+  options: Partial<UserOptions>;
+  estimatedCost: string;
 }
 
 export interface UserOptions {

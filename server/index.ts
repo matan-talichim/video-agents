@@ -35,7 +35,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/output', express.static(path.join(rootDir, 'output')));
 
 // Create required directories on startup
-const dirs = ['uploads', 'output', 'temp', 'data/brand-kits'];
+const dirs = ['uploads', 'uploads/logos', 'output', 'temp', 'data/brand-kits'];
 for (const dir of dirs) {
   const dirPath = path.join(rootDir, dir);
   if (!fs.existsSync(dirPath)) {

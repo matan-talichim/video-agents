@@ -228,6 +228,21 @@ export default function PreviewPage() {
           viralityEstimate={preview.viralityEstimate}
         />
 
+        {/* Cost comparison */}
+        <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
+          <div className="flex items-center justify-between text-sm">
+            <div className="text-center flex-1">
+              <div className="text-gray-500 text-xs mb-1">עורך אנושי</div>
+              <div className="text-gray-400 line-through text-lg font-mono">₪500+</div>
+            </div>
+            <div className="text-gray-700 text-lg">vs</div>
+            <div className="text-center flex-1">
+              <div className="text-gray-500 text-xs mb-1">עלות AI</div>
+              <div className="text-amber-400 text-lg font-bold font-mono">{preview.estimatedCost}</div>
+            </div>
+          </div>
+        </div>
+
         {/* Enabled features */}
         {enabledFeatures.length > 0 && (
           <div>

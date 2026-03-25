@@ -9,6 +9,7 @@ import type {
   CaptionTemplate,
   UserOptions,
   BrandKit,
+  PresetAutoConfig,
 } from '../types';
 import FileUpload from '../components/FileUpload';
 import SourceDocumentUpload from '../components/SourceDocumentUpload';
@@ -90,9 +91,22 @@ export default function EditorPage() {
     });
   }, []);
 
-  const handlePresetChange = useCallback((p: PresetType, text: string) => {
+  const handlePresetChange = useCallback((p: PresetType, text: string, autoConfig?: PresetAutoConfig) => {
     setPreset(p);
     if (text) setPrompt(text);
+
+    // Apply auto-config from preset
+    if (autoConfig) {
+      if (autoConfig.editStyle) setEditStyle(autoConfig.editStyle);
+      if (typeof autoConfig.duration === 'number') setTargetDuration(autoConfig.duration);
+      if (autoConfig.targetLanguage) setTargetLanguage(autoConfig.targetLanguage);
+      if (autoConfig.storyPages) setStoryPages(autoConfig.storyPages);
+
+      // Apply options overrides
+      if (autoConfig.options) {
+        setOptions((prev) => ({ ...prev, ...autoConfig.options }));
+      }
+    }
   }, []);
 
   const isValid = isUpload ? files.length > 0 : prompt.trim().length > 0;
