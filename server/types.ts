@@ -48,6 +48,7 @@ export interface Job {
   emotionalArc?: ContentAnalysis['emotionalArc'];
   cutTransitions?: ContentAnalysis['cutTransitions'];
   presenterDetection?: PresenterDetection;
+  videoIntelligence?: VideoIntelligence;
 }
 
 export interface FileInfo {
@@ -658,4 +659,108 @@ export interface SpeakerInfo {
   segmentCount: number;
   isOnCamera: boolean;
   description: string;
+}
+
+// --- Video Intelligence Types ---
+
+export interface VideoIntelligence {
+  concept: {
+    title: string;
+    summary: string;
+    category: 'talking-head' | 'interview' | 'product-demo' | 'tour' | 'testimonial' |
+              'presentation' | 'event' | 'broll-only' | 'screen-recording' | 'mixed';
+    industry: string;
+    targetAudience: string;
+    tone: string;
+  };
+  keyPoints: Array<{
+    point: string;
+    timestamp: number;
+    importance: number;
+    type: 'main-message' | 'supporting-fact' | 'statistic' | 'quote' | 'benefit' | 'feature' | 'cta' | 'story';
+    suggestedVisual: string;
+  }>;
+  storyArc: {
+    hasNaturalArc: boolean;
+    suggestedStructure: Array<{
+      section: 'hook' | 'problem' | 'solution' | 'proof' | 'benefits' | 'features' |
+               'testimonial' | 'cta' | 'intro' | 'main' | 'conclusion';
+      start: number;
+      end: number;
+      title: string;
+      keyMessage: string;
+    }>;
+    missingElements: string[];
+    suggestedAdditions: Array<{
+      element: string;
+      type: 'text-overlay' | 'broll' | 'voiceover' | 'music-change';
+      suggestion: string;
+    }>;
+  };
+  footageAssessment: {
+    overallQuality: number;
+    videoQuality: {
+      resolution: 'low' | 'medium' | 'high';
+      lighting: 'poor' | 'acceptable' | 'good' | 'professional';
+      stability: 'shaky' | 'mostly-stable' | 'stable' | 'tripod';
+      framing: 'poor' | 'acceptable' | 'good';
+      background: 'messy' | 'acceptable' | 'clean' | 'professional';
+    };
+    audioQuality: {
+      clarity: 'poor' | 'acceptable' | 'good' | 'professional';
+      backgroundNoise: 'heavy' | 'moderate' | 'light' | 'none';
+      volume: 'too-quiet' | 'acceptable' | 'good' | 'too-loud';
+      echo: boolean;
+    };
+    issues: string[];
+    autoFixes: string[];
+  };
+  contentDensity: {
+    totalFootageDuration: number;
+    usableContentDuration: number;
+    wastePercentage: number;
+    contentPerMinute: number;
+    recommendation: string;
+  };
+  typeSpecific: {
+    speakerEnergy: 'low' | 'medium' | 'high';
+    speakerConfidence: 'nervous' | 'moderate' | 'confident';
+    eyeContactFrequency: 'rarely' | 'sometimes' | 'mostly' | 'always';
+    questionQuality?: 'weak' | 'average' | 'strong';
+    answerQuality?: 'weak' | 'average' | 'strong';
+    productVisibility?: 'poor' | 'average' | 'clear';
+    demoClarity?: 'confusing' | 'average' | 'clear';
+    coverageCompleteness?: 'partial' | 'good' | 'comprehensive';
+    movementSmooth?: boolean;
+    highlightMoments?: Array<{ start: number; end: number; description: string }>;
+    hasAudioNarration?: boolean;
+    screenReadability?: 'poor' | 'average' | 'clear';
+    suggestedNarration?: string;
+    suggestedMusicMood?: string;
+  };
+  textOverlayPlan: Array<{
+    text: string;
+    timestamp: number;
+    duration: number;
+    type: 'title' | 'subtitle' | 'statistic' | 'quote' | 'bullet-point' | 'cta' | 'label';
+    style: 'large-center' | 'lower-third' | 'side-text' | 'full-screen';
+    animation: 'fade' | 'bounce' | 'typewriter' | 'slide';
+  }>;
+  smartBRollPlan: Array<{
+    timestamp: number;
+    duration: number;
+    reason: string;
+    prompt: string;
+    priority: 'must-have' | 'nice-to-have' | 'optional';
+    alternative: string;
+  }>;
+  edgeCases: {
+    isBRollOnly: boolean;
+    isVeryShort: boolean;
+    isBilingual: boolean;
+    isRepetitive: boolean;
+    isVeryLong: boolean;
+    isMultipleClips: boolean;
+    warnings: string[];
+  };
 }

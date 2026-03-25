@@ -8,6 +8,7 @@ import BRollPreview from '../components/BRollPreview';
 import ScriptPreviewPanel from '../components/ScriptPreviewPanel';
 import PreviewChat from '../components/PreviewChat';
 import ApproveButton from '../components/ApproveButton';
+import ContentIntelligencePanel from '../components/ContentIntelligencePanel';
 import { calculateLiveCost } from '../utils/costCalculator';
 
 export default function PreviewPage() {
@@ -199,6 +200,7 @@ export default function PreviewPage() {
   // Content analysis data
   const contentAnalysis = (job as any).contentAnalysis;
   const presenterDetection = (job as any).presenterDetection;
+  const videoIntelligence = (job as any).videoIntelligence;
 
   // Compute cost breakdown from job selections
   const previewCost = useMemo(() => {
@@ -234,6 +236,11 @@ export default function PreviewPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 mt-6 space-y-8">
+        {/* Video Intelligence — FIRST section */}
+        {videoIntelligence && (
+          <ContentIntelligencePanel intelligence={videoIntelligence} />
+        )}
+
         {/* Storyboard */}
         <StoryboardGrid scenes={preview.storyboard} jobId={job.id} />
 

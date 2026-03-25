@@ -18,6 +18,7 @@ import { generateMultiPageStory } from '../templates/multiPageStories.js';
 import { applyBrandKitToPlan, getBrandPromptPrefix } from '../services/brandKit.js';
 import { analyzeContent } from '../services/contentAnalyzer.js';
 import { detectPresenter, filterTranscriptToPresenter } from '../services/presenterDetector.js';
+import { analyzeVideoIntelligence, applyIntelligenceToPlan } from '../services/videoIntelligence.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -442,6 +443,41 @@ export async function runPipeline(job: Job): Promise<void> {
 
     // Use presenter-filtered transcript for all subsequent analysis (fallback to original)
     const analysisTranscript = presenterTranscript || transcript;
+
+    // --- VIDEO INTELLIGENCE (Deep content understanding) ---
+    if (analysisTranscript && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מנתח את התוכן לעומק...' });
+        console.log(`[Pipeline] Running video intelligence for job ${job.id}`);
+
+        const targetDur = job.plan.export.targetDuration === 'auto'
+          ? undefined
+          : job.plan.export.targetDuration as number;
+
+        const videoIntelligence = await analyzeVideoIntelligence(
+          job.files[0].path,
+          transcript!,
+          presenterTranscript,
+          targetDur
+        );
+
+        job.videoIntelligence = videoIntelligence;
+        saveJSON(`temp/${job.id}/video_intelligence.json`, videoIntelligence);
+        updateJob(job.id, { videoIntelligence } as any);
+
+        // Apply intelligence findings to the plan
+        applyIntelligenceToPlan(job.plan, videoIntelligence);
+        updateJob(job.id, { plan: job.plan });
+
+        console.log(`[Pipeline] Video intelligence: category=${videoIntelligence.concept.category}, ${videoIntelligence.keyPoints.length} key points, ${videoIntelligence.smartBRollPlan.length} B-Roll planned`);
+        if (videoIntelligence.edgeCases.warnings.length > 0) {
+          console.log(`[Pipeline] Edge cases: ${videoIntelligence.edgeCases.warnings.join('; ')}`);
+        }
+      } catch (error: any) {
+        console.error('Video intelligence failed:', error.message);
+        allWarnings.push('Video intelligence failed: ' + error.message);
+      }
+    }
 
     // --- CONTENT ANALYSIS (Smart Brain Editor) ---
     if (analysisTranscript && job.files.length > 0) {
