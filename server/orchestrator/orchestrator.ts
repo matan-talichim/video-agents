@@ -1,9 +1,10 @@
-import type { Job, Segment, ViralityScore, TranscriptResult } from '../types.js';
+import type { Job, Segment, ViralityScore, TranscriptResult, GenerateResult } from '../types.js';
 import { updateJob } from '../store/jobStore.js';
 import { addVersion } from '../store/versionStore.js';
 import { getEnabledSteps, calculateProgress } from './progressTracker.js';
 import { runIngestAgent } from '../agents/ingest.js';
 import { runCleanAgent } from '../agents/clean.js';
+import { runGenerateAgent, hasAnyGenerateFeature } from '../agents/generate.js';
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -148,9 +149,24 @@ export async function runPipeline(job: Job): Promise<void> {
       });
     }
 
-    // --- REMAINING STAGES (still simulated for now) ---
+    // --- REAL GENERATE AGENT ---
+    let generateResult: GenerateResult | null = null;
+
+    if (hasAnyGenerateFeature(job.plan)) {
+      console.log(`[Pipeline] Running real generate agent for job ${job.id}`);
+      generateResult = await runGenerateAgent(job, job.plan, transcript);
+
+      // Count completed generate steps
+      const generateStepCount = steps.filter(s => s.stage === 'generate' || s.stage === 'analyze').length;
+      completedSteps += generateStepCount;
+      updateJob(job.id, {
+        progress: calculateProgress(completedSteps, totalSteps),
+      });
+    }
+
+    // --- REMAINING STAGES (edit, export — still simulated) ---
     const remainingSteps = steps.filter(
-      s => s.stage !== 'ingest' && s.stage !== 'clean'
+      s => s.stage !== 'ingest' && s.stage !== 'clean' && s.stage !== 'generate' && s.stage !== 'analyze'
     );
 
     for (let i = 0; i < remainingSteps.length; i++) {
@@ -165,11 +181,9 @@ export async function runPipeline(job: Job): Promise<void> {
 
       // Simulate processing time — varies by stage
       const delayMs =
-        step.stage === 'generate'
-          ? randomBetween(1000, 2000)
-          : step.stage === 'edit'
-            ? randomBetween(800, 1500)
-            : randomBetween(500, 1000);
+        step.stage === 'edit'
+          ? randomBetween(800, 1500)
+          : randomBetween(500, 1000);
       await delay(delayMs);
     }
 

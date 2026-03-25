@@ -162,6 +162,40 @@ export interface CleanResult {
   warnings: string[];
 }
 
+// --- Phase 4: Generate Types ---
+
+export interface BRollClip {
+  path: string;
+  timestamp: number;
+  duration: number;
+  prompt: string;
+  isStock?: boolean;
+}
+
+export interface SFXMomentWithFile {
+  timestamp: number;
+  sfx_keyword: string;
+  reason: string;
+  volume: number;
+  filePath: string;
+}
+
+export interface StockClip {
+  path: string;
+  keyword: string;
+  duration: number;
+}
+
+export interface GenerateResult {
+  brollClips: BRollClip[];
+  voiceoverPath: string | null;
+  musicPath: string | null;
+  sfxMoments: SFXMomentWithFile[];
+  thumbnailPath: string | null;
+  stockClips: StockClip[];
+  additionalAssets: Record<string, any>;
+}
+
 export interface ExecutionPlan {
   mode: 'raw' | 'prompt-only';
   ingest: {
