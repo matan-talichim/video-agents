@@ -151,7 +151,9 @@ export function calculateJobCost(plan: ExecutionPlan): JobCostBreakdown {
 
   // B-Roll (KIE.ai)
   if (plan.generate?.broll && !plan.generate?.stockFootageSearch) {
-    const clipCount = 3;
+    const duration = typeof plan.export?.targetDuration === 'number' ? plan.export.targetDuration : 60;
+    const clipCount = (plan.generate as Record<string, unknown>).estimatedBRollClips as number
+      || estimateBRollClips(duration);
     const model = plan.generate.brollModel || 'kling-v2.5-turbo';
     const modelPricing = KIE_PRICING[model] || KIE_PRICING['kling-v2.5-turbo'];
     const perClip = modelPricing?.per8Seconds || modelPricing?.per5Seconds || modelPricing?.per10Seconds || 0.20;
@@ -292,6 +294,15 @@ export function calculateJobCost(plan: ExecutionPlan): JobCostBreakdown {
     freeServicesCount: breakdown.filter(b => b.free).length,
     paidServicesCount: breakdown.filter(b => !b.free).length,
   };
+}
+
+/** Calculate number of B-Roll clips based on video duration */
+export function estimateBRollClips(durationSeconds: number): number {
+  if (durationSeconds <= 15) return 2;
+  if (durationSeconds <= 30) return 3;
+  if (durationSeconds <= 60) return 5;
+  if (durationSeconds <= 90) return 7;
+  return Math.ceil(durationSeconds / 12); // roughly 1 clip per 12 seconds
 }
 
 function estimateClaudeCalls(plan: ExecutionPlan): number {

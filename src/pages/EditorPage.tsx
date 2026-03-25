@@ -51,7 +51,7 @@ export default function EditorPage() {
   const [targetLanguage, setTargetLanguage] = useState('en');
   const [storyPages, setStoryPages] = useState(3);
   const [targetDuration, setTargetDuration] = useState<number | undefined>(undefined);
-  const [options, setOptions] = useState<UserOptions>({
+  const defaultOptions: UserOptions = {
     removeSilences: true,
     addBRoll: false,
     hebrewSubtitles: true,
@@ -69,7 +69,19 @@ export default function EditorPage() {
     thumbnailGeneration: false,
     viralityScore: false,
     aiTwin: false,
-  });
+    aiBackground: false,
+    backgroundBlur: false,
+    cinematic: false,
+    eyeContact: false,
+    calmProfessional: false,
+    trendy: false,
+    lowerThirds: false,
+    aiSoundEffects: false,
+    kineticTypography: false,
+    musicSync: false,
+    trendingSounds: false,
+  };
+  const [options, setOptions] = useState<UserOptions>(defaultOptions);
   const [brandKit, setBrandKit] = useState<BrandKit>({
     primaryColor: '#7c3aed',
     secondaryColor: '#3b82f6',
@@ -104,9 +116,9 @@ export default function EditorPage() {
       if (autoConfig.targetLanguage) setTargetLanguage(autoConfig.targetLanguage);
       if (autoConfig.storyPages) setStoryPages(autoConfig.storyPages);
 
-      // Apply options overrides
+      // Replace options entirely with preset defaults + overrides (clean config per preset)
       if (autoConfig.options) {
-        setOptions((prev) => ({ ...prev, ...autoConfig.options }));
+        setOptions({ ...defaultOptions, ...autoConfig.options });
       }
     }
   }, []);

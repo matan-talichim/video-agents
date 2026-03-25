@@ -176,6 +176,19 @@ Your job: analyze everything and return a JSON object matching the ExecutionPlan
 - "מספר" / "narrator" / "קריינות" → voiceoverStyle="narrator"
 - "מאמן" / "coach" / "מדריך" → voiceoverStyle="coach"
 
+### B-Roll model rule:
+- When a video model is selected by the user, ALWAYS enable B-Roll generation (broll=true, brollFromTranscript=true). The user chose a model specifically because they want AI-generated B-Roll.
+- If mode is "raw" and a brollModel is specified → always set broll=true and brollFromTranscript=true
+- If mode is "prompt-only" → always set broll=true (the whole point is AI generates everything)
+
+### B-Roll clip count rule:
+- When B-Roll is enabled, determine the number of B-Roll clips based on video duration:
+  - 15 second video → 2 B-Roll clips
+  - 30 second video → 3 B-Roll clips
+  - 60 second video → 4-5 B-Roll clips
+  - 90 second video → 6-7 B-Roll clips
+- Set plan.generate.estimatedBRollClips to this number.
+
 ### Always enabled (in raw mode, when files are present):
 - transcribe, removeSilences, removeFillerWords, selectBestTake, footageClassification
 

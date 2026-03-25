@@ -105,6 +105,17 @@ export interface UserOptions {
   thumbnailGeneration: boolean;
   viralityScore: boolean;
   aiTwin: boolean;
+  aiBackground: boolean;
+  backgroundBlur: boolean;
+  cinematic: boolean;
+  eyeContact: boolean;
+  calmProfessional: boolean;
+  trendy: boolean;
+  lowerThirds: boolean;
+  aiSoundEffects: boolean;
+  kineticTypography: boolean;
+  musicSync: boolean;
+  trendingSounds: boolean;
 }
 
 export interface Segment {
