@@ -18,9 +18,27 @@ export interface ExtractedBrandKit {
 export async function analyzeLogo(logoPath: string): Promise<ExtractedBrandKit> {
   console.log('[Brand Kit] Analyzing logo...');
 
-  const imageBase64 = fs.readFileSync(logoPath).toString('base64');
-  const mimeType = logoPath.match(/\.png$/i) ? 'image/png' :
-                    logoPath.match(/\.svg$/i) ? 'image/svg+xml' : 'image/jpeg';
+  const buffer = fs.readFileSync(logoPath);
+  const imageBase64 = buffer.toString('base64');
+
+  // Detect mime type from file extension
+  const ext = logoPath.split('.').pop()?.toLowerCase();
+  let mimeType: 'image/png' | 'image/jpeg' | 'image/svg+xml' | 'image/webp' | 'image/gif' =
+    ext === 'png' ? 'image/png' :
+    ext === 'svg' ? 'image/svg+xml' :
+    ext === 'webp' ? 'image/webp' :
+    ext === 'gif' ? 'image/gif' :
+    'image/jpeg';
+
+  // Fallback: detect from magic bytes when multer saves without extension
+  if (!ext || !['png', 'svg', 'webp', 'gif', 'jpg', 'jpeg'].includes(ext)) {
+    let detectedMime: typeof mimeType = 'image/jpeg';
+    if (buffer[0] === 0x89 && buffer[1] === 0x50) detectedMime = 'image/png';
+    else if (buffer[0] === 0xFF && buffer[1] === 0xD8) detectedMime = 'image/jpeg';
+    else if (buffer[0] === 0x52 && buffer[1] === 0x49) detectedMime = 'image/webp';
+    else if (buffer.toString('utf8', 0, 4) === '<svg') detectedMime = 'image/svg+xml';
+    mimeType = detectedMime;
+  }
 
   const response = await askClaudeVision(
     'You are a brand identity expert. You analyze logos and extract brand visual identity.',
