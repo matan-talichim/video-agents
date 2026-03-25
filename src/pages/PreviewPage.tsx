@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useJobStore from '../store/useJobStore';
 import StoryboardGrid from '../components/StoryboardGrid';
@@ -8,6 +8,7 @@ import BRollPreview from '../components/BRollPreview';
 import ScriptPreviewPanel from '../components/ScriptPreviewPanel';
 import PreviewChat from '../components/PreviewChat';
 import ApproveButton from '../components/ApproveButton';
+import { calculateLiveCost } from '../utils/costCalculator';
 
 export default function PreviewPage() {
   const { id } = useParams<{ id: string }>();
@@ -195,6 +196,23 @@ export default function PreviewPage() {
   // Features list
   const enabledFeatures = preview.enabledFeatures || [];
 
+  // Compute cost breakdown from job selections
+  const previewCost = useMemo(() => {
+    if (!job) return null;
+    return calculateLiveCost({
+      model: job.videoModel || 'kling2.5',
+      duration: preview.estimatedDuration || 60,
+      options: (job.options || {}) as unknown as Record<string, boolean>,
+      editStyle: job.editStyle,
+      voiceoverStyle: job.voiceoverStyle,
+      preset: job.preset,
+      aiTwin: job.options?.aiTwin || false,
+      aiDubbing: job.preset === 'dubbing',
+      voiceClone: false,
+      hasFiles: job.mode === 'upload' && (job.files?.length ?? 0) > 0,
+    });
+  }, [job, preview.estimatedDuration]);
+
   return (
     <div className="min-h-screen bg-dark-bg pb-20">
       {/* Header */}
@@ -224,8 +242,9 @@ export default function PreviewPage() {
           totalFeatures={preview.totalFeatures}
           estimatedDuration={preview.estimatedDuration}
           estimatedRenderTime={preview.estimatedRenderTime}
-          estimatedCost={preview.estimatedCost}
+          estimatedCost={previewCost ? `$${previewCost.total.toFixed(2)}` : preview.estimatedCost}
           viralityEstimate={preview.viralityEstimate}
+          costItems={previewCost?.items}
         />
 
         {/* Cost comparison */}
@@ -238,7 +257,7 @@ export default function PreviewPage() {
             <div className="text-gray-700 text-lg">vs</div>
             <div className="text-center flex-1">
               <div className="text-gray-500 text-xs mb-1">עלות AI</div>
-              <div className="text-amber-400 text-lg font-bold font-mono">{preview.estimatedCost}</div>
+              <div className="text-amber-400 text-lg font-bold font-mono">{previewCost ? `$${previewCost.total.toFixed(2)}` : preview.estimatedCost}</div>
             </div>
           </div>
         </div>
