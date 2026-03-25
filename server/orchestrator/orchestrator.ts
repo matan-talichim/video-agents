@@ -17,7 +17,13 @@ import { importDocument, summarizeForVideo } from '../services/documentImport.js
 import { generateMultiPageStory } from '../templates/multiPageStories.js';
 import { applyBrandKitToPlan, getBrandPromptPrefix } from '../services/brandKit.js';
 import { analyzeContent } from '../services/contentAnalyzer.js';
+import { detectPresenter, filterTranscriptToPresenter } from '../services/presenterDetector.js';
 import fs from 'fs';
+
+function saveJSON(filePath: string, data: any): void {
+  fs.mkdirSync(filePath.substring(0, filePath.lastIndexOf('/')), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -392,8 +398,53 @@ export async function runPipeline(job: Job): Promise<void> {
       });
     }
 
-    // --- CONTENT ANALYSIS (Smart Brain Editor) ---
+    // --- PRESENTER DETECTION ---
+    let presenterTranscript: TranscriptResult | null = null;
+
     if (transcript && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מזהה את הפרזנטור...' });
+        console.log(`[Pipeline] Running presenter detection for job ${job.id}`);
+
+        const presenterDetection = await detectPresenter(
+          job.files[0].path,
+          transcript
+        );
+
+        job.presenterDetection = presenterDetection;
+        saveJSON(`temp/${job.id}/presenter_detection.json`, presenterDetection);
+        updateJob(job.id, { presenterDetection } as any);
+
+        console.log(`[Pipeline] Presenter: speaker ${presenterDetection.presenterId} — ${presenterDetection.presenterDescription}`);
+        console.log(`[Pipeline] Non-presenter segments to exclude: ${presenterDetection.nonPresenterSegments.length}`);
+
+        // Build list of speaker IDs to keep (presenter + on-camera interviewers)
+        const keepIds = [presenterDetection.presenterId];
+        for (const speaker of presenterDetection.allSpeakers) {
+          if (speaker.role === 'interviewer' && speaker.isOnCamera) {
+            keepIds.push(speaker.speakerId);
+          }
+        }
+
+        // Filter transcript to presenter-only BEFORE content analysis
+        presenterTranscript = filterTranscriptToPresenter(
+          transcript,
+          presenterDetection.presenterId,
+          keepIds
+        );
+
+        console.log(`[Pipeline] Filtered transcript: ${presenterTranscript.words.length} words (from ${transcript.words.length} original)`);
+      } catch (error: any) {
+        console.error('Presenter detection failed:', error.message);
+        allWarnings.push('Presenter detection failed: ' + error.message);
+      }
+    }
+
+    // Use presenter-filtered transcript for all subsequent analysis (fallback to original)
+    const analysisTranscript = presenterTranscript || transcript;
+
+    // --- CONTENT ANALYSIS (Smart Brain Editor) ---
+    if (analysisTranscript && job.files.length > 0) {
       try {
         updateJob(job.id, { currentStep: 'מנתח תוכן ובוחר קטעים...' });
         console.log(`[Pipeline] Running content analysis for job ${job.id}`);
@@ -404,7 +455,7 @@ export async function runPipeline(job: Job): Promise<void> {
 
         const contentAnalysis = await analyzeContent(
           job.files[0].path,
-          transcript,
+          analysisTranscript,
           targetDur
         );
 
@@ -451,7 +502,7 @@ export async function runPipeline(job: Job): Promise<void> {
 
     if (hasCleanSteps) {
       console.log(`[Pipeline] Running real clean agent for job ${job.id}`);
-      const cleanResult = await runCleanAgent(job, job.plan, transcript);
+      const cleanResult = await runCleanAgent(job, job.plan, analysisTranscript || transcript);
       allWarnings.push(...cleanResult.warnings);
 
       // Update job with clean video path for next stages
@@ -486,7 +537,7 @@ export async function runPipeline(job: Job): Promise<void> {
 
     if (hasAnyGenerateFeature(job.plan)) {
       console.log(`[Pipeline] Running real generate agent for job ${job.id}`);
-      generateResult = await runGenerateAgent(job, job.plan, transcript);
+      generateResult = await runGenerateAgent(job, job.plan, analysisTranscript || transcript);
 
       // Count completed generate steps
       const generateStepCount = steps.filter(s => s.stage === 'generate' || s.stage === 'analyze').length;
@@ -528,7 +579,7 @@ export async function runPipeline(job: Job): Promise<void> {
         job.plan,
         cleanVideoPath,
         generateResult || emptyGenerateResult,
-        transcript
+        analysisTranscript || transcript
       );
 
       allWarnings.push(...editResult.warnings);
@@ -629,7 +680,7 @@ export async function runPipeline(job: Job): Promise<void> {
 
     // Store transcript and generate result on job for revision pipeline
     updateJob(job.id, {
-      transcript: transcript || undefined,
+      transcript: analysisTranscript || transcript || undefined,
       generateResult: generateResult || undefined,
     } as any);
 

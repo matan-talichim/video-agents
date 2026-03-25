@@ -198,6 +198,7 @@ export default function PreviewPage() {
 
   // Content analysis data
   const contentAnalysis = (job as any).contentAnalysis;
+  const presenterDetection = (job as any).presenterDetection;
 
   // Compute cost breakdown from job selections
   const previewCost = useMemo(() => {
@@ -320,6 +321,96 @@ export default function PreviewPage() {
                 <span>🎙️ קריינות: <strong>{preview.voiceoverStyle}</strong></span>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Presenter Detection Section */}
+        {presenterDetection && presenterDetection.allSpeakers?.length > 1 && (
+          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
+            <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+              <span className="text-lg">🎙️</span>
+              זיהוי דוברים
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full mr-auto ${
+                presenterDetection.confidence >= 0.8
+                  ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+              }`}>
+                ביטחון: {Math.round(presenterDetection.confidence * 100)}%
+              </span>
+            </h3>
+
+            {/* Presenter info */}
+            <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-3 mb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
+                  <span className="text-green-400 text-sm">🎬</span>
+                </div>
+                <div>
+                  <p className="text-xs text-white font-medium">
+                    זיהינו את הפרזנטור: {presenterDetection.presenterDescription}
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    דובר #{presenterDetection.presenterId}
+                    {' — '}
+                    {presenterDetection.presenterSegments?.length || 0} קטעי דיבור
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Other speakers */}
+            {presenterDetection.allSpeakers.filter((s: any) => s.speakerId !== presenterDetection.presenterId).length > 0 && (
+              <div>
+                <p className="text-[11px] text-gray-400 mb-2">
+                  נמצאו {presenterDetection.allSpeakers.length - 1} דוברים נוספים:
+                </p>
+                <div className="space-y-1.5">
+                  {presenterDetection.allSpeakers
+                    .filter((s: any) => s.speakerId !== presenterDetection.presenterId)
+                    .map((speaker: any, i: number) => {
+                      const roleLabels: Record<string, string> = {
+                        director: 'במאי (מתן הוראות)',
+                        assistant: 'עוזר (מקריא טקסט)',
+                        interviewer: 'מראיין',
+                        background: 'רקע',
+                        unknown: 'לא מזוהה',
+                        presenter: 'פרזנטור',
+                      };
+                      const isKept = speaker.role === 'interviewer' && speaker.isOnCamera;
+                      return (
+                        <div
+                          key={i}
+                          className={`flex items-center gap-2 text-[11px] rounded-lg px-3 py-2 ${
+                            isKept
+                              ? 'bg-blue-500/5 border border-blue-500/20'
+                              : 'bg-red-500/5 border border-red-500/20'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                            isKept ? 'bg-blue-400' : 'bg-red-400'
+                          }`} />
+                          <span className="text-gray-300">
+                            דובר #{speaker.speakerId}: {speaker.description}
+                          </span>
+                          <span className="text-gray-500">
+                            ({roleLabels[speaker.role] || speaker.role})
+                          </span>
+                          <span className={`mr-auto text-[10px] ${
+                            isKept ? 'text-blue-400' : 'text-red-400'
+                          }`}>
+                            {isKept ? 'נשמר (על המסך)' : 'יוסר'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* Override hint */}
+            <p className="text-[10px] text-gray-600 mt-3 text-center">
+              זה לא הפרזנטור? בקשו שינוי בצ׳אט למטה
+            </p>
           </div>
         )}
 

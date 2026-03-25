@@ -47,6 +47,7 @@ export interface Job {
   contentAnalysis?: ContentAnalysis;
   emotionalArc?: ContentAnalysis['emotionalArc'];
   cutTransitions?: ContentAnalysis['cutTransitions'];
+  presenterDetection?: PresenterDetection;
 }
 
 export interface FileInfo {
@@ -637,4 +638,24 @@ export interface ContentAnalysis {
     viralScore: number;
     reason: string;
   }>;
+}
+
+// --- Presenter Detection Types ---
+
+export interface PresenterDetection {
+  presenterId: number;
+  presenterDescription: string;
+  allSpeakers: SpeakerInfo[];
+  presenterSegments: Array<{ start: number; end: number; text: string }>;
+  nonPresenterSegments: Array<{ start: number; end: number; speakerId: number; role: string }>;
+  confidence: number;
+}
+
+export interface SpeakerInfo {
+  speakerId: number;
+  role: 'presenter' | 'director' | 'assistant' | 'interviewer' | 'background' | 'unknown';
+  totalSpeakingTime: number;
+  segmentCount: number;
+  isOnCamera: boolean;
+  description: string;
 }
