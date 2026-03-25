@@ -2,11 +2,13 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import type { FileInfo, UserOptions, BRollModel } from '../types.js';
+import type { FileInfo, UserOptions, BRollModel, RevisionRequest } from '../types.js';
 import { createJob, getJob, updateJob, listJobs } from '../store/jobStore.js';
-import { addVersion, getVersions, getVersion } from '../store/versionStore.js';
+import { addVersion, getVersions as getStoreVersions, getVersion as getStoreVersion } from '../store/versionStore.js';
 import { generatePlan, estimateCost } from '../brain/brain.js';
 import { runPipeline } from '../orchestrator/orchestrator.js';
+import { getVersions as getManagedVersions, getVersion as getManagedVersion, revertToVersion, getActiveVideoPath } from '../services/versionManager.js';
+import { processRevision } from '../services/revisionPipeline.js';
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -110,50 +112,52 @@ router.get('/:id', (req, res) => {
   res.json(job);
 });
 
-// GET /api/jobs/:id/video — serve output video
+// GET /api/jobs/:id/video — serve video with optional format parameter
 router.get('/:id/video', (req, res) => {
-  const job = getJob(req.params.id);
-  if (!job) {
-    return res.status(404).json({ error: 'עבודה לא נמצאה' });
-  }
+  const format = req.query.format as string;
+  const jobId = req.params.id;
 
-  // Support format query parameter (e.g., ?format=9x16)
-  const format = req.query.format as string | undefined;
   let videoPath: string;
 
   if (format && format !== '16x9') {
-    videoPath = path.resolve(`output/${job.id}/final_${format}.mp4`);
+    videoPath = `output/${jobId}/final_${format}.mp4`;
   } else {
-    videoPath = path.resolve(`output/${job.id}/final.mp4`);
+    videoPath = getActiveVideoPath(jobId);
   }
 
-  if (fs.existsSync(videoPath)) {
-    const stat = fs.statSync(videoPath);
-    res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Length', stat.size);
-    res.setHeader('Accept-Ranges', 'bytes');
+  if (!fs.existsSync(videoPath)) {
+    // Fallback to main video
+    videoPath = `output/${jobId}/final.mp4`;
+  }
 
-    // Support range requests for video seeking
-    const range = req.headers.range;
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
-      const chunkSize = end - start + 1;
+  if (!fs.existsSync(videoPath)) {
+    return res.status(404).json({ error: 'Video not found' });
+  }
 
-      res.status(206);
-      res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
-      res.setHeader('Content-Length', chunkSize);
-      fs.createReadStream(videoPath, { start, end }).pipe(res);
-    } else {
-      fs.createReadStream(videoPath).pipe(res);
-    }
-  } else {
-    res.status(404).json({
-      error: 'הסרטון עדיין לא זמין',
-      jobId: job.id,
-      status: job.status,
+  // Support range requests for video streaming
+  const stat = fs.statSync(videoPath);
+  const range = req.headers.range;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+    const chunkSize = end - start + 1;
+
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunkSize,
+      'Content-Type': 'video/mp4',
     });
+
+    fs.createReadStream(videoPath, { start, end }).pipe(res);
+  } else {
+    res.writeHead(200, {
+      'Content-Length': stat.size,
+      'Content-Type': 'video/mp4',
+    });
+    fs.createReadStream(videoPath).pipe(res);
   }
 });
 
@@ -173,107 +177,108 @@ router.get('/:id/thumbnail', (req, res) => {
   }
 });
 
-// GET /api/jobs/:id/versions — list versions
+// GET /api/jobs/:id/versions — list all versions
 router.get('/:id/versions', (req, res) => {
-  const job = getJob(req.params.id);
-  if (!job) {
-    return res.status(404).json({ error: 'עבודה לא נמצאה' });
-  }
-  const versions = getVersions(job.id);
-  res.json(versions);
-});
-
-// GET /api/jobs/:id/versions/:vid — serve version video
-router.get('/:id/versions/:vid', (req, res) => {
-  const job = getJob(req.params.id);
-  if (!job) {
-    return res.status(404).json({ error: 'עבודה לא נמצאה' });
-  }
-  const version = getVersion(job.id, req.params.vid);
-  if (!version) {
-    return res.status(404).json({ error: 'גרסה לא נמצאה' });
-  }
-  res.json(version);
-});
-
-// POST /api/jobs/:id/revisions — create a revision
-router.post('/:id/revisions', async (req, res) => {
-  try {
+  const managedVersions = getManagedVersions(req.params.id);
+  if (managedVersions.length > 0) {
+    res.json(managedVersions.map(v => ({
+      id: v.id,
+      versionNumber: v.versionNumber,
+      prompt: v.prompt,
+      type: v.type,
+      timeRange: v.timeRange,
+      duration: v.videoDuration,
+      date: v.date,
+      videoUrl: v.videoUrl,
+      isActive: v.isActive,
+      timeline: v.timeline,
+    })));
+  } else {
+    // Fall back to store versions for backward compatibility
     const job = getJob(req.params.id);
     if (!job) {
       return res.status(404).json({ error: 'עבודה לא נמצאה' });
     }
+    const versions = getStoreVersions(job.id);
+    res.json(versions);
+  }
+});
 
-    const { type, prompt, timeRange, newDuration } = req.body;
+// GET /api/jobs/:id/versions/:vnum/video — serve version video
+router.get('/:id/versions/:vnum/video', (req, res) => {
+  const version = getManagedVersion(req.params.id, parseInt(req.params.vnum));
+  if (!version || !version.filePath) {
+    return res.status(404).json({ error: 'Version not found' });
+  }
 
-    if (!type || !prompt) {
-      return res.status(400).json({ error: 'חסרים שדות חובה: type, prompt' });
-    }
+  if (!fs.existsSync(version.filePath)) {
+    return res.status(404).json({ error: 'Version file not found' });
+  }
 
-    // Update job to processing state
-    updateJob(job.id, {
+  res.sendFile(path.resolve(version.filePath));
+});
+
+// POST /api/jobs/:id/versions/:vnum/revert — revert to version
+router.post('/:id/versions/:vnum/revert', (req, res) => {
+  const version = revertToVersion(req.params.id, parseInt(req.params.vnum));
+  if (!version) {
+    return res.status(404).json({ error: 'Version not found' });
+  }
+
+  // Update job result
+  const job = getJob(req.params.id);
+  if (job) {
+    updateJob(req.params.id, {
+      result: {
+        ...job.result!,
+        videoUrl: version.videoUrl,
+        timeline: version.timeline,
+        duration: version.videoDuration || job.result?.duration || 0,
+      },
+    });
+  }
+
+  res.json({ success: true, activeVersion: version.versionNumber });
+});
+
+// POST /api/jobs/:id/revisions — submit revision
+router.post('/:id/revisions', async (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  const revision: RevisionRequest = req.body;
+
+  try {
+    updateJob(req.params.id, {
       status: 'processing',
       currentStep: 'מעבד תיקון...',
-      progress: 10,
     });
 
-    // Simulate revision processing
-    const steps = [
-      { name: 'ניתוח בקשת תיקון', progress: 20 },
-      { name: 'תכנון שינויים', progress: 40 },
-      { name: 'ביצוע עריכה', progress: 60 },
-      { name: 'רינדור מחדש', progress: 80 },
-      { name: 'אימות תוצאה', progress: 95 },
-    ];
+    // Process revision in background
+    processRevision(job, revision, job.plan!, job.transcript)
+      .then(result => {
+        updateJob(req.params.id, {
+          status: 'done',
+          currentStep: '',
+          result: {
+            ...job.result!,
+            videoUrl: result.version.videoUrl,
+            timeline: result.version.timeline,
+          },
+          versions: [...(job.versions || []), result.version.id],
+        });
+      })
+      .catch(error => {
+        console.error('Revision failed:', error);
+        updateJob(req.params.id, {
+          status: 'done', // revert to done, not error
+          currentStep: '',
+        });
+      });
 
-    for (const step of steps) {
-      updateJob(job.id, { currentStep: step.name, progress: step.progress });
-      await new Promise((resolve) => setTimeout(resolve, 800));
-    }
-
-    // Create simulated timeline for revision
-    const duration = newDuration || (job.result?.duration || 60);
-    const timeline = job.result?.timeline || [{
-      start: 0,
-      end: duration,
-      label: 'קטע מעודכן',
-      type: 'original' as const,
-    }];
-
-    // Parse timeRange if provided
-    let parsedTimeRange: { from: number; to: number } | undefined;
-    if (timeRange) {
-      parsedTimeRange = {
-        from: parseFloat(timeRange.from) || 0,
-        to: parseFloat(timeRange.to) || duration,
-      };
-    }
-
-    // Create new version
-    const version = addVersion({
-      jobId: job.id,
-      prompt,
-      type,
-      timeRange: parsedTimeRange,
-      duration: newDuration,
-      timeline,
-      videoUrl: `/api/jobs/${job.id}/video`,
-    });
-
-    // Update job
-    const currentVersions = job.versions || [];
-    updateJob(job.id, {
-      status: 'done',
-      progress: 100,
-      currentStep: 'תיקון הושלם!',
-      versions: [...currentVersions, version.id],
-    });
-
-    const updatedJob = getJob(job.id);
-    res.json({ job: updatedJob, version });
-  } catch (error) {
-    console.error('Error creating revision:', error);
-    res.status(500).json({ error: 'שגיאה ביצירת תיקון' });
+    res.json({ success: true, message: 'Revision processing started' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 

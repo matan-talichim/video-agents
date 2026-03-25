@@ -37,6 +37,8 @@ export interface Job {
   warnings?: string[];
   cleanVideoPath?: string;
   musicSyncData?: MusicSyncData;
+  generateResult?: GenerateResult;
+  transcript?: TranscriptResult;
 }
 
 export interface FileInfo {
@@ -96,6 +98,8 @@ export interface JobVersion {
   date: string;
   videoUrl: string;
   isActive: boolean;
+  filePath?: string;
+  videoDuration?: number;
 }
 
 export interface Segment {
@@ -110,6 +114,7 @@ export interface JobResult {
   thumbnailUrl?: string;
   duration: number;
   timeline: Segment[];
+  exports?: Array<{ format: string; url: string }>;
 }
 
 export interface RevisionRequest {
@@ -244,6 +249,7 @@ export interface EditResult {
   duration: number;
   formats: string[];
   warnings: string[];
+  timeline?: Segment[];
 }
 
 export interface ExecutionPlan {
