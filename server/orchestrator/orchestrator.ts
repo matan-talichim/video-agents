@@ -16,7 +16,15 @@ import { generatePreview } from '../services/previewGenerator.js';
 import { importDocument, summarizeForVideo } from '../services/documentImport.js';
 import { generateMultiPageStory } from '../templates/multiPageStories.js';
 import { applyBrandKitToPlan, getBrandPromptPrefix } from '../services/brandKit.js';
+import { analyzeContent } from '../services/contentAnalyzer.js';
+import { detectPresenter, filterTranscriptToPresenter } from '../services/presenterDetector.js';
+import { analyzeVideoIntelligence, applyIntelligenceToPlan } from '../services/videoIntelligence.js';
 import fs from 'fs';
+
+function saveJSON(filePath: string, data: any): void {
+  fs.mkdirSync(filePath.substring(0, filePath.lastIndexOf('/')), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -391,6 +399,136 @@ export async function runPipeline(job: Job): Promise<void> {
       });
     }
 
+    // --- PRESENTER DETECTION ---
+    let presenterTranscript: TranscriptResult | null = null;
+
+    if (transcript && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מזהה את הפרזנטור...' });
+        console.log(`[Pipeline] Running presenter detection for job ${job.id}`);
+
+        const presenterDetection = await detectPresenter(
+          job.files[0].path,
+          transcript
+        );
+
+        job.presenterDetection = presenterDetection;
+        saveJSON(`temp/${job.id}/presenter_detection.json`, presenterDetection);
+        updateJob(job.id, { presenterDetection } as any);
+
+        console.log(`[Pipeline] Presenter: speaker ${presenterDetection.presenterId} — ${presenterDetection.presenterDescription}`);
+        console.log(`[Pipeline] Non-presenter segments to exclude: ${presenterDetection.nonPresenterSegments.length}`);
+
+        // Build list of speaker IDs to keep (presenter + on-camera interviewers)
+        const keepIds = [presenterDetection.presenterId];
+        for (const speaker of presenterDetection.allSpeakers) {
+          if (speaker.role === 'interviewer' && speaker.isOnCamera) {
+            keepIds.push(speaker.speakerId);
+          }
+        }
+
+        // Filter transcript to presenter-only BEFORE content analysis
+        presenterTranscript = filterTranscriptToPresenter(
+          transcript,
+          presenterDetection.presenterId,
+          keepIds
+        );
+
+        console.log(`[Pipeline] Filtered transcript: ${presenterTranscript.words.length} words (from ${transcript.words.length} original)`);
+      } catch (error: any) {
+        console.error('Presenter detection failed:', error.message);
+        allWarnings.push('Presenter detection failed: ' + error.message);
+      }
+    }
+
+    // Use presenter-filtered transcript for all subsequent analysis (fallback to original)
+    const analysisTranscript = presenterTranscript || transcript;
+
+    // --- VIDEO INTELLIGENCE (Deep content understanding) ---
+    if (analysisTranscript && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מנתח את התוכן לעומק...' });
+        console.log(`[Pipeline] Running video intelligence for job ${job.id}`);
+
+        const targetDur = job.plan.export.targetDuration === 'auto'
+          ? undefined
+          : job.plan.export.targetDuration as number;
+
+        const videoIntelligence = await analyzeVideoIntelligence(
+          job.files[0].path,
+          transcript!,
+          presenterTranscript,
+          targetDur
+        );
+
+        job.videoIntelligence = videoIntelligence;
+        saveJSON(`temp/${job.id}/video_intelligence.json`, videoIntelligence);
+        updateJob(job.id, { videoIntelligence } as any);
+
+        // Apply intelligence findings to the plan
+        applyIntelligenceToPlan(job.plan, videoIntelligence);
+        updateJob(job.id, { plan: job.plan });
+
+        console.log(`[Pipeline] Video intelligence: category=${videoIntelligence.concept.category}, ${videoIntelligence.keyPoints.length} key points, ${videoIntelligence.smartBRollPlan.length} B-Roll planned`);
+        if (videoIntelligence.edgeCases.warnings.length > 0) {
+          console.log(`[Pipeline] Edge cases: ${videoIntelligence.edgeCases.warnings.join('; ')}`);
+        }
+      } catch (error: any) {
+        console.error('Video intelligence failed:', error.message);
+        allWarnings.push('Video intelligence failed: ' + error.message);
+      }
+    }
+
+    // --- CONTENT ANALYSIS (Smart Brain Editor) ---
+    if (analysisTranscript && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מנתח תוכן ובוחר קטעים...' });
+        console.log(`[Pipeline] Running content analysis for job ${job.id}`);
+
+        const targetDur = job.plan.export.targetDuration === 'auto'
+          ? undefined
+          : job.plan.export.targetDuration as number;
+
+        const contentAnalysis = await analyzeContent(
+          job.files[0].path,
+          analysisTranscript,
+          targetDur
+        );
+
+        job.contentAnalysis = contentAnalysis;
+
+        // Save analysis to disk
+        const analysisDir = `temp/${job.id}`;
+        fs.mkdirSync(analysisDir, { recursive: true });
+        fs.writeFileSync(
+          `${analysisDir}/content_analysis.json`,
+          JSON.stringify(contentAnalysis, null, 2)
+        );
+
+        updateJob(job.id, { contentAnalysis } as any);
+
+        // Update the plan based on analysis
+        if (contentAnalysis.recommendedEdit) {
+          if (contentAnalysis.recommendedEdit.suggestedOrder === 'hook-first') {
+            job.plan.edit.useHookFirst = true;
+          }
+          job.plan.edit.hookSegment = contentAnalysis.recommendedEdit.hookSegment || undefined;
+          job.plan.edit.segmentsToKeep = contentAnalysis.recommendedEdit.segments;
+
+          if (job.plan.export.targetDuration === 'auto') {
+            job.plan.export.targetDuration = contentAnalysis.recommendedEdit.totalDuration;
+          }
+
+          updateJob(job.id, { plan: job.plan });
+        }
+
+        console.log(`[Pipeline] Content analysis complete: ${contentAnalysis.recommendedEdit.totalDuration}s recommended from ${Math.round(contentAnalysis.presenter.totalSpeakingTime + contentAnalysis.presenter.totalSilentTime)}s original`);
+      } catch (error: any) {
+        console.error('Content analysis failed:', error.message);
+        allWarnings.push('Content analysis failed: ' + error.message);
+      }
+    }
+
     // --- REAL CLEAN AGENT ---
     const hasCleanSteps =
       job.plan.clean.removeSilences ||
@@ -400,7 +538,7 @@ export async function runPipeline(job: Job): Promise<void> {
 
     if (hasCleanSteps) {
       console.log(`[Pipeline] Running real clean agent for job ${job.id}`);
-      const cleanResult = await runCleanAgent(job, job.plan, transcript);
+      const cleanResult = await runCleanAgent(job, job.plan, analysisTranscript || transcript);
       allWarnings.push(...cleanResult.warnings);
 
       // Update job with clean video path for next stages
@@ -435,7 +573,7 @@ export async function runPipeline(job: Job): Promise<void> {
 
     if (hasAnyGenerateFeature(job.plan)) {
       console.log(`[Pipeline] Running real generate agent for job ${job.id}`);
-      generateResult = await runGenerateAgent(job, job.plan, transcript);
+      generateResult = await runGenerateAgent(job, job.plan, analysisTranscript || transcript);
 
       // Count completed generate steps
       const generateStepCount = steps.filter(s => s.stage === 'generate' || s.stage === 'analyze').length;
@@ -477,7 +615,7 @@ export async function runPipeline(job: Job): Promise<void> {
         job.plan,
         cleanVideoPath,
         generateResult || emptyGenerateResult,
-        transcript
+        analysisTranscript || transcript
       );
 
       allWarnings.push(...editResult.warnings);
@@ -578,7 +716,7 @@ export async function runPipeline(job: Job): Promise<void> {
 
     // Store transcript and generate result on job for revision pipeline
     updateJob(job.id, {
-      transcript: transcript || undefined,
+      transcript: analysisTranscript || transcript || undefined,
       generateResult: generateResult || undefined,
     } as any);
 
