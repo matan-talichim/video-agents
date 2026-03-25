@@ -91,20 +91,27 @@ Return ONLY the JSON array, no other text.`
   if (plan.generate.brollFromTranscript && transcript) {
     updateProgress(job, 'תכנון B-Roll מתמלול...');
     try {
+      const targetDuration = typeof plan.export.targetDuration === 'number'
+        ? plan.export.targetDuration : 60;
+      const estimatedClips = (plan.generate as Record<string, unknown>).estimatedBRollClips as number
+        || (targetDuration <= 15 ? 2 : targetDuration <= 30 ? 3 : targetDuration <= 60 ? 5 : targetDuration <= 90 ? 7 : Math.ceil(targetDuration / 12));
+
       const brollPlanResponse = await askClaude(
         'You plan B-Roll inserts for professional video editing.',
         `Read this transcript and suggest B-Roll video clips:
 
 ${transcript.fullText}
 
-For each major topic, create a detailed cinematic B-Roll prompt. Return ONLY a JSON array:
+Generate ${estimatedClips} B-Roll clips for a ${targetDuration}-second video. Space them evenly throughout the video. Each clip should be 3-5 seconds long. Don't cluster B-Roll — leave at least 8 seconds between insertions.
+
+For each clip, create a detailed cinematic B-Roll prompt. Return ONLY a JSON array:
 [{ "timestamp": 15.5, "duration": 4, "prompt": "Cinematic aerial drone shot of modern apartment buildings at golden hour, 4K, shallow depth of field", "reason": "Speaker mentions real estate project" }]
 
 Rules:
 - Don't insert B-Roll during the hook (first 3 seconds)
 - Each B-Roll clip: 3-5 seconds
 - Leave at least 8 seconds between insertions
-- Max 5-6 B-Roll clips for a 60-second video
+- Generate exactly ${estimatedClips} B-Roll clips
 - Make prompts VERY detailed and cinematic
 Return ONLY the JSON array, no other text.`
       );

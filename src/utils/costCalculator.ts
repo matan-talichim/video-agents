@@ -55,6 +55,16 @@ export interface LiveCostSelections {
   hasFiles: boolean;         // upload mode = transcription needed
 }
 
+// === B-Roll clip count calculator ===
+
+export function estimateBRollClips(durationSeconds: number): number {
+  if (durationSeconds <= 15) return 2;
+  if (durationSeconds <= 30) return 3;
+  if (durationSeconds <= 60) return 5;
+  if (durationSeconds <= 90) return 7;
+  return Math.ceil(durationSeconds / 12); // roughly 1 clip per 12 seconds
+}
+
 // === Calculator ===
 
 export function calculateLiveCost(s: LiveCostSelections): { items: CostItem[]; total: number } {
@@ -91,9 +101,9 @@ export function calculateLiveCost(s: LiveCostSelections): { items: CostItem[]; t
   // --- B-Roll ---
   if (s.options.addBRoll) {
     const modelInfo = MODEL_PRICING[s.model] || MODEL_PRICING['kling2.5'];
-    const clipCount = dur <= 30 ? 2 : dur <= 60 ? 3 : 4;
+    const clipCount = estimateBRollClips(dur);
     const cost = clipCount * modelInfo.perClip;
-    add(`B-Roll (${modelInfo.label})`, cost, `${clipCount} קליפים`, false);
+    add(`B-Roll (${modelInfo.label}) — ${clipCount} קליפים`, cost, `${clipCount} קליפים × $${modelInfo.perClip.toFixed(2)}`, false);
   }
 
   // --- Stock footage (always available, free) ---

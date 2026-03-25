@@ -59,6 +59,9 @@ export async function generatePlan(
       Object.assign(plan, styledPlan);
     }
 
+    // When a model is selected in raw mode, always enable B-Roll
+    applyBRollModelRule(plan, files);
+
     const enabledCount = countEnabledFeatures(plan);
     console.log(`[Brain] Plan generated — ${enabledCount} features enabled out of 95`);
 
@@ -301,7 +304,42 @@ function buildFallbackPlan(
 
   applyContextOverrides(plan, context, files);
 
+  // When a model is selected in raw mode, always enable B-Roll
+  applyBRollModelRule(plan, files);
+
   return plan;
+}
+
+/** When a video model is selected, always enable B-Roll generation */
+function applyBRollModelRule(plan: ExecutionPlan, files: FileInfo[]): void {
+  const hasFiles = files.length > 0;
+  const isPromptOnly = !hasFiles;
+
+  // If mode is "raw" and a brollModel is specified → always set broll=true and brollFromTranscript=true
+  if (plan.mode === 'raw' && plan.generate.brollModel) {
+    plan.generate.broll = true;
+    plan.generate.brollFromTranscript = true;
+  }
+
+  // If mode is "prompt-only" → always set broll=true (the whole point is AI generates everything)
+  if (isPromptOnly || plan.mode === 'prompt-only') {
+    plan.generate.broll = true;
+  }
+
+  // Set estimatedBRollClips based on video duration
+  if (plan.generate.broll) {
+    const duration = typeof plan.export.targetDuration === 'number' ? plan.export.targetDuration : 60;
+    (plan.generate as Record<string, unknown>).estimatedBRollClips = estimateBRollClips(duration);
+  }
+}
+
+/** Calculate number of B-Roll clips based on video duration */
+export function estimateBRollClips(durationSeconds: number): number {
+  if (durationSeconds <= 15) return 2;
+  if (durationSeconds <= 30) return 3;
+  if (durationSeconds <= 60) return 5;
+  if (durationSeconds <= 90) return 7;
+  return Math.ceil(durationSeconds / 12); // roughly 1 clip per 12 seconds
 }
 
 export function countEnabledFeatures(plan: ExecutionPlan): number {
