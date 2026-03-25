@@ -155,6 +155,20 @@ export async function runPipeline(job: Job): Promise<void> {
       });
     }
 
+    // --- AUTOMATED MODEL SELECTION (pre-generate) ---
+    if (job.plan.generate.automatedModelSelection && !job.plan.generate.broll) {
+      // If auto model selection is on but B-Roll is not enabled,
+      // still run selection for potential future use
+      try {
+        const { selectBestModel } = await import('../services/modelSelection.js');
+        const recommendation = await selectBestModel(job.prompt, 'medium');
+        job.plan.generate.brollModel = recommendation.model as any;
+        console.log(`[Auto Model] Pre-selected: ${recommendation.model}`);
+      } catch (error: any) {
+        console.error('Auto model pre-selection failed:', error.message);
+      }
+    }
+
     // --- REAL GENERATE AGENT ---
     let generateResult: GenerateResult | null = null;
 

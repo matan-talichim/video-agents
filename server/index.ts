@@ -9,6 +9,7 @@ import modelsRouter from './routes/models.js';
 import effectsRouter from './routes/effects.js';
 import brandKitRouter from './routes/brandKit.js';
 import chatEditorRouter from './routes/chatEditor.js';
+import visualDNARouter from './routes/visualDNA.js';
 import { startCleanupSchedule } from './services/cleanup.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -44,6 +45,7 @@ app.use('/api/models', modelsRouter);
 app.use('/api', effectsRouter);
 app.use('/api/brand-kit', brandKitRouter);
 app.use('/api/jobs', chatEditorRouter);
+app.use('/api/visual-dna', visualDNARouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
