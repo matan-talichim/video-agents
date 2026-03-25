@@ -6,8 +6,11 @@ import { runIngestAgent } from '../agents/ingest.js';
 import { runCleanAgent } from '../agents/clean.js';
 import { runGenerateAgent, hasAnyGenerateFeature } from '../agents/generate.js';
 import { runEditAgent, buildEditTimeline } from '../agents/edit.js';
+import { runExportAgent } from '../agents/export.js';
 import { applyEditStyle, EDIT_STYLES } from '../services/editStyles.js';
 import { calculateViralityScore } from '../services/viralityScore.js';
+import { createVersion } from '../services/versionManager.js';
+import { cleanupJobTemp } from '../services/cleanup.js';
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -230,6 +233,29 @@ export async function runPipeline(job: Job): Promise<void> {
       await delay(randomBetween(500, 1000));
     }
 
+    // --- EXPORT AGENT ---
+    let exportDuration = editResult?.duration || randomBetween(30, 180);
+    let exportExports: Array<{ format: string; url: string }> = [];
+
+    if (editResult) {
+      try {
+        console.log(`[Pipeline] Running export agent for job ${job.id}`);
+        updateJob(job.id, { currentStep: 'ייצוא פורמטים...' });
+
+        const exportResult = await runExportAgent(job, job.plan, editResult.finalVideoPath);
+
+        if (exportResult.duration) {
+          exportDuration = exportResult.duration;
+        }
+        if (exportResult.mainVideoPath) {
+          exportExports = exportResult.exports.map(e => ({ format: e.format, url: e.url }));
+        }
+      } catch (error: any) {
+        console.error('Export agent failed:', error.message);
+        allWarnings.push(`Export failed: ${error.message}`);
+      }
+    }
+
     // Phase 3: Finalize
     updateJob(job.id, {
       currentStep: 'מסיים עיבוד...',
@@ -238,7 +264,7 @@ export async function runPipeline(job: Job): Promise<void> {
     await delay(500);
 
     const videoUrl = `/api/jobs/${job.id}/video`;
-    const duration = editResult?.duration || randomBetween(30, 180);
+    const duration = exportDuration;
     const timeline = editResult
       ? buildEditTimeline(generateResult || { brollClips: [], voiceoverPath: null, musicPath: null, sfxMoments: [], thumbnailPath: null, stockClips: [], additionalAssets: {} }, duration)
       : generateSimulatedTimeline(duration);
@@ -255,7 +281,18 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
-    // Create version
+    // Create version 0 (original) via versionManager
+    const mainVideoPath = editResult?.finalVideoPath || `output/${job.id}/final.mp4`;
+    const managedVersion = createVersion(
+      job.id,
+      mainVideoPath,
+      job.prompt,
+      'original',
+      timeline,
+      duration
+    );
+
+    // Also add to store for backward compatibility
     const version = addVersion({
       jobId: job.id,
       prompt: job.prompt,
@@ -263,6 +300,12 @@ export async function runPipeline(job: Job): Promise<void> {
       timeline,
       videoUrl,
     });
+
+    // Store transcript and generate result on job for revision pipeline
+    updateJob(job.id, {
+      transcript: transcript || undefined,
+      generateResult: generateResult || undefined,
+    } as any);
 
     // Update job as done
     updateJob(job.id, {
@@ -274,12 +317,20 @@ export async function runPipeline(job: Job): Promise<void> {
         thumbnailUrl: editResult ? `/api/jobs/${job.id}/thumbnail` : undefined,
         duration,
         timeline,
+        exports: exportExports.length > 0 ? exportExports : undefined,
       },
       versions: [version.id],
       viralityScore,
       enabledFeaturesCount: totalSteps,
       warnings: allWarnings.length > 0 ? allWarnings : undefined,
     });
+
+    // Clean up temp files
+    try {
+      cleanupJobTemp(job.id);
+    } catch (error: any) {
+      console.error('Cleanup failed:', error.message);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error(`Pipeline error for job ${job.id}:`, message);

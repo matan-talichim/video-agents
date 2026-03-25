@@ -9,6 +9,7 @@ import modelsRouter from './routes/models.js';
 import effectsRouter from './routes/effects.js';
 import brandKitRouter from './routes/brandKit.js';
 import chatEditorRouter from './routes/chatEditor.js';
+import { startCleanupSchedule } from './services/cleanup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,6 +71,9 @@ app.listen(PORT, () => {
   console.log(`📁 Uploads: ${path.join(rootDir, 'uploads')}`);
   console.log(`📁 Output: ${path.join(rootDir, 'output')}`);
   console.log(`📁 Temp: ${path.join(rootDir, 'temp')}`);
+
+  // Start hourly cleanup of old jobs and temp files
+  startCleanupSchedule();
 });
 
 export default app;
