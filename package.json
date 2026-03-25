@@ -8,11 +8,17 @@
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "remotion:preview": "npx remotion preview src/remotion/index.ts",
+    "remotion:render": "npx remotion render src/remotion/index.ts MainComposition output/preview.mp4",
+    "remotion:render-vertical": "npx remotion render src/remotion/index.ts VerticalComposition output/preview_vertical.mp4"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
     "@deepgram/sdk": "^5.0.0",
+    "@remotion/cli": "^4.0.0",
+    "@remotion/player": "^4.0.0",
+    "@remotion/renderer": "^4.0.0",
     "concurrently": "^8.2.2",
     "cors": "^2.8.5",
     "express": "^4.19.2",
@@ -22,10 +28,12 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.0",
+    "remotion": "^4.0.0",
     "uuid": "^10.0.0",
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@remotion/bundler": "^4.0.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/multer": "^1.4.11",
