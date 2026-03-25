@@ -4,7 +4,7 @@ import path from 'path';
 import type { FileInfo, UserOptions, BRollModel } from '../types.js';
 import { createJob, getJob, updateJob, listJobs } from '../store/jobStore.js';
 import { addVersion, getVersions, getVersion } from '../store/versionStore.js';
-import { generatePlan } from '../brain/brain.js';
+import { generatePlan, estimateCost } from '../brain/brain.js';
 import { runPipeline } from '../orchestrator/orchestrator.js';
 
 const upload = multer({ dest: 'uploads/' });
@@ -64,9 +64,20 @@ router.post('/', upload.array('files', 20), async (req, res) => {
       }
     }
 
-    // Generate execution plan
-    const { plan, enabledCount } = await generatePlan(prompt, files, job.options, model);
-    updateJob(job.id, { plan, enabledFeaturesCount: enabledCount });
+    // Build brain context from user selections
+    const brainContext = {
+      editStyle,
+      captionTemplate,
+      voiceoverStyle,
+      targetLanguage,
+      storyPageCount,
+      brandKit: job.brandKit,
+    };
+
+    // Generate execution plan via Claude API
+    const { plan, enabledCount } = await generatePlan(prompt, files, job.options, model, brainContext);
+    const costEstimate = estimateCost(plan);
+    updateJob(job.id, { plan, enabledFeaturesCount: enabledCount, costEstimate });
 
     // Get updated job with plan
     const updatedJob = getJob(job.id)!;

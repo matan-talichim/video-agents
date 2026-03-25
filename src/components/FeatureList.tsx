@@ -3,6 +3,7 @@ import { useState } from 'react';
 interface Props {
   enabledFeatures: string[];
   totalFeatures?: number;
+  costEstimate?: { total: number; breakdown: Record<string, number> };
 }
 
 const ALL_FEATURES = [
@@ -26,13 +27,16 @@ const ALL_FEATURES = [
   'שמירת גרסה', 'שחזור גרסה', 'היסטוריית גרסאות', 'השוואת גרסאות',
   'תבנית אינסטגרם', 'תבנית טיקטוק', 'תבנית יוטיוב', 'תבנית נדל"ן',
   'תבנית מוצר', 'תבנית עדויות', 'ציון ויראליות',
+  'יצירת תסריט AI', 'העברת תנועה', 'בקרת מצלמה', 'צלילים טרנדיים',
+  'DNA ויזואלי', 'בחירת מודל אוטומטית', 'הפרדת סטמים', 'שיפור תאורה',
 ];
 
-export default function FeatureList({ enabledFeatures, totalFeatures = 95 }: Props) {
+export default function FeatureList({ enabledFeatures, totalFeatures = 95, costEstimate }: Props) {
   const [open, setOpen] = useState(false);
+  const [showCost, setShowCost] = useState(false);
 
   return (
-    <div>
+    <div className="space-y-3">
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
@@ -40,6 +44,39 @@ export default function FeatureList({ enabledFeatures, totalFeatures = 95 }: Pro
         <span className={`transition-transform text-xs ${open ? 'rotate-90' : ''}`}>◀</span>
         הפיצ׳רים שנבחרו ({enabledFeatures.length} מתוך {totalFeatures})
       </button>
+
+      {/* Estimated Cost */}
+      {costEstimate && (
+        <div className="bg-dark-card border border-dark-border-light rounded-xl p-3">
+          <button
+            onClick={() => setShowCost(!showCost)}
+            className="flex items-center justify-between w-full text-sm"
+          >
+            <span className="text-gray-400">עלות משוערת</span>
+            <span className={`font-mono font-bold ${costEstimate.total === 0 ? 'text-green-400' : costEstimate.total < 0.5 ? 'text-yellow-400' : 'text-orange-400'}`}>
+              ${costEstimate.total.toFixed(2)}
+            </span>
+          </button>
+          {showCost && (
+            <div className="mt-2 pt-2 border-t border-dark-border-light space-y-1">
+              {Object.entries(costEstimate.breakdown)
+                .filter(([, cost]) => cost > 0)
+                .sort(([, a], [, b]) => b - a)
+                .map(([name, cost]) => (
+                  <div key={name} className="flex justify-between text-xs">
+                    <span className="text-gray-500">{name}</span>
+                    <span className="text-gray-400 font-mono">${cost.toFixed(2)}</span>
+                  </div>
+                ))}
+              {Object.entries(costEstimate.breakdown).some(([, cost]) => cost === 0) && (
+                <div className="text-xs text-green-500/70 mt-1">
+                  + שירותים חינמיים (Pexels, FFmpeg, Deepgram)
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {open && (
         <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">

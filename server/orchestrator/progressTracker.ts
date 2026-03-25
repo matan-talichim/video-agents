@@ -61,6 +61,7 @@ export function getEnabledSteps(plan: ExecutionPlan): StepInfo[] {
   if (plan.generate.automatedModelSelection) steps.push({ key: 'automatedModelSelection', name: 'בחירת מודל אוטומטית', stage: 'generate' });
   if (plan.generate.aiTwin) steps.push({ key: 'aiTwin', name: 'אווטאר AI', stage: 'generate' });
   if (plan.generate.aiDubbing) steps.push({ key: 'aiDubbing', name: 'דיבוב AI', stage: 'generate' });
+  if (plan.generate.aiScriptGenerator) steps.push({ key: 'aiScriptGeneratorGen', name: 'יצירת תסריט AI', stage: 'generate' });
   if (plan.generate.aiSoundEffects) steps.push({ key: 'aiSoundEffects', name: 'אפקטי קול AI', stage: 'generate' });
 
   // Stage 5: Edit
