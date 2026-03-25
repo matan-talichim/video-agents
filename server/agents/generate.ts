@@ -9,6 +9,10 @@ import * as stems from '../services/stems.js';
 import { askClaude } from '../services/claude.js';
 import { extractFrame, getVideoDuration, runFFmpeg } from '../services/ffmpeg.js';
 import { updateJob } from '../store/jobStore.js';
+import { generateAITwin, generateAIDubbing } from './generateAdvanced.js';
+import { compareModels } from '../services/modelComparison.js';
+import { selectBestModel } from '../services/modelSelection.js';
+import { applyVisualDNA } from '../services/visualDNA.js';
 import type { Job, ExecutionPlan, TranscriptResult, GenerateResult } from '../types.js';
 
 function updateProgress(job: Job, step: string): void {
@@ -41,6 +45,20 @@ export async function runGenerateAgent(
   fs.mkdirSync(genDir, { recursive: true });
 
   const warnings: string[] = [];
+
+  // --- AUTOMATED MODEL SELECTION ---
+  if (plan.generate.automatedModelSelection && plan.generate.broll) {
+    try {
+      const budget = plan.generate.brollModel === 'sora-2' ? 'high' :
+                      plan.generate.brollModel === 'kling-v2.5-turbo' ? 'low' : 'medium';
+      const recommendation = await selectBestModel(job.prompt, budget);
+      plan.generate.brollModel = recommendation.model as any;
+      console.log(`[Auto Model] Selected: ${recommendation.model} (${recommendation.reason})`);
+    } catch (error: any) {
+      console.error('Auto model selection failed:', error.message);
+      warnings.push(`Auto model selection failed: ${error.message}`);
+    }
+  }
 
   // --- AI SCRIPT GENERATOR ---
   if (plan.generate.aiScriptGenerator || plan.analyze.aiScriptGenerator) {
@@ -96,6 +114,16 @@ Return ONLY the JSON array, no other text.`
     } catch (error: any) {
       console.error('[Generate] B-Roll planning failed:', error.message);
       warnings.push(`B-Roll planning failed: ${error.message}`);
+    }
+  }
+
+  // --- VISUAL DNA (apply to all B-Roll prompts) ---
+  if (plan.generate.visualDNA && job.visualDNAProfileId) {
+    if (result.additionalAssets.brollPlan) {
+      for (const clip of result.additionalAssets.brollPlan as Array<{ prompt: string }>) {
+        clip.prompt = applyVisualDNA(clip.prompt, job.visualDNAProfileId);
+      }
+      console.log('[Visual DNA] Applied brand style to B-Roll prompts');
     }
   }
 
@@ -227,90 +255,64 @@ ${transcript.fullText}`
     }
   }
 
-  // --- AI TWIN ---
-  if (plan.generate.aiTwin) {
-    updateProgress(job, 'יצירת אווטאר AI...');
+  // --- MULTI-MODEL COMPARISON ---
+  if (plan.generate.multiModelComparison && result.additionalAssets.brollPlan?.length > 0) {
     try {
-      // Step 1: Generate speech
-      const script = result.additionalAssets.script;
-      const text = script
-        ? (script as Array<{ text: string }>).map(s => s.text).join(' ')
-        : job.prompt;
-      const speechPath = `${genDir}/twin_speech.mp3`;
+      updateProgress(job, 'השוואת מודלים...');
+      const firstPrompt = (result.additionalAssets.brollPlan as Array<{ prompt: string }>)[0].prompt;
+      const models = ['veo-3.1-fast', 'kling-v2.5-turbo', 'seedance-1.5-pro'];
+      const comparisonDir = `${genDir}/comparison`;
+      fs.mkdirSync(comparisonDir, { recursive: true });
 
-      let voiceId: string | undefined;
-      if (plan.generate.voiceClone && plan.generate.voiceCloneSourceFile) {
-        try {
-          voiceId = await elevenlabs.cloneVoice(
-            `twin_${job.id}`,
-            [plan.generate.voiceCloneSourceFile]
-          );
-        } catch (cloneError: any) {
-          console.error('[Generate] AI Twin voice cloning failed:', cloneError.message);
-          warnings.push(`AI Twin voice cloning failed: ${cloneError.message}`);
-        }
-      }
-      await elevenlabs.textToSpeech(text, speechPath, voiceId, plan.generate.voiceoverStyle);
-
-      // Step 2: Generate talking head from photo + speech
-      const twinImagePath = plan.generate.aiTwinSourceImage
-        || job.files.find(f => f.type.startsWith('image'))?.path;
-      if (twinImagePath) {
-        const twinVideoPath = `${genDir}/ai_twin.mp4`;
-        await kie.talkingPhoto(twinImagePath, speechPath, twinVideoPath);
-        result.additionalAssets.aiTwinVideo = twinVideoPath;
-      } else {
-        warnings.push('AI Twin skipped: no source image found.');
-      }
+      const comparisonResults = await compareModels(firstPrompt, models, 4, comparisonDir);
+      result.additionalAssets.modelComparison = comparisonResults;
+      saveJSON(`${genDir}/model_comparison.json`, comparisonResults);
     } catch (error: any) {
-      console.error('[Generate] AI Twin generation failed:', error.message);
-      warnings.push(`AI Twin generation failed: ${error.message}`);
+      console.error('Model comparison failed:', error.message);
+      warnings.push(`Model comparison failed: ${error.message}`);
     }
   }
 
-  // --- AI DUBBING ---
-  if (plan.generate.aiDubbing && transcript) {
-    updateProgress(job, 'דיבוב ותרגום...');
+  // --- AI TWIN (full pipeline) ---
+  if (plan.generate.aiTwin) {
     try {
-      const targetLang = plan.generate.aiDubbingTargetLanguage || 'en';
+      updateProgress(job, 'יצירת אווטאר AI...');
+      const twinResult = await generateAITwin(job, plan, genDir);
 
-      // Step 1: Translate transcript
-      const translated = await askClaude(
-        'You are a professional translator.',
-        `Translate this Hebrew text to ${targetLang}. Keep the same structure and timing. Return only the translated text:
-
-${transcript.fullText}`
-      );
-
-      // Step 2: Generate speech in target language
-      const dubbedSpeechPath = `${genDir}/dubbed_speech.mp3`;
-      let voiceId: string | undefined;
-      if (plan.generate.voiceClone && plan.generate.voiceCloneSourceFile) {
-        try {
-          voiceId = await elevenlabs.cloneVoice(
-            `dub_${job.id}`,
-            [plan.generate.voiceCloneSourceFile]
-          );
-        } catch (cloneError: any) {
-          console.error('[Generate] Dubbing voice clone failed:', cloneError.message);
-          warnings.push(`Dubbing voice clone failed: ${cloneError.message}`);
+      if (twinResult.success && twinResult.videoPath) {
+        result.additionalAssets.aiTwinVideo = twinResult.videoPath;
+        // In prompt-only mode, this becomes the main video
+        if (job.mode === 'prompt-only') {
+          result.additionalAssets.mainVideo = twinResult.videoPath;
         }
-      }
-      await elevenlabs.textToSpeech(translated, dubbedSpeechPath, voiceId);
-
-      // Step 3: Lipsync
-      const videoFile = job.files.find(f => f.type.startsWith('video'));
-      if (videoFile) {
-        const lipsyncedPath = `${genDir}/dubbed_lipsynced.mp4`;
-        await kie.lipsync(videoFile.path, dubbedSpeechPath, lipsyncedPath);
-        result.additionalAssets.dubbedVideo = lipsyncedPath;
-      } else {
-        result.additionalAssets.dubbedAudio = dubbedSpeechPath;
-        warnings.push('AI Dubbing: no video file for lipsync, saved dubbed audio only.');
+      } else if (twinResult.voiceoverPath) {
+        result.voiceoverPath = twinResult.voiceoverPath;
       }
     } catch (error: any) {
-      console.error('[Generate] AI Dubbing failed:', error.message);
-      warnings.push(`AI Dubbing failed: ${error.message}`);
+      console.error('AI Twin failed:', error.message);
+      warnings.push('AI Twin generation failed: ' + error.message);
+    }
+  }
+
+  // --- AI DUBBING (full pipeline) ---
+  if (plan.generate.aiDubbing && transcript) {
+    try {
+      updateProgress(job, 'דיבוב ותרגום...');
+      const dubbingResult = await generateAIDubbing(job, plan, transcript, genDir);
+
+      if (dubbingResult.success) {
+        result.additionalAssets.dubbedVideo = dubbingResult.videoPath;
+        result.additionalAssets.dubbedAudio = dubbingResult.audioPath;
+        result.additionalAssets.translatedText = dubbingResult.translatedText;
+        result.additionalAssets.targetLanguage = dubbingResult.targetLanguage;
+
+        if (dubbingResult.lipsyncFailed) {
+          warnings.push('Lipsync failed — audio was replaced without lip synchronization');
+        }
+      }
+    } catch (error: any) {
+      console.error('AI Dubbing failed:', error.message);
+      warnings.push('AI Dubbing failed: ' + error.message);
     }
   }
 
@@ -489,6 +491,118 @@ ${transcript.fullText}`
     }
   }
 
+  // --- FACE SWAP ---
+  if (plan.generate.faceSwap) {
+    try {
+      updateProgress(job, 'החלפת פנים...');
+      const videoFile = job.files.find(f => f.type.startsWith('video'));
+      const faceImage = job.files.find(f => f.type.startsWith('image') && f.name.includes('face'));
+      if (videoFile && faceImage) {
+        const faceSwapPath = `${genDir}/face_swapped.mp4`;
+        await kie.faceSwap(videoFile.path, faceImage.path, faceSwapPath);
+        result.additionalAssets.faceSwappedVideo = faceSwapPath;
+      }
+    } catch (error: any) {
+      console.error('Face swap failed:', error.message);
+      warnings.push(`Face swap failed: ${error.message}`);
+    }
+  }
+
+  // --- MOTION TRANSFER ---
+  if (plan.generate.motionTransfer) {
+    try {
+      updateProgress(job, 'העברת תנועה...');
+      const motionVideo = job.files.find(f => f.type.startsWith('video'));
+      const targetImage = job.files.find(f => f.type.startsWith('image'));
+      if (motionVideo && targetImage) {
+        const motionPath = `${genDir}/motion_transferred.mp4`;
+        await kie.motionTransfer(targetImage.path, motionVideo.path, motionPath);
+        result.additionalAssets.motionTransferVideo = motionPath;
+      }
+    } catch (error: any) {
+      console.error('Motion transfer failed:', error.message);
+      warnings.push(`Motion transfer failed: ${error.message}`);
+    }
+  }
+
+  // --- ANIMATE REPLACE ---
+  if (plan.generate.animateReplace) {
+    try {
+      updateProgress(job, 'החלפת דמות...');
+      const videoFile = job.files.find(f => f.type.startsWith('video'));
+      const characterImage = job.files.find(f => f.type.startsWith('image'));
+      if (videoFile && characterImage) {
+        const replacePath = `${genDir}/character_replaced.mp4`;
+        await kie.animateReplace(videoFile.path, characterImage.path, replacePath);
+        result.additionalAssets.characterReplacedVideo = replacePath;
+      }
+    } catch (error: any) {
+      console.error('Animate replace failed:', error.message);
+      warnings.push(`Animate replace failed: ${error.message}`);
+    }
+  }
+
+  // --- GENERATIVE EXTEND ---
+  if (plan.generate.generativeExtend) {
+    try {
+      updateProgress(job, 'הארכת קליפ...');
+      const videoFile = job.files.find(f => f.type.startsWith('video'));
+      if (videoFile) {
+        const extendedPath = `${genDir}/extended.mp4`;
+        await kie.generativeExtend(videoFile.path, 3, extendedPath);
+        result.additionalAssets.extendedVideo = extendedPath;
+      }
+    } catch (error: any) {
+      console.error('Generative extend failed:', error.message);
+      warnings.push(`Generative extend failed: ${error.message}`);
+    }
+  }
+
+  // --- MULTI-SHOT SEQUENCES ---
+  if (plan.generate.multiShotSequences) {
+    try {
+      updateProgress(job, 'יצירת רצף שוטים...');
+      const multiShotPath = `${genDir}/multi_shot.mp4`;
+      await kie.multiShotSequence(job.prompt, 3, multiShotPath);
+      result.additionalAssets.multiShotVideo = multiShotPath;
+    } catch (error: any) {
+      console.error('Multi-shot sequence failed:', error.message);
+      warnings.push(`Multi-shot sequence failed: ${error.message}`);
+    }
+  }
+
+  // --- FIRST-LAST FRAME ---
+  if (plan.generate.firstLastFrame) {
+    try {
+      updateProgress(job, 'יצירת תנועה בין פריימים...');
+      const images = job.files.filter(f => f.type.startsWith('image'));
+      if (images.length >= 2) {
+        const firstLastPath = `${genDir}/first_last_frame.mp4`;
+        await kie.firstLastFrame(images[0].path, images[1].path, firstLastPath);
+        result.additionalAssets.firstLastFrameVideo = firstLastPath;
+      }
+    } catch (error: any) {
+      console.error('First-last frame failed:', error.message);
+      warnings.push(`First-last frame failed: ${error.message}`);
+    }
+  }
+
+  // --- MOTION CONTROL ---
+  if (plan.generate.motionControl) {
+    try {
+      updateProgress(job, 'שליטה בתנועה...');
+      const image = job.files.find(f => f.type.startsWith('image'));
+      if (image) {
+        const motionControlPath = `${genDir}/motion_control.mp4`;
+        await kie.motionControl(image.path, {}, motionControlPath);
+        result.additionalAssets.motionControlVideo = motionControlPath;
+      }
+    } catch (error: any) {
+      console.error('Motion control failed:', error.message);
+      warnings.push(`Motion control failed: ${error.message}`);
+    }
+  }
+
   // Collect warnings into job
   if (warnings.length > 0) {
     const existingWarnings = job.warnings || [];
@@ -530,6 +644,16 @@ export function hasAnyGenerateFeature(plan: ExecutionPlan): boolean {
     plan.generate.aiBackground ||
     plan.generate.aiScriptGenerator ||
     plan.generate.musicStemSeparation ||
-    plan.analyze.aiScriptGenerator
+    plan.analyze.aiScriptGenerator ||
+    plan.generate.visualDNA ||
+    plan.generate.multiModelComparison ||
+    plan.generate.automatedModelSelection ||
+    plan.generate.faceSwap ||
+    plan.generate.motionTransfer ||
+    plan.generate.animateReplace ||
+    plan.generate.generativeExtend ||
+    plan.generate.multiShotSequences ||
+    plan.generate.firstLastFrame ||
+    plan.generate.motionControl
   );
 }

@@ -35,6 +35,7 @@ export interface Job {
   enabledFeaturesCount?: number;
   costEstimate?: { total: number; breakdown: Record<string, number> };
   warnings?: string[];
+  visualDNAProfileId?: string;
   cleanVideoPath?: string;
   musicSyncData?: MusicSyncData;
   generateResult?: GenerateResult;
@@ -250,6 +251,52 @@ export interface EditResult {
   formats: string[];
   warnings: string[];
   timeline?: Segment[];
+}
+
+// --- Phase 8: Advanced AI Types ---
+
+export interface AITwinResult {
+  success: boolean;
+  videoPath: string | null;
+  scriptText: string;
+  voiceId?: string;
+  voiceoverPath?: string;
+}
+
+export interface AIDubbingResult {
+  success: boolean;
+  translatedText: string;
+  audioPath: string;
+  videoPath: string | null;
+  targetLanguage: string;
+  lipsyncFailed?: boolean;
+}
+
+export interface VisualDNAProfile {
+  id: string;
+  name: string;
+  colorPalette: string[];
+  typography: string;
+  mood: string;
+  pacing: string;
+  visualStyle: string;
+  promptPrefix: string;
+  createdAt: string;
+}
+
+export interface ComparisonResult {
+  model: string;
+  success: boolean;
+  outputPath: string | null;
+  duration?: number;
+  fileSize?: number;
+  error?: string;
+}
+
+export interface ModelRecommendation {
+  model: string;
+  reason: string;
+  confidence: number;
 }
 
 export interface ExecutionPlan {
