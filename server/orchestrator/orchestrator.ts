@@ -11,6 +11,11 @@ import { applyEditStyle, EDIT_STYLES } from '../services/editStyles.js';
 import { calculateViralityScore } from '../services/viralityScore.js';
 import { createVersion } from '../services/versionManager.js';
 import { cleanupJobTemp } from '../services/cleanup.js';
+import { runPromptOnlyPipeline } from '../agents/promptOnly.js';
+import { importDocument, summarizeForVideo } from '../services/documentImport.js';
+import { generateMultiPageStory } from '../templates/multiPageStories.js';
+import { applyBrandKitToPlan, getBrandPromptPrefix } from '../services/brandKit.js';
+import fs from 'fs';
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -96,6 +101,18 @@ export async function runPipeline(job: Job): Promise<void> {
       throw new Error('No execution plan found');
     }
 
+    // --- 30 MINUTE TIMEOUT ---
+    const timeout = setTimeout(() => {
+      if (job.status === 'processing') {
+        job.status = 'error';
+        job.currentStep = 'Timeout: job exceeded 30 minutes';
+        updateJob(job.id, { status: 'error', currentStep: 'שגיאה: חריגה ממגבלת 30 דקות' });
+        console.error(`[Timeout] Job ${job.id} exceeded 30 minutes`);
+      }
+    }, 30 * 60 * 1000);
+
+    try {
+
     // Phase 2: Processing
     updateJob(job.id, { status: 'processing' });
 
@@ -103,6 +120,211 @@ export async function runPipeline(job: Job): Promise<void> {
     const totalSteps = steps.length;
     let completedSteps = 0;
     const allWarnings: string[] = [];
+
+    // === PROMPT-ONLY MODE ===
+    if (job.plan.mode === 'prompt-only') {
+      // --- SOURCE DOCUMENT IMPORT ---
+      if (job.plan.templates.sourceDocumentImport) {
+        const docFile = job.files.find(f => f.type === 'document' || f.name.match(/\.(pdf|docx?|txt)$/i));
+        if (docFile) {
+          updateJob(job.id, { currentStep: 'ייבוא מסמך...' });
+          try {
+            const docText = await importDocument(docFile.path);
+            const summary = await summarizeForVideo(docText, (job.plan.export.targetDuration as number) || 60);
+            job.sourceDocumentContent = summary;
+          } catch (error: any) {
+            console.error('Document import failed:', error.message);
+            allWarnings.push('Document import failed: ' + error.message);
+          }
+        }
+      }
+
+      // --- MULTI-PAGE STORIES ---
+      let storyHandled = false;
+      if (job.plan.templates.multiPageStories) {
+        updateJob(job.id, { currentStep: 'יצירת סטורי מרובה דפים...' });
+        try {
+          fs.mkdirSync(`output/${job.id}`, { recursive: true });
+          const storyPath = `output/${job.id}/story.mp4`;
+          const mood = job.plan.generate.musicMood || 'energetic';
+          const musicLibPath = job.plan.edit.music ? `server/assets/music/${mood}_01.mp3` : null;
+          const validMusicPath = musicLibPath && fs.existsSync(musicLibPath) ? musicLibPath : null;
+
+          await generateMultiPageStory(
+            job.prompt,
+            job.plan.templates.storyPageCount || 3,
+            job.plan.generate.brollModel,
+            validMusicPath,
+            storyPath
+          );
+
+          const storyDuration = (job.plan.templates.storyPageCount || 3) * 5;
+          const timeline = generateSimulatedTimeline(storyDuration);
+
+          const version = addVersion({
+            jobId: job.id,
+            prompt: job.prompt,
+            type: 'original',
+            timeline,
+            videoUrl: `/api/jobs/${job.id}/video`,
+          });
+
+          createVersion(job.id, storyPath, job.prompt, 'original', timeline, storyDuration);
+
+          // Generate virality score if enabled
+          let viralityScore: ViralityScore | undefined;
+          if (job.plan.analyze.viralityScore) {
+            try {
+              viralityScore = await calculateViralityScore(job, null);
+            } catch {
+              viralityScore = generateViralityScore();
+            }
+          }
+
+          updateJob(job.id, {
+            status: 'done',
+            progress: 100,
+            currentStep: 'הושלם בהצלחה!',
+            result: {
+              videoUrl: `/api/jobs/${job.id}/video`,
+              duration: storyDuration,
+              timeline,
+            },
+            versions: [version.id],
+            viralityScore,
+            enabledFeaturesCount: totalSteps,
+            warnings: allWarnings.length > 0 ? allWarnings : undefined,
+          });
+
+          storyHandled = true;
+        } catch (error: any) {
+          console.error('Multi-page story failed:', error.message);
+          allWarnings.push('Multi-page story failed: ' + error.message);
+          // Fall back to regular prompt-only pipeline
+        }
+      }
+
+      // --- REGULAR PROMPT-ONLY PIPELINE ---
+      if (!storyHandled) {
+        // Apply brand kit prefix to prompt
+        if (job.plan.templates.brandKit && job.brandKit) {
+          const prefix = getBrandPromptPrefix(job.brandKit);
+          job.prompt = prefix + job.prompt;
+          applyBrandKitToPlan(job.plan, job.brandKit);
+        }
+
+        const promptOnlyResult = await runPromptOnlyPipeline(job, job.plan);
+
+        // Pass through edit agent for subtitles, effects, etc.
+        job.cleanVideoPath = promptOnlyResult.videoPath;
+        job.generateResult = {
+          brollClips: [],
+          voiceoverPath: promptOnlyResult.voiceoverPath,
+          musicPath: promptOnlyResult.musicPath,
+          sfxMoments: [],
+          thumbnailPath: null,
+          stockClips: [],
+          additionalAssets: { scenes: promptOnlyResult.scenes },
+        };
+
+        // Apply edit style if selected
+        if (job.editStyle && EDIT_STYLES[job.editStyle]) {
+          job.plan = applyEditStyle(job.plan!, job.editStyle);
+          updateJob(job.id, { plan: job.plan });
+        }
+
+        // Run edit agent for subtitles, effects, export
+        const hasEditSteps = steps.some(s => s.stage === 'edit' || s.stage === 'export');
+        let editResult: EditResult | null = null;
+
+        if (hasEditSteps) {
+          updateJob(job.id, { currentStep: 'עריכה והרכבה...' });
+          editResult = await runEditAgent(
+            job,
+            job.plan,
+            promptOnlyResult.videoPath,
+            job.generateResult,
+            null
+          );
+          allWarnings.push(...editResult.warnings);
+        }
+
+        // Export
+        let exportDuration = editResult?.duration || promptOnlyResult.duration;
+        let exportExports: Array<{ format: string; url: string }> = [];
+
+        if (editResult) {
+          try {
+            updateJob(job.id, { currentStep: 'ייצוא פורמטים...' });
+            const exportResult = await runExportAgent(job, job.plan, editResult.finalVideoPath);
+            if (exportResult.duration) exportDuration = exportResult.duration;
+            if (exportResult.mainVideoPath) {
+              exportExports = exportResult.exports.map(e => ({ format: e.format, url: e.url }));
+            }
+          } catch (error: any) {
+            console.error('Export agent failed:', error.message);
+            allWarnings.push(`Export failed: ${error.message}`);
+          }
+        }
+
+        // Finalize
+        const videoUrl = `/api/jobs/${job.id}/video`;
+        const duration = exportDuration;
+        const timeline = editResult
+          ? buildEditTimeline(job.generateResult, duration)
+          : generateSimulatedTimeline(duration);
+
+        let viralityScore: ViralityScore | undefined;
+        if (job.plan.analyze.viralityScore) {
+          try {
+            updateJob(job.id, { currentStep: 'ציון ויראליות...' });
+            viralityScore = await calculateViralityScore(job, null);
+          } catch {
+            viralityScore = generateViralityScore();
+          }
+        }
+
+        const mainVideoPath = editResult?.finalVideoPath || promptOnlyResult.videoPath;
+        createVersion(job.id, mainVideoPath, job.prompt, 'original', timeline, duration);
+
+        const version = addVersion({
+          jobId: job.id,
+          prompt: job.prompt,
+          type: 'original',
+          timeline,
+          videoUrl,
+        });
+
+        updateJob(job.id, {
+          status: 'done',
+          progress: 100,
+          currentStep: 'הושלם בהצלחה!',
+          result: {
+            videoUrl,
+            thumbnailUrl: editResult ? `/api/jobs/${job.id}/thumbnail` : undefined,
+            duration,
+            timeline,
+            exports: exportExports.length > 0 ? exportExports : undefined,
+          },
+          versions: [version.id],
+          viralityScore,
+          enabledFeaturesCount: totalSteps,
+          warnings: allWarnings.length > 0 ? allWarnings : undefined,
+        });
+      }
+
+      // Clean up temp files
+      try {
+        cleanupJobTemp(job.id);
+      } catch (error: any) {
+        console.error('Cleanup failed:', error.message);
+      }
+
+      clearTimeout(timeout);
+      return;
+    }
+
+    // === RAW MODE (existing pipeline) ===
 
     // --- REAL INGEST AGENT ---
     const hasIngestSteps =
@@ -344,6 +566,10 @@ export async function runPipeline(job: Job): Promise<void> {
       cleanupJobTemp(job.id);
     } catch (error: any) {
       console.error('Cleanup failed:', error.message);
+    }
+
+    } finally {
+      clearTimeout(timeout);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
