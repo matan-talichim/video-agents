@@ -34,6 +34,8 @@ export interface Job {
   viralityScore?: ViralityScore;
   enabledFeaturesCount?: number;
   costEstimate?: { total: number; breakdown: Record<string, number> };
+  warnings?: string[];
+  cleanVideoPath?: string;
 }
 
 export interface FileInfo {
@@ -114,6 +116,50 @@ export interface RevisionRequest {
   prompt: string;
   timeRange?: { from: string; to: string };
   newDuration?: number;
+}
+
+// --- Phase 3: Ingest & Clean Types ---
+
+export interface TranscriptWord {
+  word: string;
+  start: number;
+  end: number;
+  speaker: number;
+  confidence: number;
+}
+
+export interface TranscriptResult {
+  words: TranscriptWord[];
+  fullText: string;
+}
+
+export interface FootageClassification {
+  type: 'performance' | 'broll' | 'close-up' | 'wide-shot' | 'product-shot';
+  confidence: number;
+  description: string;
+}
+
+export interface ShotSelection {
+  start: number;
+  end: number;
+  selectedFile: string;
+}
+
+export interface IngestResult {
+  transcript: TranscriptResult | null;
+  syncedFiles: string[];
+  classifications: Array<{ file: string } & FootageClassification>;
+  shotSelections: ShotSelection[];
+  warnings: string[];
+}
+
+export interface CleanResult {
+  cleanVideoPath: string;
+  removedSilences: Array<{ start: number; end: number }>;
+  removedFillers: Array<{ word: string; start: number; is_filler: boolean; reason: string }>;
+  removedBadTakes: Array<{ start: number; end: number }>;
+  excludedClips: Array<{ file: string; reason: string; shakiness: number }>;
+  warnings: string[];
 }
 
 export interface ExecutionPlan {
