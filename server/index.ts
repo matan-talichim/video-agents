@@ -10,6 +10,7 @@ import effectsRouter from './routes/effects.js';
 import brandKitRouter from './routes/brandKit.js';
 import chatEditorRouter from './routes/chatEditor.js';
 import visualDNARouter from './routes/visualDNA.js';
+import previewRouter from './routes/preview.js';
 import { startCleanupSchedule } from './services/cleanup.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -49,6 +50,7 @@ app.use('/api', effectsRouter);
 app.use('/api/brand-kit', brandKitRouter);
 app.use('/api/jobs', chatEditorRouter);
 app.use('/api/visual-dna', visualDNARouter);
+app.use('/api/jobs', previewRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

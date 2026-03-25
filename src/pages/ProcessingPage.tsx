@@ -26,16 +26,25 @@ export default function ProcessingPage() {
     };
   }, [id, fetchJob]);
 
-  // Redirect when done
+  // Redirect based on status
   useEffect(() => {
-    if (currentJob?.status === 'done') {
+    if (!currentJob) return;
+
+    // If job is in preview status, redirect to preview page
+    if (currentJob.status === 'preview' || (currentJob.status === 'planning' && !currentJob.approvedAt)) {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      navigate(`/jobs/${id}/preview`, { replace: true });
+      return;
+    }
+
+    if (currentJob.status === 'done') {
       if (intervalRef.current) clearInterval(intervalRef.current);
       const timer = setTimeout(() => {
         navigate(`/jobs/${id}/result`);
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [currentJob?.status, id, navigate]);
+  }, [currentJob?.status, currentJob?.approvedAt, id, navigate]);
 
   if (!currentJob && !error) {
     return (

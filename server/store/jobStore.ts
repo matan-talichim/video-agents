@@ -44,6 +44,7 @@ export function createJob(params: {
     plan: null,
     result: null,
     versions: [],
+    previewHistory: [],
     createdAt: new Date().toISOString(),
     projectName: params.projectName || `פרויקט ${id.slice(0, 6)}`,
   };

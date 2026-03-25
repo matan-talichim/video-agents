@@ -1,4 +1,4 @@
-export type JobStatus = 'pending' | 'planning' | 'processing' | 'done' | 'error';
+export type JobStatus = 'pending' | 'planning' | 'preview' | 'approved' | 'processing' | 'done' | 'error';
 export type JobMode = 'raw' | 'prompt-only';
 export type BRollModel = 'veo-3.1-fast' | 'sora-2' | 'kling-v2.5-turbo' | 'wan-2.5' | 'seedance-1.5-pro';
 export type PacingMode = 'fast' | 'normal' | 'calm';
@@ -36,6 +36,9 @@ export interface Job {
   costEstimate?: { total: number; breakdown: Record<string, number> };
   warnings?: string[];
   visualDNAProfileId?: string;
+  previewData?: PreviewData;
+  previewHistory: PreviewData[];
+  approvedAt?: string;
   cleanVideoPath?: string;
   musicSyncData?: MusicSyncData;
   generateResult?: GenerateResult;
@@ -460,4 +463,85 @@ export interface ExecutionPlan {
     sourceDocumentFile?: string;
     trendingSounds: boolean;
   };
+}
+
+// --- Phase 11: Preview & Approve Types ---
+
+export interface PreviewData {
+  id: string;
+  createdAt: string;
+
+  // Visual preview
+  keyFrames: KeyFrame[];
+  storyboard: StoryboardScene[];
+  timeline: PreviewTimeline;
+
+  // Plan summary
+  enabledFeatures: string[];
+  enabledFeaturesCount: number;
+  totalFeatures: number;
+
+  // Content preview
+  subtitlePreview?: string;
+  brollPrompts: BRollPreviewItem[];
+  musicMood?: string;
+  voiceoverStyle?: string;
+  editStyle?: string;
+
+  // Estimates
+  estimatedDuration: number;
+  estimatedRenderTime: string;
+  estimatedCost: string;
+  viralityEstimate?: number;
+
+  // Script (prompt-only mode)
+  script?: ScriptPreview[];
+
+  // Plan reference
+  plan: ExecutionPlan;
+
+  // Change history
+  changeRequest?: string;
+}
+
+export interface KeyFrame {
+  timestamp: number;
+  imagePath: string;
+  label: string;
+}
+
+export interface StoryboardScene {
+  sceneNumber: number;
+  title: string;
+  description: string;
+  framePath?: string | null;
+  duration: number;
+  elements: string[];
+}
+
+export interface PreviewTimeline {
+  totalDuration: number;
+  segments: PreviewSegment[];
+}
+
+export interface PreviewSegment {
+  start: number;
+  end: number;
+  type: 'original' | 'broll' | 'music' | 'sfx' | 'subtitle' | 'cta' | 'lower-third';
+  label: string;
+  color: string;
+}
+
+export interface BRollPreviewItem {
+  timestamp: number;
+  duration: number;
+  prompt: string;
+  reason: string;
+}
+
+export interface ScriptPreview {
+  section: string;
+  text: string;
+  duration: number;
+  visualDescription: string;
 }

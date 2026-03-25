@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
 import HomePage from './pages/HomePage';
 import EditorPage from './pages/EditorPage';
+import PreviewPage from './pages/PreviewPage';
 import ProcessingPage from './pages/ProcessingPage';
 import ResultPage from './pages/ResultPage';
 
@@ -10,6 +11,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/editor/:mode" element={<EditorPage />} />
+        <Route path="/jobs/:id/preview" element={<PreviewPage />} />
         <Route path="/jobs/:id" element={<ProcessingPage />} />
         <Route path="/jobs/:id/result" element={<ResultPage />} />
       </Routes>

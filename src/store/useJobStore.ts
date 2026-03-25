@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Job, JobVersion, RevisionRequest, BrandKit } from '../types';
+import type { Job, JobVersion, RevisionRequest, BrandKit, PreviewData } from '../types';
 
 interface JobStore {
   currentJob: Job | null;
@@ -15,6 +15,10 @@ interface JobStore {
   revertToVersion: (jobId: string, versionId: string) => Promise<void>;
   saveBrandKit: (kit: BrandKit) => Promise<void>;
   loadBrandKit: () => Promise<BrandKit | null>;
+  fetchPreview: (jobId: string) => Promise<PreviewData | null>;
+  approvePreview: (jobId: string) => Promise<void>;
+  requestPreviewChange: (jobId: string, message: string) => Promise<PreviewData | null>;
+  undoPreviewChange: (jobId: string) => Promise<PreviewData | null>;
 }
 
 const useJobStore = create<JobStore>((set, get) => ({
@@ -152,6 +156,65 @@ const useJobStore = create<JobStore>((set, get) => ({
       const res = await fetch('/api/brand-kit');
       if (!res.ok) return null;
       return await res.json();
+    } catch {
+      return null;
+    }
+  },
+
+  fetchPreview: async (jobId: string): Promise<PreviewData | null> => {
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/preview`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  },
+
+  approvePreview: async (jobId: string): Promise<void> => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/preview/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error('שגיאה באישור התצוגה המקדימה');
+      set({ isLoading: false });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'שגיאה לא ידועה';
+      set({ error: msg, isLoading: false });
+      throw e;
+    }
+  },
+
+  requestPreviewChange: async (jobId: string, message: string): Promise<PreviewData | null> => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/preview/change`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      });
+      if (!res.ok) throw new Error('שגיאה בעדכון התצוגה המקדימה');
+      const data = await res.json();
+      set({ isLoading: false });
+      return data.preview;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'שגיאה לא ידועה';
+      set({ error: msg, isLoading: false });
+      return null;
+    }
+  },
+
+  undoPreviewChange: async (jobId: string): Promise<PreviewData | null> => {
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/preview/undo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.preview;
     } catch {
       return null;
     }

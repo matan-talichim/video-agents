@@ -6,7 +6,7 @@ import type { FileInfo, UserOptions, BRollModel, RevisionRequest } from '../type
 import { createJob, getJob, updateJob, listJobs } from '../store/jobStore.js';
 import { addVersion, getVersions as getStoreVersions, getVersion as getStoreVersion } from '../store/versionStore.js';
 import { generatePlan, estimateCost } from '../brain/brain.js';
-import { runPipeline } from '../orchestrator/orchestrator.js';
+import { startJob, runPipeline } from '../orchestrator/orchestrator.js';
 import { getVersions as getManagedVersions, getVersion as getManagedVersion, revertToVersion, getActiveVideoPath } from '../services/versionManager.js';
 import { processRevision } from '../services/revisionPipeline.js';
 
@@ -85,9 +85,10 @@ router.post('/', upload.array('files', 20), async (req, res) => {
     // Get updated job with plan
     const updatedJob = getJob(job.id)!;
 
-    // Start pipeline in background (don't await)
-    runPipeline(updatedJob).catch((err) => {
-      console.error(`Pipeline failed for job ${job.id}:`, err);
+    // Start preview generation in background (don't await)
+    // Pipeline will wait for user approval before rendering
+    startJob(updatedJob).catch((err) => {
+      console.error(`Preview generation failed for job ${job.id}:`, err);
     });
 
     res.status(201).json(updatedJob);
