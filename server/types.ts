@@ -44,6 +44,9 @@ export interface Job {
   generateResult?: GenerateResult;
   transcript?: TranscriptResult;
   sourceDocumentContent?: string;
+  contentAnalysis?: ContentAnalysis;
+  emotionalArc?: ContentAnalysis['emotionalArc'];
+  cutTransitions?: ContentAnalysis['cutTransitions'];
 }
 
 export interface FileInfo {
@@ -400,6 +403,9 @@ export interface ExecutionPlan {
     smartVariety: boolean;
     beatSyncCuts: boolean;
     beatMode?: BeatMode;
+    useHookFirst?: boolean;
+    hookSegment?: { start: number; end: number };
+    segmentsToKeep?: Array<{ start: number; end: number; reason: string }>;
     pacing: PacingMode;
     musicSync: boolean;
     vfxAuto: boolean;
@@ -544,4 +550,91 @@ export interface ScriptPreview {
   text: string;
   duration: number;
   visualDescription: string;
+}
+
+// --- Content Analysis Types (Smart Brain Editor) ---
+
+export interface ContentAnalysis {
+  presenter: {
+    name?: string;
+    speakingSegments: Array<{ start: number; end: number }>;
+    silentSegments: Array<{ start: number; end: number }>;
+    totalSpeakingTime: number;
+    totalSilentTime: number;
+  };
+  segments: Array<{
+    start: number;
+    end: number;
+    type: 'speaking' | 'silence' | 'filler' | 'repetition' | 'off-topic' | 'key-moment';
+    quality: number;
+    keepRecommendation: 'must-keep' | 'keep' | 'optional' | 'cut';
+    reason: string;
+  }>;
+  bestMoments: Array<{
+    start: number;
+    end: number;
+    type: 'hook' | 'quote' | 'emotional' | 'funny' | 'key-point' | 'cta';
+    score: number;
+    text: string;
+    suggestedUse: string;
+  }>;
+  structure: {
+    introduction: { start: number; end: number } | null;
+    mainPoints: Array<{ start: number; end: number; topic: string }>;
+    conclusion: { start: number; end: number } | null;
+    offTopicSegments: Array<{ start: number; end: number; reason: string }>;
+  };
+  recommendedEdit: {
+    totalDuration: number;
+    segments: Array<{ start: number; end: number; reason: string }>;
+    hookSegment: { start: number; end: number } | null;
+    suggestedOrder: 'chronological' | 'hook-first' | 'best-moments';
+  };
+  visual: {
+    presenterPosition: 'center' | 'left' | 'right';
+    hasGoodLighting: boolean;
+    backgroundType: 'office' | 'outdoor' | 'studio' | 'home' | 'other';
+    cameraAngle: 'front' | 'side' | 'multiple';
+  };
+  reconstructedSentences: Array<{
+    finalText: string;
+    fragments: Array<{ start: number; end: number; sourceText: string }>;
+    reason: string;
+  }>;
+  brollCoverMoments: Array<{
+    start: number;
+    end: number;
+    reason: string;
+    suggestedPrompt: string;
+  }>;
+  emotionalArc: Array<{
+    section: 'hook' | 'build' | 'peak' | 'resolution';
+    start: number;
+    end: number;
+    musicMood: string;
+    energy: number;
+  }>;
+  pacingPlan: Array<{
+    start: number;
+    end: number;
+    cutFrequency: 'fast' | 'medium' | 'slow';
+    addZoom: boolean;
+    addBRoll: boolean;
+  }>;
+  cutTransitions: Array<{
+    at: number;
+    type: 'broll-bridge' | 'zoom' | 'crossfade' | 'flash';
+    duration: number;
+  }>;
+  footageIssues: Array<{
+    issue: string;
+    solution: string;
+  }>;
+  hookOptions: Array<{
+    start: number;
+    end: number;
+    text: string;
+    viralScore: number;
+    reason: string;
+  }>;
 }

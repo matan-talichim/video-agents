@@ -16,6 +16,7 @@ import { generatePreview } from '../services/previewGenerator.js';
 import { importDocument, summarizeForVideo } from '../services/documentImport.js';
 import { generateMultiPageStory } from '../templates/multiPageStories.js';
 import { applyBrandKitToPlan, getBrandPromptPrefix } from '../services/brandKit.js';
+import { analyzeContent } from '../services/contentAnalyzer.js';
 import fs from 'fs';
 
 function delay(ms: number): Promise<void> {
@@ -389,6 +390,56 @@ export async function runPipeline(job: Job): Promise<void> {
       updateJob(job.id, {
         progress: calculateProgress(completedSteps, totalSteps),
       });
+    }
+
+    // --- CONTENT ANALYSIS (Smart Brain Editor) ---
+    if (transcript && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מנתח תוכן ובוחר קטעים...' });
+        console.log(`[Pipeline] Running content analysis for job ${job.id}`);
+
+        const targetDur = job.plan.export.targetDuration === 'auto'
+          ? undefined
+          : job.plan.export.targetDuration as number;
+
+        const contentAnalysis = await analyzeContent(
+          job.files[0].path,
+          transcript,
+          targetDur
+        );
+
+        job.contentAnalysis = contentAnalysis;
+
+        // Save analysis to disk
+        const analysisDir = `temp/${job.id}`;
+        fs.mkdirSync(analysisDir, { recursive: true });
+        fs.writeFileSync(
+          `${analysisDir}/content_analysis.json`,
+          JSON.stringify(contentAnalysis, null, 2)
+        );
+
+        updateJob(job.id, { contentAnalysis } as any);
+
+        // Update the plan based on analysis
+        if (contentAnalysis.recommendedEdit) {
+          if (contentAnalysis.recommendedEdit.suggestedOrder === 'hook-first') {
+            job.plan.edit.useHookFirst = true;
+          }
+          job.plan.edit.hookSegment = contentAnalysis.recommendedEdit.hookSegment || undefined;
+          job.plan.edit.segmentsToKeep = contentAnalysis.recommendedEdit.segments;
+
+          if (job.plan.export.targetDuration === 'auto') {
+            job.plan.export.targetDuration = contentAnalysis.recommendedEdit.totalDuration;
+          }
+
+          updateJob(job.id, { plan: job.plan });
+        }
+
+        console.log(`[Pipeline] Content analysis complete: ${contentAnalysis.recommendedEdit.totalDuration}s recommended from ${Math.round(contentAnalysis.presenter.totalSpeakingTime + contentAnalysis.presenter.totalSilentTime)}s original`);
+      } catch (error: any) {
+        console.error('Content analysis failed:', error.message);
+        allWarnings.push('Content analysis failed: ' + error.message);
+      }
     }
 
     // --- REAL CLEAN AGENT ---
