@@ -45,6 +45,10 @@ import { detectBeats as detectBeatSync, snapCutsToBeats } from '../services/beat
 import { selectPaceMode, PACE_MODES } from '../services/editingRules.js';
 import { filterBRollQuality } from '../services/brollQualityFilter.js';
 import { planAutoReframe, applyAutoReframe } from '../services/autoReframe.js';
+import { rememberProject, getBrainContext } from '../services/editorBrain.js';
+import { getMasterPromptContext } from '../services/masterPromptOptimizer.js';
+import { planAmbientSound } from '../services/ambientSound.js';
+import { generateThumbnails } from '../services/thumbnailGenerator.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -399,6 +403,18 @@ export async function runPipeline(job: Job): Promise<void> {
 
     // === RAW MODE (existing pipeline) ===
 
+    // --- EDITOR BRAIN: Load context from past projects ---
+    let masterContext = '';
+    let brainMemoryContext = '';
+    try {
+      masterContext = getMasterPromptContext();
+      if (masterContext) {
+        console.log('[Pipeline] Master prompt context loaded from past performance data');
+      }
+    } catch (error: any) {
+      console.warn('[Pipeline] Master prompt context load failed (non-critical):', error.message);
+    }
+
     // --- FOOTAGE DOCTOR: Diagnose & auto-fix before editing ---
     if (job.files.length > 0) {
       try {
@@ -619,6 +635,19 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // --- EDITOR BRAIN: Load category-specific memory ---
+    if (job.videoIntelligence?.concept?.category) {
+      try {
+        const platformGuessForBrain = job.plan.export?.formats?.includes('9:16') ? 'tiktok' : 'youtube';
+        brainMemoryContext = getBrainContext(job.videoIntelligence.concept.category, platformGuessForBrain);
+        if (brainMemoryContext) {
+          console.log(`[Pipeline] Brain memory context loaded for ${job.videoIntelligence.concept.category}/${platformGuessForBrain}`);
+        }
+      } catch (error: any) {
+        console.warn('[Pipeline] Brain memory context failed (non-critical):', error.message);
+      }
+    }
+
     // --- CONTENT SELECTION (12-dimension segment scoring) ---
     if (analysisTranscript && job.files.length > 0) {
       try {
@@ -826,6 +855,24 @@ export async function runPipeline(job: Job): Promise<void> {
       } catch (error: any) {
         console.error('B-Roll QA failed:', error.message);
         allWarnings.push('B-Roll QA failed: ' + error.message);
+      }
+    }
+
+    // --- SCENE-AWARE AMBIENT SOUND ---
+    if (job.editingBlueprint?.brollInsertions && job.editingBlueprint.brollInsertions.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מתכנן צלילי אווירה לקטעי B-Roll...' });
+        const videoDuration = job.contentAnalysis?.presenter?.totalSpeakingTime || 60;
+        const ambientSoundPlan = await planAmbientSound(
+          job.editingBlueprint.brollInsertions,
+          videoDuration
+        );
+        job.ambientSoundPlan = ambientSoundPlan;
+        updateJob(job.id, { ambientSoundPlan } as any);
+        console.log(`[Pipeline] Ambient sound: ${ambientSoundPlan.segments.length} segments planned`);
+      } catch (error: any) {
+        console.error('Ambient sound planning failed:', error.message);
+        allWarnings.push('Ambient sound planning failed: ' + error.message);
       }
     }
 
@@ -1215,6 +1262,41 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // === MULTI-PLATFORM INTELLIGENT THUMBNAILS ===
+    if (editResult?.finalVideoPath && fs.existsSync(editResult.finalVideoPath)) {
+      try {
+        const platformNames = (job.plan.export.platforms || ['youtube']).map((p: string) => {
+          if (p === 'youtube' || p === 'youtube-shorts') return 'youtube';
+          if (p === 'instagram-reels' || p === 'instagram') return 'instagram-reels';
+          if (p === 'tiktok') return 'tiktok';
+          return p;
+        });
+        const uniquePlatforms = [...new Set(platformNames)] as string[];
+
+        if (uniquePlatforms.length > 0) {
+          updateJob(job.id, { currentStep: `מייצר thumbnails ל-${uniquePlatforms.length} פלטפורמות...` });
+          const hookText = job.hookVariations?.[0]?.textOverlay
+            || job.videoIntelligence?.keyPoints?.[0]?.point
+            || '';
+
+          const thumbnailResult = await generateThumbnails(
+            editResult.finalVideoPath,
+            exportDuration,
+            hookText,
+            job.brandKit,
+            uniquePlatforms,
+            job.id
+          );
+          job.thumbnails = thumbnailResult;
+          updateJob(job.id, { thumbnails: thumbnailResult } as any);
+          console.log(`[Pipeline] Multi-platform thumbnails: ${thumbnailResult.thumbnails.length} generated`);
+        }
+      } catch (error: any) {
+        console.error('Multi-platform thumbnails failed:', error.message);
+        allWarnings.push('Multi-platform thumbnails failed: ' + error.message);
+      }
+    }
+
     // === MULTI-PLATFORM CUTS ===
     if (job.plan.export.formats.length > 1 && job.contentSelection?.segments) {
       try {
@@ -1580,6 +1662,13 @@ Return JSON:
       enabledFeaturesCount: totalSteps,
       warnings: allWarnings.length > 0 ? allWarnings : undefined,
     });
+
+    // --- EDITOR BRAIN: Remember this project ---
+    try {
+      rememberProject(job);
+    } catch (error: any) {
+      console.warn('[Pipeline] Brain memory save failed (non-critical):', error.message);
+    }
 
     // Clean up temp files
     try {
