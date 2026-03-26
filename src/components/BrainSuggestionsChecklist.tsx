@@ -12,7 +12,7 @@ interface Props {
   brollPrompts: Array<{ timestamp?: number; prompt: string; duration?: number }>;
   editingBlueprint?: {
     cuts?: Array<{ timestamp: number; type: string; reason: string }>;
-    zooms?: Array<{ timestamp: number; zoomLevel: number; reason: string }>;
+    zooms?: Array<{ timestamp: number; zoomLevel?: number; zoomTo?: number; zoomFrom?: number; reason: string }>;
     soundDesign?: { sfx?: Array<{ at: number; type: string; reason: string }> };
     patternInterrupts?: Array<{ at: number; type: string; reason: string }>;
   };
@@ -78,7 +78,7 @@ export default function BrainSuggestionsChecklist({ brollPrompts, editingBluepri
         const z = editingBlueprint.zooms[i];
         suggestions.push({
           id: `zoom-${i}`,
-          description: `זום x${z.zoomLevel} בשנייה ${Math.round(z.timestamp)} — ${z.reason}`,
+          description: `זום x${z.zoomTo || z.zoomLevel || 1.15} בשנייה ${Math.round(z.timestamp)} — ${z.reason}`,
           cost: 0,
           enabled: true,
           category: 'zoom',

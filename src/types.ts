@@ -2,6 +2,8 @@ export type JobStatus = 'pending' | 'planning' | 'transcribing' | 'analyzing' | 
 
 export type EditStyle = 'cinematic' | 'energetic' | 'minimal' | 'trendy';
 
+export type VideoType = 'paid-ad' | 'organic' | 'explainer' | 'testimonial' | 'product-demo' | 'real-estate-tour';
+
 export type VoiceoverStyle = 'narrator' | 'teacher' | 'persuasive' | 'coach' | 'motivator';
 
 export type CaptionTemplate =
@@ -188,6 +190,7 @@ export interface Job {
   options: UserOptions;
   editStyle: EditStyle;
   videoModel: VideoModel;
+  videoType?: VideoType;
   preset: PresetType;
   voiceoverStyle?: VoiceoverStyle;
   captionTemplate?: CaptionTemplate;
@@ -317,6 +320,8 @@ export interface StoryboardScene {
   framePath?: string | null;
   duration: number;
   elements: string[];
+  presenterQuality?: 'good' | 'use-with-broll-cover' | 'poor';
+  bestFrameIndex?: number;
 }
 
 export interface PreviewTimeline {

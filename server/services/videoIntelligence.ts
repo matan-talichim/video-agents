@@ -228,7 +228,8 @@ export async function analyzeVideoIntelligence(
   videoPath: string,
   transcript: TranscriptResult,
   presenterTranscript: TranscriptResult | null,
-  targetDuration?: number
+  targetDuration?: number,
+  videoType?: string
 ): Promise<VideoIntelligence> {
   console.log('[Intelligence] Starting deep video analysis...');
 
@@ -277,7 +278,7 @@ export async function analyzeVideoIntelligence(
         ...frameImages,
         {
           type: 'text',
-          text: buildUserPrompt(activeTranscript, transcript, duration, targetDuration, edgeCaseContext),
+          text: buildUserPrompt(activeTranscript, transcript, duration, targetDuration, edgeCaseContext, videoType),
         },
       ]
     );
@@ -706,8 +707,29 @@ function buildUserPrompt(
   fullTranscript: TranscriptResult,
   duration: number,
   targetDuration: number | undefined,
-  edgeCaseContext: string
+  edgeCaseContext: string,
+  videoType?: string
 ): string {
+  // Build CTA rules based on video type
+  const ctaRules = videoType ? `
+VIDEO TYPE: ${videoType}
+
+IMPORTANT CTA RULES:
+- If videoType is 'paid-ad': CTA must be conversion-focused.
+  Examples: "צרו קשר עכשיו", "קבעו שיחת ייעוץ", "קבלו הצעת מחיר"
+  NEVER use "עקבו אחרינו" or "תגיבו" — those are for organic content.
+- If videoType is 'organic': CTA can be engagement-focused.
+  Examples: "עקבו לעוד תוכן", "שתפו עם חבר", "תגיבו מה אתם חושבים"
+- If videoType is 'explainer': CTA should be educational.
+  Examples: "למדו עוד", "קראו את המדריך המלא", "הירשמו לקורס"
+- If videoType is 'testimonial': CTA should be social-proof driven.
+  Examples: "הצטרפו גם אתם", "קראו עוד המלצות"
+- If videoType is 'product-demo': CTA should be trial/download focused.
+  Examples: "נסו בחינם", "הורידו עכשיו", "הירשמו לניסיון חינם"
+- If videoType is 'real-estate-tour': CTA must be appointment-focused.
+  Examples: "קבעו סיור עכשיו", "התקשרו: 05X-XXXXXXX", "השאירו פרטים"
+` : '';
+
   return `Analyze this video:
 
 TRANSCRIPT (presenter only): "${activeTranscript.fullText}"
@@ -717,7 +739,7 @@ FULL TRANSCRIPT (all speakers): "${fullTranscript.fullText}"
 VIDEO DURATION: ${Math.round(duration)} seconds
 NUMBER OF SPEAKERS: ${new Set(fullTranscript.words.map(w => w.speaker)).size}
 ${targetDuration ? `TARGET DURATION: ${targetDuration} seconds` : 'TARGET: suggest optimal duration'}
-${edgeCaseContext}
+${edgeCaseContext}${ctaRules}
 
 Return a complete VideoIntelligence JSON with ALL fields:
 {

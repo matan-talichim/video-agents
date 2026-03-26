@@ -3,6 +3,7 @@ export type JobMode = 'raw' | 'prompt-only';
 export type BRollModel = string;
 export type PacingMode = 'fast' | 'normal' | 'calm';
 export type EditStyle = 'cinematic' | 'energetic' | 'minimal' | 'trendy';
+export type VideoType = 'paid-ad' | 'organic' | 'explainer' | 'testimonial' | 'product-demo' | 'real-estate-tour';
 export type VoiceoverStyle = 'narrator' | 'educator' | 'persuader' | 'coach' | 'motivator';
 export type ZoomStyle = 'subtle' | 'punch' | 'ken-burns';
 export type SubtitleStyle = 'animated' | 'simple' | 'karaoke';
@@ -26,6 +27,7 @@ export interface Job {
   createdAt: string;
   projectName: string;
   editStyle?: EditStyle;
+  videoType?: VideoType;
   captionTemplate?: string;
   voiceoverStyle?: VoiceoverStyle;
   targetLanguage?: string;
@@ -60,6 +62,8 @@ export interface Job {
   freshEyesReview?: import('./services/freshEyesReview.js').FreshEyesResult;
   contentSelection?: import('./services/contentSelector.js').ContentSelectionResult;
   ingestWarnings?: string[];
+  completedPipelineSteps?: string[];
+  approvedSuggestions?: Record<string, boolean>;
   qaResult?: import('./services/qualityCheck.js').QAResult;
   versionPlan?: import('./services/autoVersioning.js').VersionPlan;
   brandCompliance?: import('./services/brandCompliance.js').BrandComplianceResult;
@@ -642,6 +646,8 @@ export interface StoryboardScene {
   framePath?: string | null;
   duration: number;
   elements: string[];
+  presenterQuality?: 'good' | 'use-with-broll-cover' | 'poor';
+  bestFrameIndex?: number;
 }
 
 export interface PreviewTimeline {

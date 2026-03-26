@@ -95,6 +95,73 @@ export async function generatePreview(job: Job, plan: ExecutionPlan): Promise<Pr
     }
   }
 
+  // === 2b. BEST FRAME SELECTION + PRESENTER QUALITY ANNOTATION ===
+  // For each storyboard scene, extract 3 candidate frames (25%, 50%, 75%) instead of just middle frame
+  // and annotate scenes with presenter quality data
+  if (videoFile && videoDuration > 0 && storyboard.length > 0) {
+    const presenterQuality = (job as any).presenterQuality;
+    let sceneStartTime = 0;
+
+    for (let i = 0; i < storyboard.length; i++) {
+      const scene = storyboard[i];
+      const sceneEndTime = sceneStartTime + scene.duration;
+
+      // Check presenter quality for this segment
+      const pqScore = presenterQuality?.segmentScores?.find(
+        (s: any) => s.startTime >= sceneStartTime && s.endTime <= sceneEndTime
+      );
+
+      if (pqScore) {
+        if (pqScore.recommendation === 'use-with-broll-cover' || (pqScore.eyeContact != null && pqScore.eyeContact < 5)) {
+          scene.presenterQuality = 'use-with-broll-cover';
+        } else if (pqScore.eyeContact >= 7) {
+          scene.presenterQuality = 'good';
+        }
+      }
+
+      // Extract 3 candidate frames at 25%, 50%, 75% of the scene
+      if (scene.presenterQuality !== 'use-with-broll-cover') {
+        const candidatePositions = [0.25, 0.5, 0.75];
+        let bestFramePath: string | null = null;
+
+        for (let c = 0; c < candidatePositions.length; c++) {
+          const timestamp = sceneStartTime + scene.duration * candidatePositions[c];
+          if (timestamp >= videoDuration) continue;
+          const candidatePath = `${previewDir}/scene_${i}_candidate_${c}.jpg`;
+
+          try {
+            await runFFmpeg(`ffmpeg -i "${videoFile.path}" -ss ${timestamp} -vframes 1 -q:v 4 -vf "scale=480:-1" -y "${candidatePath}"`);
+            if (fs.existsSync(candidatePath)) {
+              // Use middle frame as default; if we had vision analysis, we'd pick the best
+              if (c === 1 || !bestFramePath) {
+                bestFramePath = candidatePath;
+                scene.bestFrameIndex = c;
+              }
+            }
+          } catch {
+            // Skip failed extractions
+          }
+        }
+
+        if (bestFramePath) {
+          scene.framePath = bestFramePath;
+          // Also update keyFrames so the frame endpoint serves the right image
+          if (keyFrames[i]) {
+            keyFrames[i].imagePath = bestFramePath;
+          } else {
+            keyFrames.push({
+              timestamp: sceneStartTime + scene.duration * 0.5,
+              imagePath: bestFramePath,
+              label: scene.title,
+            });
+          }
+        }
+      }
+
+      sceneStartTime = sceneEndTime;
+    }
+  }
+
   // === 3. BUILD TIMELINE ===
   const targetDuration = typeof plan.export.targetDuration === 'number'
     ? plan.export.targetDuration
