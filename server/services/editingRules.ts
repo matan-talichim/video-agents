@@ -1243,3 +1243,65 @@ export interface EditingBlueprint {
   };
   murchAverageScore: number;
 }
+
+// ============================================================
+// EDGE CASE RULES — Handles 10 common scenarios
+// ============================================================
+export const EDGE_CASE_RULES_PROMPT = `Handle these edge cases intelligently:
+
+VERY SHORT FOOTAGE (< 15 seconds):
+- Cannot achieve standard 30-60s video length from content alone
+- Strategy: use zooms (alternate 100%/115%) to create visual variety within same footage
+- Add speed ramps: slow-mo on key moments extends time
+- Generate more B-Roll than usual (fill 40-50% of final video with B-Roll)
+- Consider loop: repeat the best 5 seconds with different zoom/color
+- Set target duration to 15-20s instead of forcing longer
+- Text overlays carry more of the message
+
+VERY LONG FOOTAGE (> 5 minutes):
+- Must be aggressive with cutting — keep only top 15-20% of footage
+- Raise content selection threshold: keep only scores >= 70 (not 60)
+- Identify 3-5 absolute best moments and build the video around them
+- Cut ruthlessly: "if removing this doesn't hurt the video, remove it"
+- Suggest multiple outputs: full version (60s) + highlight reel (15-30s)
+- More B-Roll needed to cover jump cuts from heavy cutting
+
+MULTI-SPEAKER (2+ speakers):
+- Assign unique lower third to each speaker (name + role, different color accent)
+- Cut to the ACTIVE speaker when they start talking (not when they finish)
+- Include 1-2 second reaction shots of the listener after important statements
+- If speakers overlap: keep the primary speaker's audio, show B-Roll
+- Each speaker gets their own zoom level: speaker A at 100%, speaker B at 110%
+- Speaker detection in transcript → different subtitle colors per speaker
+
+NO SPEECH (product/music/montage):
+- Switch to "visual mode" — the EDIT tells the story, not words
+- Beat-sync is MANDATORY — every cut must land on a music beat
+- Text overlays carry 100% of the messaging (titles, features, prices, CTAs)
+- No subtitles needed
+- Music volume at 60-80% (much louder than speech videos)
+- Faster cut frequency: 1.5-3 seconds per shot
+- Color grading can be bolder (no skin tone protection needed for product shots)
+- Kinetic text is more prominent and creative
+
+POOR AUDIO QUALITY:
+- If background noise > 30% of audio → suggest AI voiceover replacement
+- If echo detected → apply FFmpeg de-reverb filter
+- If audio clipping → apply limiter and normalize
+- If multiple audio issues → flag for user: "אודיו באיכות נמוכה — מומלץ להחליף בקריינות AI"
+
+VERTICAL VIDEO UPLOADED FOR HORIZONTAL OUTPUT (or vice versa):
+- If 9:16 uploaded but 16:9 needed → add blurred/branded side panels
+- If 16:9 uploaded but 9:16 needed → smart crop following the speaker's face
+- NEVER stretch or distort the video to fit
+
+Return edge case handling:
+{
+  "edgeCases": {
+    "detected": ["very-short", "poor-audio"],
+    "strategies": [
+      { "case": "very-short", "strategy": "extend with B-Roll and speed ramps", "targetDuration": 20 },
+      { "case": "poor-audio", "strategy": "suggest AI voiceover replacement", "severity": "warning" }
+    ]
+  }
+}`;

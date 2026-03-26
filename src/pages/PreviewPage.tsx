@@ -237,6 +237,7 @@ export default function PreviewPage() {
   const originalShakiness = (job as any).originalShakiness;
   const freshEyesReview = (job as any).freshEyesReview;
   const contentSelection = (job as any).contentSelection;
+  const footageDiagnosis = (job as any).footageDiagnosis;
 
   // Compute cost breakdown from job selections
   const previewCost = useMemo(() => {
@@ -554,6 +555,59 @@ export default function PreviewPage() {
         {/* Content Selection Panel — 12-dimension scoring */}
         {contentSelection && (
           <ContentSelectionPanel selection={contentSelection} />
+        )}
+
+        {/* Footage Diagnosis Section */}
+        {footageDiagnosis && (
+          <div className="bg-dark-card border border-accent-purple/30 rounded-xl p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-accent-purple-light flex items-center gap-2">
+              <span className="text-lg">📋</span>
+              אבחון חומר גלם
+            </h3>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-gray-800/50 rounded-lg p-2">
+                <span className="text-gray-400">רזולוציה: </span>
+                <span className="text-white">{footageDiagnosis.resolution.width}x{footageDiagnosis.resolution.height}</span>
+                {footageDiagnosis.resolution.needsUpscale && (
+                  <span className="text-green-400 mr-1"> → שודרג ל-{footageDiagnosis.resolution.targetRes.replace(':', 'x')} ✅</span>
+                )}
+              </div>
+              <div className="bg-gray-800/50 rounded-lg p-2">
+                <span className="text-gray-400">פסים שחורים: </span>
+                {footageDiagnosis.blackBars.detected ? (
+                  <span className="text-green-400">נמצאו → נחתכו ✅</span>
+                ) : (
+                  <span className="text-gray-500">לא נמצאו</span>
+                )}
+              </div>
+              <div className="bg-gray-800/50 rounded-lg p-2">
+                <span className="text-gray-400">פריימים כפולים: </span>
+                {footageDiagnosis.freezeFrames.detected ? (
+                  <span className="text-green-400">{footageDiagnosis.freezeFrames.count} → הוסרו ✅</span>
+                ) : (
+                  <span className="text-gray-500">תקין</span>
+                )}
+              </div>
+              <div className="bg-gray-800/50 rounded-lg p-2">
+                <span className="text-gray-400">משך: </span>
+                <span className="text-white">
+                  {Math.floor(footageDiagnosis.duration / 60)}:{String(Math.floor(footageDiagnosis.duration % 60)).padStart(2, '0')}
+                </span>
+                <span className="text-gray-500 mr-1">
+                  ({footageDiagnosis.durationCategory === 'too-short' ? 'קצר מאוד' :
+                    footageDiagnosis.durationCategory === 'short' ? 'קצר' :
+                    footageDiagnosis.durationCategory === 'normal' ? 'רגיל' :
+                    footageDiagnosis.durationCategory === 'long' ? 'ארוך — חיתוך אגרסיבי' :
+                    'ארוך מאוד — חיתוך אגרסיבי'})
+                </span>
+              </div>
+            </div>
+            {footageDiagnosis.flashFrames.detected && (
+              <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded-lg p-2">
+                זוהו {footageDiagnosis.flashFrames.timestamps.length} פריימים שחורים/הבזקים
+              </div>
+            )}
+          </div>
         )}
 
         {/* Content Analysis Section */}

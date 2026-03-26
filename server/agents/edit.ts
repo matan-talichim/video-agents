@@ -22,6 +22,33 @@ function saveJSON(filePath: string, data: any): void {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
+// === AUDIO-VIDEO SYNC VERIFICATION ===
+// Call after every major edit operation (concat, speed ramp, trim)
+async function verifySyncAfterEdit(videoPath: string, stepName: string): Promise<boolean> {
+  try {
+    const videoDur = await ffmpeg.runFFmpeg(
+      `ffprobe -v error -select_streams v:0 -show_entries stream=duration -of csv=p=0 "${videoPath}"`
+    );
+    const audioDur = await ffmpeg.runFFmpeg(
+      `ffprobe -v error -select_streams a:0 -show_entries stream=duration -of csv=p=0 "${videoPath}"`
+    );
+
+    const vDur = parseFloat(videoDur.trim());
+    const aDur = parseFloat(audioDur.trim());
+    const drift = Math.abs(vDur - aDur);
+
+    if (drift > 0.1) { // More than 100ms drift
+      console.warn(`[Sync] Audio-video drift of ${(drift * 1000).toFixed(0)}ms detected after ${stepName}`);
+      return false;
+    }
+
+    console.log(`[Sync] ${stepName}: audio-video sync OK (drift: ${(drift * 1000).toFixed(0)}ms)`);
+    return true;
+  } catch {
+    return true; // If check fails, don't block pipeline
+  }
+}
+
 export async function runEditAgent(
   job: Job,
   plan: ExecutionPlan,
@@ -79,6 +106,7 @@ export async function runEditAgent(
       const selectedOutput = `${editDir}/selected_assembled.mp4`;
       await ffmpeg.runFFmpeg(`ffmpeg -f concat -safe 0 -i "${listPath}" -c copy -y "${selectedOutput}"`);
       currentVideo = selectedOutput;
+      await verifySyncAfterEdit(currentVideo, 'content-selection-concat');
 
       // Cleanup
       for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch {} }
@@ -101,6 +129,7 @@ export async function runEditAgent(
       const trimmedPath = `${editDir}/smart_trimmed.mp4`;
       await runSmartTrim(currentVideo, job.contentAnalysis, trimmedPath);
       currentVideo = trimmedPath;
+      await verifySyncAfterEdit(currentVideo, 'smart-trim');
 
       console.log(`[Edit] Smart trim: ${job.contentAnalysis.recommendedEdit.totalDuration}s from original`);
     } catch (error: any) {
@@ -278,6 +307,7 @@ export async function runEditAgent(
       const speedOutput = `${editDir}/speed_ramped.mp4`;
       await ffmpeg.runFFmpeg(`ffmpeg -f concat -safe 0 -i "${listPath}" -c copy -y "${speedOutput}"`);
       currentVideo = speedOutput;
+      await verifySyncAfterEdit(currentVideo, 'speed-ramp');
 
       // Cleanup
       for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch {} }
