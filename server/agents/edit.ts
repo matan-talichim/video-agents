@@ -380,6 +380,41 @@ Rules:
   }
 
   // ========================================================
+  // STEP 8.5: FAKE CUT ZOOMS (simulate camera angle changes on hard cuts)
+  // ========================================================
+  if (analysis?.cutTransitions) {
+    try {
+      const fakeZoomCuts = analysis.cutTransitions.filter(
+        (cut: any) => cut.type === 'hard' && cut.fakeZoom
+      );
+      if (fakeZoomCuts.length > 0) {
+        updateProgress(job, 'זום מדומה לחיתוכים — סימולציית מצלמה...');
+        let cutIndex = 0;
+        for (const cut of fakeZoomCuts) {
+          try {
+            const isOdd = cutIndex % 2 === 0;
+            const output = nextOutput();
+            await ffmpeg.runFFmpeg(ffmpeg.addZoom(
+              currentVideo,
+              cut.at,
+              cut.at + 0.3,
+              isOdd ? 1.15 : 1.0,
+              output
+            ));
+            currentVideo = output;
+          } catch (zoomErr: any) {
+            console.error(`Fake zoom at ${cut.at}s failed:`, zoomErr.message);
+          }
+          cutIndex++;
+        }
+      }
+    } catch (error: any) {
+      console.error('Fake cut zooms failed:', error.message);
+      warnings.push('Fake cut zooms failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
   // STEP 9: SMART ZOOMS (snapped to beats if musicSync enabled)
   // ========================================================
   if (plan.edit.smartZooms && transcript) {

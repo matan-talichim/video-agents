@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { askClaude, askClaudeVision } from './claude.js';
 import { runFFmpeg, extractFrame, getVideoDuration } from './ffmpeg.js';
+import { EDITING_RULES_PART1 } from './editingRules.js';
 import type { TranscriptResult } from '../types.js';
 
 export interface ContentAnalysis {
@@ -93,8 +94,12 @@ export interface ContentAnalysis {
   // Cut transitions
   cutTransitions: Array<{
     at: number;
-    type: 'broll-bridge' | 'zoom' | 'crossfade' | 'flash';
-    duration: number;
+    type: 'hard' | 'lcutBroll' | 'crossfade' | 'smashCut' | 'cutaway' | 'montage' | 'broll-bridge' | 'zoom' | 'flash';
+    murchScore?: number;
+    audioOverlapAfter?: number;
+    fakeZoom?: boolean;
+    duration?: number;
+    reason?: string;
   }>;
 
   // Footage issues and solutions
@@ -298,8 +303,24 @@ Analyze this content and return JSON with ALL of the following fields:
   "cutTransitions": [
     {
       "at": 12.0,
-      "type": "broll-bridge",
-      "duration": 0.5
+      "type": "lcutBroll",
+      "murchScore": 8,
+      "audioOverlapAfter": 1.0,
+      "reason": "speaker mentions visual — L-cut to B-Roll"
+    },
+    {
+      "at": 25.0,
+      "type": "hard",
+      "murchScore": 7,
+      "fakeZoom": true,
+      "reason": "sentence break — fake zoom to simulate camera change"
+    },
+    {
+      "at": 45.0,
+      "type": "crossfade",
+      "murchScore": 9,
+      "duration": 0.8,
+      "reason": "topic change — dissolve to mark new section"
     }
   ],
   "footageIssues": [
@@ -328,7 +349,15 @@ IMPORTANT:
 - Provide exactly 3 hookOptions ranked by viralScore (highest first).
 - brollCoverMoments should cover weak visual moments (speaker looking away, bad framing, jump cuts).
 - emotionalArc should have 2-4 sections covering the full video.
-- cutTransitions should mark where hard cuts happen and suggest transition types.`
+- cutTransitions should mark where hard cuts happen and suggest transition types.
+- For cutTransitions, use this enhanced format: { "at": 5.2, "type": "lcutBroll", "murchScore": 8, "audioOverlapAfter": 1.0, "reason": "speaker mentions beach — L-cut to B-Roll" }
+- Valid cut types: "hard", "lcutBroll", "crossfade", "smashCut", "cutaway", "montage"
+- For hard cuts, add "fakeZoom": true to simulate a camera angle change
+- For crossfades, include "duration" (0.5-1.0s)
+
+${EDITING_RULES_PART1}
+
+Apply these rules when planning cuts in the editingBlueprint.`
     );
 
     const jsonStr = contentResponse
