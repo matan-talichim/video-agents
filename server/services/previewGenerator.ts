@@ -367,6 +367,15 @@ function estimateCostRange(plan: ExecutionPlan): string {
   if (plan.generate.faceSwap) { minCost += 0.05; maxCost += 0.15; }
   if (plan.edit.upscaling) { minCost += 0.05; maxCost += 0.15; }
 
+  // POV walkthrough from photos (3-5 AI video clips)
+  const imageCount = 0; // will be determined at runtime
+  if (plan.generate.broll && imageCount >= 2) { minCost += 0.40; maxCost += 1.20; }
+
+  // Localization per language
+  if (plan.generate.aiDubbing && plan.generate.aiDubbingTargetLanguage) {
+    minCost += 0.30; maxCost += 0.60;
+  }
+
   return `$${minCost.toFixed(2)}-$${maxCost.toFixed(2)}`;
 }
 

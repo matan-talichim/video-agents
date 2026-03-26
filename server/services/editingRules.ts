@@ -929,6 +929,181 @@ This means the SAME video gets DIFFERENT:
 All from the same base footage — only the wrapper changes per platform.`;
 
 // ============================================================
+// CATEGORY 21: AI BACKGROUND REPLACEMENT
+// ============================================================
+export const AI_BACKGROUND_PROMPT = `Detect when video background should be replaced or enhanced with AI.
+
+WHEN TO SUGGEST BACKGROUND REPLACEMENT:
+- Speaker filmed in a messy/ugly room → replace with clean office or branded background
+- Speaker filmed on green screen → replace with contextual background
+- Real estate: filmed from outside → composite speaker INTO the property interior
+- Product demo: cluttered desk → clean studio background
+
+WORKFLOW (for the Brain to plan, not execute automatically):
+1. Detect if background quality is low (Claude Vision during ingest)
+2. If low: suggest background replacement in the editing blueprint
+3. Options: a) Blur existing background (FFmpeg, free) b) Replace with brand-colored gradient (FFmpeg, free) c) AI-generate new background matching content context (KIE.ai, $0.10-0.40)
+
+BACKGROUND QUALITY DETECTION (during ingest Vision analysis):
+- Score background 1-10
+- Below 5: suggest blur or replacement
+- 5-7: suggest subtle blur
+- 8+: keep as-is
+
+For talking-head videos with bad backgrounds:
+{
+  "backgroundPlan": {
+    "quality": 4,
+    "issue": "messy room with distracting objects visible behind speaker",
+    "recommendation": "blur",
+    "blurIntensity": 15,
+    "alternativeRecommendation": "replace with modern office background",
+    "estimatedCost": "$0 for blur, $0.15 for AI replacement"
+  }
+}`;
+
+// ============================================================
+// CATEGORY 22: AI RELIGHTING
+// ============================================================
+export const AI_RELIGHTING_PROMPT = `Detect and plan lighting fixes for footage.
+
+BAD LIGHTING SIGNS (detect during ingest):
+- Underexposed (too dark) — faces hard to see
+- Overexposed (too bright) — blown out highlights
+- Flat lighting — no depth, looks amateur
+- Mixed color temperature — warm and cool light sources competing
+- Harsh shadows — direct overhead or side light without diffusion
+- Backlit — subject is silhouette against bright window
+
+LIGHTING FIX OPTIONS (cheapest to most expensive):
+
+1. FFmpeg exposure/brightness correction (FREE):
+   - Underexposed: "eq=brightness=0.1:contrast=1.1"
+   - Overexposed: "eq=brightness=-0.05:contrast=0.95"
+   - Flat: "curves=preset=increase_contrast"
+
+2. FFmpeg color temperature fix (FREE):
+   - Too cool (blue): "colortemperature=6500" or "colorbalance=rs=0.1:gs=0.05"
+   - Too warm (orange): "colortemperature=4500" or "colorbalance=bs=0.1"
+
+3. AI Relighting via API ($0.10-0.30 per clip):
+   - Send frame to relighting API (Clipdrop/Higgsfield)
+   - Get back properly lit version
+   - Apply lighting style across all frames
+   - Best for: golden hour simulation, studio lighting, dramatic mood
+
+LIGHTING QUALITY SCORE (during ingest):
+- Score lighting 1-10 based on Vision analysis
+- Below 4: auto-apply FFmpeg correction
+- 4-6: suggest correction in preview
+- 7+: no correction needed
+
+For each video:
+{
+  "lightingPlan": {
+    "quality": 5,
+    "issues": ["slightly underexposed", "mixed color temperature"],
+    "autoFix": {
+      "brightness": 0.08,
+      "contrast": 1.05,
+      "colorTemp": "warm-shift"
+    },
+    "aiRelightOption": {
+      "available": true,
+      "style": "golden-hour",
+      "estimatedCost": "$0.15",
+      "reason": "real estate content benefits from warm golden lighting"
+    }
+  }
+}`;
+
+// ============================================================
+// CATEGORY 23: AI POV WALKTHROUGH
+// ============================================================
+export const POV_WALKTHROUGH_PROMPT = `Generate POV (first-person) walkthrough videos from still photos.
+
+USE CASE:
+Real estate agent has photos of an apartment but no video. The Brain can generate a virtual walkthrough that looks like someone walking through the property.
+
+WORKFLOW:
+1. User uploads still photos of rooms (living room, kitchen, bedroom, etc.)
+2. Brain orders them in logical walkthrough sequence
+3. For each photo: generate 3-5 second video clip with camera slowly pushing forward
+4. Between rooms: generate AI transition (doorway, hallway)
+5. Concat all clips into a smooth walkthrough
+
+POV CAMERA MOVEMENT PROMPTS:
+- Living room: "Slow steady walk-forward POV through spacious living room, natural light from windows, smooth camera movement at eye level, residential interior"
+- Kitchen: "POV walking into modern kitchen, camera pans slightly to reveal island and appliances, bright clean lighting"
+- Bedroom: "POV entering bedroom through doorway, camera slowly reveals bed and window view, warm morning light"
+- Bathroom: "POV peek into clean bathroom, camera slowly tilts to show fixtures, bright white lighting"
+- Transition: "POV walking through hallway, passing doorframe, transitioning from one room to next, residential interior"
+
+When user uploads photos instead of video (Prompt-Only mode with images):
+{
+  "povWalkthrough": {
+    "enabled": true,
+    "photos": ["living.jpg", "kitchen.jpg", "bedroom.jpg", "bathroom.jpg", "view.jpg"],
+    "sequence": ["entrance", "living", "kitchen", "bedroom", "bathroom", "balcony-view"],
+    "transitionStyle": "doorway-walk",
+    "cameraPace": "slow-elegant",
+    "totalDuration": 30,
+    "perRoomDuration": 4
+  }
+}
+
+This is the MOST valuable feature for real estate agents who only have photos.`;
+
+// ============================================================
+// CATEGORY 24: AD LOCALIZATION AT SCALE
+// ============================================================
+export const AD_LOCALIZATION_PROMPT = `Generate localized ad variations from one master video.
+
+CONCEPT (from Rourke Heath's Kling O1 workflow):
+From ONE master video, automatically generate variations for different:
+- Languages (Hebrew → English, Arabic, Russian)
+- Audiences (young couples, investors, families, immigrants)
+- Platforms (different text/CTA per platform)
+
+LOCALIZATION TYPES:
+
+1. LANGUAGE LOCALIZATION:
+   - Translate subtitles/text overlays to target language
+   - Generate new voiceover in target language (ElevenLabs)
+   - Apply lip sync if speaker is visible (HeyGen)
+   - Change CTA text and phone number per region
+
+2. AUDIENCE LOCALIZATION:
+   - Same video, different hook text per audience:
+     Young couples: "הדירה הראשונה שלכם"
+     Investors: "תשואה של 6% מובטחת"
+     Families: "3 דקות מבית ספר"
+     Olim: "Your new home in Israel"
+   - Different CTA per audience segment
+
+3. PLATFORM LOCALIZATION:
+   Already covered in multi-platform cuts — different edit per platform
+
+When the user requests localization:
+{
+  "localizationPlan": {
+    "languages": [
+      { "code": "en", "voiceover": true, "lipSync": true, "subtitles": true, "cta": "Schedule a tour: +972-4-XXX" },
+      { "code": "ru", "voiceover": true, "lipSync": true, "subtitles": true, "cta": "Запланировать тур" },
+      { "code": "ar", "voiceover": true, "lipSync": false, "subtitles": true, "cta": "حدد موعد جولة" }
+    ],
+    "audienceVariations": [
+      { "audience": "investors", "hookText": "תשואה של 6% מובטחת", "ctaText": "קבלו תוכנית עסקית" },
+      { "audience": "young-couples", "hookText": "הדירה הראשונה שלכם מחכה", "ctaText": "בדקו זכאות למשכנתא" }
+    ],
+    "estimatedCost": "$0.45 per language (translate + voice + lip sync)",
+    "totalVariations": 5
+  }
+}
+
+This means from ONE 45-second video → the system outputs 5+ versions targeting different markets. Each version: same B-Roll, different voiceover/subtitles/CTA.`;
+
+// ============================================================
 // MASTER EDITING PROMPT (all rules combined)
 // ============================================================
 export const MASTER_EDITING_PROMPT = [
@@ -947,7 +1122,11 @@ export const MASTER_EDITING_PROMPT = [
   CHARACTER_CONSISTENCY_PROMPT, // Character consistency
   LIP_SYNC_PROMPT,         // AI lip sync intelligence
   AI_MOTION_GRAPHICS_PROMPT, // AI motion graphics
-  PLATFORM_CONTENT_STRATEGY_PROMPT // Platform content strategy
+  PLATFORM_CONTENT_STRATEGY_PROMPT, // Platform content strategy
+  AI_BACKGROUND_PROMPT,    // AI background replacement
+  AI_RELIGHTING_PROMPT,    // AI relighting
+  POV_WALKTHROUGH_PROMPT,  // POV walkthrough from photos
+  AD_LOCALIZATION_PROMPT   // Ad localization at scale
 ].join('\n\n');
 
 // ============================================================
@@ -1046,5 +1225,21 @@ export interface EditingBlueprint {
     duration: number;
     reason: string;
   }>;
+  backgroundPlan?: {
+    quality: number;
+    issue: string;
+    recommendation: 'keep' | 'blur' | 'replace';
+    blurIntensity?: number;
+    alternativeRecommendation?: string;
+  };
+  lightingPlan?: {
+    quality: number;
+    issues: string[];
+    autoFix?: {
+      brightness?: number;
+      contrast?: number;
+      colorTemp?: string;
+    };
+  };
   murchAverageScore: number;
 }

@@ -770,6 +770,77 @@ ${transcript.fullText}`
     }
   }
 
+  // --- POV WALKTHROUGH (from uploaded photos) ---
+  const uploadedPhotos = job.uploadedPhotos || job.files.filter(f => f.type.startsWith('image')).map(f => f.path);
+  if (job.mode === 'prompt-only' && uploadedPhotos.length >= 2) {
+    try {
+      updateProgress(job, 'מייצר סיור וירטואלי מתמונות...');
+
+      // Ask Claude to order photos into a logical walkthrough sequence
+      const sequenceResponse = await askClaude(
+        'You plan virtual property walkthroughs from photos. Return ONLY valid JSON.',
+        `Order these ${uploadedPhotos.length} photos into a logical walkthrough sequence for: "${job.prompt}"
+
+Return JSON:
+{
+  "sequence": [0, 2, 1, 3],
+  "roomLabels": ["entrance", "living-room", "kitchen", "bedroom"],
+  "cameraPace": "slow-elegant"
+}`
+      );
+
+      let sequence: number[] = [];
+      let roomLabels: string[] = [];
+      try {
+        const cleaned = sequenceResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const parsed = JSON.parse(cleaned);
+        sequence = parsed.sequence || uploadedPhotos.map((_: unknown, i: number) => i);
+        roomLabels = parsed.roomLabels || [];
+      } catch {
+        sequence = uploadedPhotos.map((_: unknown, i: number) => i);
+      }
+
+      const walkthroughClips: string[] = [];
+      const perRoomDuration = 4;
+
+      for (let i = 0; i < sequence.length; i++) {
+        const photoIndex = sequence[i];
+        const photoPath = uploadedPhotos[photoIndex];
+        if (!photoPath || !fs.existsSync(photoPath)) continue;
+
+        const roomLabel = roomLabels[i] || `room-${i}`;
+        const clipPath = `${genDir}/walkthrough_${i}.mp4`;
+
+        try {
+          updateProgress(job, `סיור וירטואלי — ${roomLabel} (${i + 1}/${sequence.length})...`);
+          const povPrompt = `Slow steady walk-forward POV through ${roomLabel}, smooth camera movement at eye level, cinematic, natural lighting, residential interior. No text, no watermark.`;
+
+          await kie.generateWithCamera(povPrompt, 'push-in', perRoomDuration, clipPath);
+          walkthroughClips.push(clipPath);
+        } catch (clipError: any) {
+          console.error(`[Generate] Walkthrough clip ${i} failed:`, clipError.message);
+          warnings.push(`Walkthrough ${roomLabel} failed: ${clipError.message}`);
+        }
+      }
+
+      if (walkthroughClips.length > 0) {
+        result.additionalAssets.walkthroughClips = walkthroughClips;
+        job.povWalkthrough = {
+          enabled: true,
+          photos: uploadedPhotos,
+          sequence: roomLabels,
+          totalDuration: walkthroughClips.length * perRoomDuration,
+          perRoomDuration,
+        };
+        updateJob(job.id, { povWalkthrough: job.povWalkthrough } as any);
+        console.log(`[Generate] POV walkthrough: ${walkthroughClips.length} room clips generated`);
+      }
+    } catch (error: any) {
+      console.error('[Generate] POV walkthrough failed:', error.message);
+      warnings.push(`POV walkthrough failed: ${error.message}`);
+    }
+  }
+
   // Collect warnings into job
   if (warnings.length > 0) {
     const existingWarnings = job.warnings || [];

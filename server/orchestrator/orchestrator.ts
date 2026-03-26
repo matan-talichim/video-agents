@@ -973,6 +973,51 @@ Return ONLY valid JSON: { "tiktok": {...}, "instagram": {...}, ... }`
       }
     }
 
+    // === AD LOCALIZATION (generate language/audience variations) ===
+    if (
+      job.plan.generate.aiDubbing &&
+      editResult?.finalVideoPath &&
+      fs.existsSync(editResult.finalVideoPath) &&
+      (analysisTranscript || transcript)
+    ) {
+      try {
+        updateJob(job.id, { currentStep: 'מתכנן לוקליזציה...' });
+        const { askClaude: askClaudeForLocale } = await import('../services/claude.js');
+
+        const localeResponse = await askClaudeForLocale(
+          'You plan ad localization for international markets. Return ONLY valid JSON.',
+          `Plan localization for this video:
+Prompt: "${job.prompt}"
+Category: ${job.videoIntelligence?.concept?.category || 'general'}
+Target language: ${job.plan.generate.aiDubbingTargetLanguage || 'en'}
+Original language: Hebrew
+
+Return JSON:
+{
+  "languages": [
+    { "code": "en", "voiceover": true, "lipSync": true, "subtitles": true, "cta": "Schedule a tour" }
+  ],
+  "audienceVariations": [
+    { "audience": "investors", "hookText": "תשואה של 6% מובטחת", "ctaText": "קבלו תוכנית עסקית" }
+  ]
+}`
+        );
+
+        try {
+          const cleaned = localeResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          const localizationPlan = JSON.parse(cleaned);
+          job.localizationPlan = localizationPlan;
+          updateJob(job.id, { localizationPlan } as any);
+          console.log(`[Pipeline] Localization plan: ${localizationPlan.languages?.length || 0} languages, ${localizationPlan.audienceVariations?.length || 0} audience variations`);
+        } catch {
+          console.log('[Pipeline] Localization plan parsing failed, skipping');
+        }
+      } catch (error: any) {
+        console.error('Localization planning failed:', error.message);
+        allWarnings.push('Localization planning failed: ' + error.message);
+      }
+    }
+
     // === POST-RENDER: QA + HOOKS + LOOP + A/B TESTING ===
     let finalVideoPath = editResult?.finalVideoPath || `output/${job.id}/final.mp4`;
 

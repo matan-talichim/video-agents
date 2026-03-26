@@ -104,6 +104,28 @@ export interface Job {
     polishLevel: string;
     soundStrategy: string;
   }>;
+  povWalkthrough?: {
+    enabled: boolean;
+    photos: string[];
+    sequence: string[];
+    totalDuration?: number;
+    perRoomDuration?: number;
+  };
+  localizationPlan?: {
+    languages: Array<{
+      code: string;
+      voiceover: boolean;
+      lipSync: boolean;
+      subtitles: boolean;
+      cta: string;
+    }>;
+    audienceVariations?: Array<{
+      audience: string;
+      hookText: string;
+      ctaText: string;
+    }>;
+  };
+  uploadedPhotos?: string[];
 }
 
 export interface FileInfo {

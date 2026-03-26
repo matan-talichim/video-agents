@@ -711,6 +711,56 @@ Rules:
   }
 
   // ========================================================
+  // STEP 6.7: AI BACKGROUND PLAN (blur bad backgrounds)
+  // ========================================================
+  const backgroundPlan = job.editingBlueprint?.backgroundPlan;
+  if (backgroundPlan && backgroundPlan.recommendation === 'blur') {
+    try {
+      updateProgress(job, 'מטשטש רקע לא נקי...');
+      const intensity = backgroundPlan.blurIntensity || 15;
+      const output = nextOutput();
+      // Center-focus blur: keep center sharp, blur edges (simulates depth of field)
+      await ffmpeg.runFFmpeg(
+        `ffmpeg -i "${currentVideo}" -vf "split[original][blur];[blur]boxblur=${intensity}[blurred];[original][blurred]overlay=(W-w)/2:(H-h)/2" -c:a copy -y "${output}"`
+      );
+      currentVideo = output;
+      console.log(`[Edit] Background blur applied (intensity: ${intensity}) — issue: ${backgroundPlan.issue}`);
+    } catch (error: any) {
+      console.error('Background blur failed:', error.message);
+      warnings.push('Background blur failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
+  // STEP 6.8: AI RELIGHTING (FFmpeg lighting fixes)
+  // ========================================================
+  const lightingPlan = job.editingBlueprint?.lightingPlan;
+  if (lightingPlan?.autoFix) {
+    try {
+      updateProgress(job, 'מתקן תאורה...');
+      const fix = lightingPlan.autoFix;
+      const filters: string[] = [];
+
+      if (fix.brightness) filters.push(`eq=brightness=${fix.brightness}`);
+      if (fix.contrast && fix.contrast !== 1.0) filters.push(`eq=contrast=${fix.contrast}`);
+      if (fix.colorTemp === 'warm-shift') filters.push(`colorbalance=rs=0.05:gs=0.02`);
+      if (fix.colorTemp === 'cool-shift') filters.push(`colorbalance=bs=0.05`);
+
+      if (filters.length > 0) {
+        const output = nextOutput();
+        await ffmpeg.runFFmpeg(
+          `ffmpeg -i "${currentVideo}" -vf "${filters.join(',')}" -c:a copy -y "${output}"`
+        );
+        currentVideo = output;
+        console.log(`[Edit] Lighting fixes applied: ${filters.join(', ')} — issues: ${lightingPlan.issues.join(', ')}`);
+      }
+    } catch (error: any) {
+      console.error('Lighting fix failed:', error.message);
+      warnings.push('Lighting fix failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
   // STEP 7: SKIN TONE + LIGHTING
   // ========================================================
   if (plan.edit.skinToneCorrection) {
