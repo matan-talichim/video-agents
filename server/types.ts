@@ -57,6 +57,7 @@ export interface Job {
   stabilized?: boolean;
   originalShakiness?: number;
   freshEyesReview?: import('./services/freshEyesReview.js').FreshEyesResult;
+  contentSelection?: import('./services/contentSelector.js').ContentSelectionResult;
 }
 
 export interface FileInfo {

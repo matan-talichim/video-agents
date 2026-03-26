@@ -21,6 +21,7 @@ import { detectPresenter, filterTranscriptToPresenter } from '../services/presen
 import { verifySpeakers } from '../services/speakerVerifier.js';
 import { analyzeVideoIntelligence, applyIntelligenceToPlan } from '../services/videoIntelligence.js';
 import { runFreshEyesReview, autoApplyFixes } from '../services/freshEyesReview.js';
+import { selectBestContent } from '../services/contentSelector.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -519,6 +520,34 @@ export async function runPipeline(job: Job): Promise<void> {
       } catch (error: any) {
         console.error('Video intelligence failed:', error.message);
         allWarnings.push('Video intelligence failed: ' + error.message);
+      }
+    }
+
+    // --- CONTENT SELECTION (12-dimension segment scoring) ---
+    if (analysisTranscript && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מדרג ובוחר את הרגעים הטובים ביותר...' });
+        console.log(`[Pipeline] Running content selection for job ${job.id}`);
+
+        const targetDur = job.plan.export.targetDuration === 'auto'
+          ? undefined
+          : job.plan.export.targetDuration as number;
+
+        const contentSelection = await selectBestContent(
+          presenterTranscript || transcript!,
+          targetDur,
+          job.videoIntelligence?.concept?.category || 'talking-head',
+          job.prompt
+        );
+
+        job.contentSelection = contentSelection;
+        saveJSON(`temp/${job.id}/content_selection.json`, contentSelection);
+        updateJob(job.id, { contentSelection } as any);
+
+        console.log(`[Pipeline] Content selection: ${contentSelection.summary.keepDuration.toFixed(0)}s kept from ${contentSelection.summary.totalFootageDuration.toFixed(0)}s (${contentSelection.summary.cutPercentage}% cut)`);
+      } catch (error: any) {
+        console.error('Content selection failed:', error.message);
+        allWarnings.push('Content selection failed: ' + error.message);
       }
     }
 
