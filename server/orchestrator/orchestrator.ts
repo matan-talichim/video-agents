@@ -18,6 +18,7 @@ import { generateMultiPageStory } from '../templates/multiPageStories.js';
 import { applyBrandKitToPlan, getBrandPromptPrefix } from '../services/brandKit.js';
 import { analyzeContent } from '../services/contentAnalyzer.js';
 import { detectPresenter, filterTranscriptToPresenter } from '../services/presenterDetector.js';
+import { verifySpeakers } from '../services/speakerVerifier.js';
 import { analyzeVideoIntelligence, applyIntelligenceToPlan } from '../services/videoIntelligence.js';
 import fs from 'fs';
 
@@ -399,11 +400,12 @@ export async function runPipeline(job: Job): Promise<void> {
       });
     }
 
-    // --- PRESENTER DETECTION ---
+    // --- PRESENTER DETECTION + SPEAKER VERIFICATION (3 Layers) ---
     let presenterTranscript: TranscriptResult | null = null;
 
     if (transcript && job.files.length > 0) {
       try {
+        // Step 1: Basic presenter detection (Layer 1 audio + Layer 2 visual baseline)
         updateJob(job.id, { currentStep: 'מזהה את הפרזנטור...' });
         console.log(`[Pipeline] Running presenter detection for job ${job.id}`);
 
@@ -419,25 +421,65 @@ export async function runPipeline(job: Job): Promise<void> {
         console.log(`[Pipeline] Presenter: speaker ${presenterDetection.presenterId} — ${presenterDetection.presenterDescription}`);
         console.log(`[Pipeline] Non-presenter segments to exclude: ${presenterDetection.nonPresenterSegments.length}`);
 
+        // Step 2: 3-layer speaker verification (cross-validates Deepgram diarization)
+        updateJob(job.id, { currentStep: 'מאמת זהות דוברים (3 שכבות)...' });
+        console.log(`[Pipeline] Running 3-layer speaker verification for job ${job.id}`);
+
+        const speakerVerification = await verifySpeakers(
+          job.files[0].path,
+          transcript
+        );
+
+        job.speakerVerification = speakerVerification;
+        saveJSON(`temp/${job.id}/speaker_verification.json`, speakerVerification);
+        updateJob(job.id, { speakerVerification } as any);
+
+        // Log corrections
+        if (speakerVerification.corrections.length > 0) {
+          console.log(`[Pipeline] Speaker corrections:`);
+          for (const correction of speakerVerification.corrections) {
+            console.log(`  ${correction.type}: ${correction.description}`);
+          }
+        }
+
+        // Find the presenter (on-camera speaker with most time)
+        const presenter = speakerVerification.speakers
+          .filter(s => s.isOnCamera)
+          .sort((a, b) => b.totalTime - a.totalTime)[0]
+          || speakerVerification.speakers.sort((a, b) => b.totalTime - a.totalTime)[0];
+
         // Build list of speaker IDs to keep (presenter + on-camera interviewers)
-        const keepIds = [presenterDetection.presenterId];
-        for (const speaker of presenterDetection.allSpeakers) {
-          if (speaker.role === 'interviewer' && speaker.isOnCamera) {
-            keepIds.push(speaker.speakerId);
+        const keepIds: number[] = [];
+        if (presenter) {
+          keepIds.push(...presenter.originalIds);
+          // Also keep interviewers who are on camera
+          for (const speaker of speakerVerification.speakers) {
+            if (speaker.id !== presenter.id && speaker.isOnCamera) {
+              keepIds.push(...speaker.originalIds);
+            }
+          }
+        } else {
+          // Fallback to basic presenter detection IDs
+          keepIds.push(presenterDetection.presenterId);
+          for (const speaker of presenterDetection.allSpeakers) {
+            if (speaker.role === 'interviewer' && speaker.isOnCamera) {
+              keepIds.push(speaker.speakerId);
+            }
           }
         }
 
         // Filter transcript to presenter-only BEFORE content analysis
         presenterTranscript = filterTranscriptToPresenter(
           transcript,
-          presenterDetection.presenterId,
+          presenter?.originalIds[0] ?? presenterDetection.presenterId,
           keepIds
         );
 
         console.log(`[Pipeline] Filtered transcript: ${presenterTranscript.words.length} words (from ${transcript.words.length} original)`);
+        console.log(`[Pipeline] Speaker verification confidence: ${Math.round(speakerVerification.confidence * 100)}%`);
       } catch (error: any) {
-        console.error('Presenter detection failed:', error.message);
-        allWarnings.push('Presenter detection failed: ' + error.message);
+        console.error('Presenter detection / speaker verification failed:', error.message);
+        allWarnings.push('Speaker verification failed: ' + error.message);
       }
     }
 

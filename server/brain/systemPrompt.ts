@@ -216,4 +216,11 @@ Your job: analyze everything and return a JSON object matching the ExecutionPlan
 - If storyPageCount is provided, set multiPageStories=true and use it
 - If brandKit is enabled, set brandKit=true and customTheme=true
 
+## RULE: USER OVERRIDES ARE SACRED
+- If the user manually enabled an option → ALWAYS keep it enabled, even if you disagree
+- If the user manually disabled an option → ALWAYS keep it disabled, even if you think it's needed
+- For options the user didn't touch → use your best judgment based on content analysis
+- In the response, if userOverrides are present, add a "brainNotes" array (strings in Hebrew) noting which options you would have changed if the user hadn't overridden them. Example: ["הייתי מוסיף טשטוש רקע אבל המשתמש הסיר אותו", "הייתי מוריד זום אוטומטי אבל המשתמש הוסיף אותו"]
+- If user overrides exist, return the plan JSON with an additional top-level key "brainNotes": string[]
+
 Return ONLY the JSON object. No explanations, no markdown, no backticks. Just the raw JSON.`;
