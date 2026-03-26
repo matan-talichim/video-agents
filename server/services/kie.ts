@@ -220,22 +220,37 @@ async function pollMarketTask(taskId: string, timeoutMs: number = 300000): Promi
 
       const successFlag = taskData.successFlag;
 
-      if (successFlag === 1) {
-        // Success — extract video URL
+      // Check success via successFlag (numeric) or state (string)
+      const isSuccess = successFlag === 1 || taskData.state === 'success';
+      const isFailed = successFlag === 2 || taskData.state === 'fail' || taskData.state === 'failed';
+
+      if (isSuccess) {
+        // Success — extract video URL from multiple possible locations
+
+        // Some models return resultJson as a stringified JSON string
+        if (taskData.resultJson && typeof taskData.resultJson === 'string') {
+          try {
+            const parsed = JSON.parse(taskData.resultJson);
+            const urls = parsed.resultUrls || parsed.result_urls || [];
+            if (urls.length > 0) return urls[0];
+          } catch { /* fall through to other methods */ }
+        }
+
+        // Standard response object
         const response = taskData.response || {};
         const urls = response.result_urls || response.resultUrls || response.video_urls || [];
         if (urls.length > 0) return urls[0];
         // Fallback: check for single url field
         if (response.video_url) return response.video_url;
         if (response.url) return response.url;
-        throw new Error(`KIE.ai: task completed but no URL found in response: ${JSON.stringify(response)}`);
+        throw new Error(`KIE.ai: task completed but no URL found in response: ${JSON.stringify(taskData)}`);
       }
 
-      if (successFlag === 2) {
-        throw new Error(`KIE.ai task failed: ${taskData.errorMessage || taskData.errorCode || 'unknown error'}`);
+      if (isFailed) {
+        throw new Error(`KIE.ai task failed: ${taskData.errorMessage || taskData.failMsg || taskData.errorCode || taskData.failCode || 'unknown error'}`);
       }
 
-      // Still generating (successFlag === 0)
+      // Still generating (successFlag === 0 or state === 'waiting'/'generating')
       const progress = taskData.progress ? `${Math.round(parseFloat(taskData.progress) * 100)}%` : '';
       if (progress) console.log(`[KIE] Task ${taskId}: ${progress}`);
 
