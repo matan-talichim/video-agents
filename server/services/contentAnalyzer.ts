@@ -3,6 +3,8 @@ import { askClaude, askClaudeVision } from './claude.js';
 import { runFFmpeg, extractFrame, getVideoDuration } from './ffmpeg.js';
 import { MASTER_EDITING_PROMPT } from './editingRules.js';
 import type { EditingBlueprint } from './editingRules.js';
+import { getMasterPromptContext } from './masterPromptOptimizer.js';
+import { getBrainContext } from './editorBrain.js';
 import type { TranscriptResult } from '../types.js';
 
 export interface ContentAnalysis {
@@ -502,6 +504,10 @@ IMPORTANT:
 - For crossfades, include "duration" (0.5-1.0s)
 
 ${MASTER_EDITING_PROMPT}
+
+${getMasterPromptContext() ? `=== LEARNINGS FROM PAST PROJECTS ===\n${getMasterPromptContext()}` : ''}
+
+${getBrainContext('general', 'all') ? `=== SIMILAR PAST PROJECTS ===\n${getBrainContext('general', 'all')}` : ''}
 
 Based on your content analysis, create a complete "editingBlueprint" following ALL the rules above.
 The blueprint should contain: cuts, zooms, brollInsertions, musicSync, soundDesign, colorPlan, platformOptimization, speedRamps, patternInterrupts, emotionalArc.
