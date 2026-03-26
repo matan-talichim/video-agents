@@ -47,6 +47,9 @@ export default function CostBreakdown({ blueprint }: Props) {
 
     // Ambient
     ambientSound: 0.03,
+
+    // Presenter Quality
+    presenterQuality: 0.05,
   };
 
   const total = Object.values(costs).reduce((sum, c) => sum + c, 0);
@@ -65,7 +68,8 @@ export default function CostBreakdown({ blueprint }: Props) {
       costs.subtitleStyle +
       costs.engagementPrediction +
       costs.contentSafety +
-      costs.ambientSound) /
+      costs.ambientSound +
+      costs.presenterQuality) /
       0.03
   );
 
@@ -103,6 +107,10 @@ export default function CostBreakdown({ blueprint }: Props) {
         <CostRow
           label={`Enterprise Polish (6 calls)`}
           cost={costs.subtitleStyle + costs.brandCompliance + costs.expressionAnalysis + costs.engagementPrediction + costs.contentSafety + costs.devicePreview}
+        />
+        <CostRow
+          label="ניתוח פרזנטור (קשר עין + שפת גוף)"
+          cost={costs.presenterQuality}
         />
         <CostRow
           label="Thumbnails"

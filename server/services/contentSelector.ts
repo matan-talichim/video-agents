@@ -1,5 +1,6 @@
 import { askClaude } from './claude';
 import { TranscriptResult } from '../types';
+import type { PresenterQualityResult } from './presenterQuality.js';
 
 export interface ScoredSegment {
   start: number;
@@ -454,4 +455,101 @@ function getTopMomentReason(seg: ScoredSegment): string {
     energy: 'אנרגיה גבוהה — הדובר בשיא ההתלהבות',
   };
   return reasons[topScore[0]] || 'קטע איכותי';
+}
+
+// --- Presenter Quality Integration ---
+
+export function verifyCompleteSentences(
+  selectedSegments: Array<{ text: string; start: number; end: number }>,
+  allWords: Array<{ word: string; start: number; end: number }>
+): Array<{ index: number; issue: string; fix: string }> {
+  const issues: Array<{ index: number; issue: string; fix: string }> = [];
+
+  for (let i = 0; i < selectedSegments.length; i++) {
+    const seg = selectedSegments[i];
+    const text = seg.text.trim();
+
+    // Check 1: Does segment end mid-word?
+    const lastWord = allWords
+      .filter(w => w.start >= seg.start && w.end <= seg.end + 0.1)
+      .pop();
+
+    if (lastWord) {
+      const lastChar = text[text.length - 1];
+      const endsCleanly = ['.', '!', '?', ',', ':', '…'].includes(lastChar) ||
+                          text.endsWith(lastWord.word);
+
+      if (!endsCleanly) {
+        issues.push({
+          index: i,
+          issue: `segment ends mid-word: "...${text.slice(-20)}"`,
+          fix: `extend segment end by 0.3s to include complete word`
+        });
+      }
+    }
+
+    // Check 2: Does segment start mid-sentence?
+    const firstWord = text.split(' ')[0];
+    const midSentenceStarters = ['ו', 'אבל', 'כי', 'אז', 'גם', 'או', 'and', 'but', 'so', 'because'];
+
+    if (midSentenceStarters.includes(firstWord) && i > 0) {
+      const prevSeg = selectedSegments[i - 1];
+      const gap = seg.start - prevSeg.end;
+
+      if (gap > 1.0) {
+        issues.push({
+          index: i,
+          issue: `segment starts mid-sentence with "${firstWord}" but previous segment ended ${gap.toFixed(1)}s ago`,
+          fix: `either include connecting content or trim the conjunction`
+        });
+      }
+    }
+  }
+
+  return issues;
+}
+
+export function applyPresenterQuality(
+  scoredSegments: ScoredSegment[],
+  presenterQuality: PresenterQualityResult
+): ScoredSegment[] {
+  for (const seg of scoredSegments) {
+    const segIndex = scoredSegments.indexOf(seg);
+    const presenterScore = presenterQuality.segmentScores.find(
+      ps => ps.segmentIndex === segIndex
+    );
+
+    if (!presenterScore) continue;
+
+    // Modify total score based on presenter quality
+    const presenterBonus = (presenterScore.overallPresenterScore - 5) * 2;
+    seg.totalScore = Math.max(0, Math.min(100, seg.totalScore + presenterBonus));
+
+    // Update decision based on presenter recommendation
+    if (presenterScore.recommendation === 'avoid' && seg.decision !== 'must-keep') {
+      seg.decision = 'cut';
+      const note = ' | Presenter: avoid (poor eye contact/delivery)';
+      seg.editNotes.brollReason = (seg.editNotes.brollReason || '') + note;
+    }
+
+    if (presenterScore.recommendation === 'use-with-broll-cover') {
+      const note = ' | Presenter: cover with B-Roll (keep audio, hide face)';
+      seg.editNotes.brollReason = (seg.editNotes.brollReason || '') + note;
+      seg.editNotes.needsBRoll = true;
+      (seg as any).needsBRollCover = true;
+    }
+
+    if (presenterScore.eyeContact >= 8 && presenterScore.recommendation === 'use') {
+      seg.editNotes.needsZoom = true;
+      seg.editNotes.zoomType = 'in';
+      (seg as any).recommendZoomIn = true;
+    }
+
+    // Mid-word cut protection
+    if (presenterScore.midWordCut) {
+      (seg as any).extendEnd = 0.3;
+    }
+  }
+
+  return scoredSegments;
 }

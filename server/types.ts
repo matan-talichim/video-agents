@@ -52,6 +52,7 @@ export interface Job {
   protectedSilences?: ContentAnalysis['protectedSilences'];
   shakeEffects?: Array<{ at: number; duration: number; intensity: number }>;
   presenterDetection?: PresenterDetection;
+  presenterQuality?: import('./services/presenterQuality.js').PresenterQualityResult;
   speakerVerification?: VerifiedSpeakerMap;
   videoIntelligence?: VideoIntelligence;
   stabilized?: boolean;
