@@ -810,6 +810,110 @@ Rules:
   }
 
   // ========================================================
+  // STEP 11.5: MARKETING STRATEGY — apply CTA, triggers, social proof to plan
+  // ========================================================
+  if (job.videoIntelligence?.marketingStrategy) {
+    try {
+      const strategy = job.videoIntelligence.marketingStrategy;
+      console.log(`[Edit] Applying marketing strategy: ${strategy.videoAdType}`);
+
+      // Apply text overlays based on video ad type
+      if (strategy.textOverlaysByType) {
+        (job as any).kineticTextPlan = (job as any).kineticTextPlan || [];
+        for (const overlay of strategy.textOverlaysByType) {
+          (job as any).kineticTextPlan.push({
+            text: overlay.text,
+            startTime: overlay.timestamp,
+            endTime: overlay.timestamp + 3,
+            animation: overlay.type === 'price' ? 'scale-up' : 'slide-up',
+            fontSize: overlay.type === 'price' ? 'large' : 'medium',
+            type: `marketing-${overlay.type}`,
+          });
+        }
+      }
+
+      // Apply CTA plan
+      if (strategy.ctaPlan?.primaryCTA) {
+        plan.edit.cta = true;
+        plan.edit.ctaText = strategy.ctaPlan.primaryCTA.text;
+      }
+    } catch (error: any) {
+      console.error('Marketing strategy application failed:', error.message);
+      warnings.push('Marketing strategy application failed: ' + error.message);
+    }
+  }
+
+  // Apply conversion triggers (countdown timers, price anchoring, etc.)
+  if (job.videoIntelligence?.conversionStrategy?.triggerImplementation) {
+    try {
+      const videoDuration = await ffmpeg.getVideoDuration(currentVideo);
+      (job as any).kineticTextPlan = (job as any).kineticTextPlan || [];
+
+      for (const trigger of job.videoIntelligence.conversionStrategy.triggerImplementation) {
+        if (trigger.visual === 'countdown-timer') {
+          (job as any).kineticTextPlan.push({
+            text: trigger.text,
+            startTime: videoDuration - 5,
+            endTime: videoDuration,
+            animation: 'shake',
+            fontSize: 'large',
+            color: '#EF4444',
+            type: 'conversion-countdown',
+          });
+        } else if (trigger.visual === 'strikethrough-animation') {
+          const ts = typeof trigger.timestamp === 'number' ? trigger.timestamp : videoDuration * 0.6;
+          (job as any).kineticTextPlan.push({
+            text: trigger.text,
+            startTime: ts,
+            endTime: ts + 3,
+            animation: 'scale-up',
+            fontSize: 'large',
+            type: 'conversion-anchoring',
+          });
+        } else if (trigger.visual === 'counter-animation') {
+          const ts = typeof trigger.timestamp === 'number' ? trigger.timestamp : videoDuration * 0.5;
+          (job as any).kineticTextPlan.push({
+            text: trigger.text,
+            startTime: ts,
+            endTime: ts + 3,
+            animation: 'bounce',
+            fontSize: 'large',
+            type: 'conversion-social-proof',
+          });
+        }
+      }
+
+      console.log(`[Edit] Applied ${job.videoIntelligence.conversionStrategy.triggerImplementation.length} conversion triggers`);
+    } catch (error: any) {
+      console.error('Conversion trigger application failed:', error.message);
+      warnings.push('Conversion trigger application failed: ' + error.message);
+    }
+  }
+
+  // Apply social proof overlays
+  if (job.videoIntelligence?.socialProofPlan && job.videoIntelligence.socialProofPlan.length > 0) {
+    try {
+      (job as any).kineticTextPlan = (job as any).kineticTextPlan || [];
+
+      for (const proof of job.videoIntelligence.socialProofPlan) {
+        (job as any).kineticTextPlan.push({
+          text: proof.text,
+          startTime: proof.timestamp,
+          endTime: proof.timestamp + 3,
+          animation: proof.type === 'numbers' ? 'bounce' : 'fade-in',
+          fontSize: proof.type === 'numbers' ? 'large' : 'medium',
+          type: `social-proof-${proof.type}`,
+        });
+      }
+
+      console.log(`[Edit] Applied ${job.videoIntelligence.socialProofPlan.length} social proof overlays`);
+    } catch (error: any) {
+      console.error('Social proof application failed:', error.message);
+      warnings.push('Social proof application failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
   // STEP 12-14: REMOTION RENDER (subtitles, lower thirds, CTA, kinetic typography, logo)
   // Replaces individual FFmpeg text overlay steps with a single Remotion render
   // ========================================================

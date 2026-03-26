@@ -223,3 +223,231 @@ For each video, the Brain must:
 3. Plan CTA placement and style per type
 4. Plan text overlays per type (product labels, room names, statistics, step numbers)
 5. Set the right duration for the platform`;
+
+
+// ============================================================
+// CONVERSION OPTIMIZATION RULES
+// ============================================================
+
+export const CONVERSION_RULES_PROMPT = `You maximize video conversion rates using proven marketing psychology.
+
+MARKETING FUNNEL — edit differently for each stage:
+
+TOP OF FUNNEL (Awareness — "מי אתם?"):
+- Goal: stop the scroll, get attention, make them remember
+- Duration: 15-30 seconds maximum
+- Hook: bold claim, surprising stat, or emotional moment
+- NO hard sell — just intrigue and brand impression
+- CTA: "עקבו לעוד" / "שתפו" (soft CTA)
+- Edit style: fast cuts, energetic, visually stunning
+- Music: trending, attention-grabbing
+
+MIDDLE OF FUNNEL (Consideration — "למה אתם?"):
+- Goal: educate, differentiate, build trust
+- Duration: 30-60 seconds
+- Show: features, benefits, comparisons, social proof
+- CTA: "גלו עוד" / "הורידו מדריך" / "צפו בסיפור"
+- Edit style: balanced, professional, clear information delivery
+- Music: moderate, professional
+
+BOTTOM OF FUNNEL (Decision — "מוכן לקנות"):
+- Goal: overcome objections, create urgency, close the deal
+- Duration: 15-30 seconds
+- Show: price, offer, testimonials, guarantees, scarcity
+- CTA: "קנו עכשיו" / "הזמינו" / "התקשרו" (hard CTA)
+- Edit style: direct, confident, urgent
+- Music: building to action
+
+PSYCHOLOGICAL TRIGGERS TO USE:
+
+1. SCARCITY (מחסור):
+   "רק 3 דירות נותרו" / "מוגבל ל-50 ראשונים"
+   Add countdown timer in last 5 seconds
+   Use red/orange accent colors for urgency
+
+2. SOCIAL PROOF (הוכחה חברתית):
+   "1,200 משפחות כבר גרות כאן" / "4.9 כוכבים מ-500 ביקורות"
+   Show real numbers, real faces, real results
+   Counter animations: numbers counting up
+
+3. AUTHORITY (סמכות):
+   Awards, certifications, media mentions, years of experience
+   "מנצחי פרס X" / "כפי שפורסם ב-Y" / "20 שנות ניסיון"
+
+4. RECIPROCITY (הדדיות):
+   Give value first → then ask for action
+   "הנה 3 טיפים חינם..." → "רוצים עוד? הירשמו"
+   Educational content → lead magnet CTA
+
+5. LOSS AVERSION (פחד מהפסד):
+   "אל תפספסו" / "ההזדמנות נגמרת ב-X"
+   People fear losing more than they desire gaining
+   Show what they'll MISS, not just what they'll GET
+
+6. ANCHORING (עיגון):
+   Show original price crossed out, then sale price
+   "שווה ₪5,000 → שלכם ב-₪1,990"
+   Always show the higher number first
+
+7. BANDWAGON (עדר):
+   "הצטרפו ל-10,000+ שכבר עשו את הצעד"
+   Show trend: growing numbers, busy offices, full events
+
+For each video, determine:
+- Which funnel stage is this video for?
+- Which 2-3 psychological triggers to use?
+- How to integrate them naturally (not pushy)
+
+Return:
+{
+  "funnelStage": "bottom",
+  "psychologicalTriggers": ["scarcity", "social-proof", "anchoring"],
+  "triggerImplementation": [
+    { "trigger": "scarcity", "text": "רק 5 דירות נותרו", "timestamp": "last 5s", "visual": "countdown-timer" },
+    { "trigger": "anchoring", "text": "₪2,500,000 → ₪1,890,000", "timestamp": "at price reveal", "visual": "strikethrough-animation" }
+  ]
+}`;
+
+
+// ============================================================
+// SOCIAL PROOF INTEGRATION
+// ============================================================
+
+export const SOCIAL_PROOF_PROMPT = `Integrate social proof elements naturally into the video.
+
+SOCIAL PROOF TYPES:
+
+1. NUMBERS (most powerful):
+   Counter animation: "1,247 → 1,248 לקוחות מרוצים" (number counting up)
+   Statistics: "98% שביעות רצון" with animated bar
+   Growth: "x3 צמיחה בשנה האחרונה"
+   Show as kinetic text with bold animation at strategic moments
+
+2. TESTIMONIAL CLIPS:
+   If video has testimonial segments, place them at the "proof" moment in the structure
+   Lower third: name + role + result ("דני כהן, רוכש דירה, חסך ₪200K")
+   Keep individual testimonials to 8-15 seconds each
+
+3. LOGOS AND BADGES:
+   Client logos bar (if B2B): show 4-6 logos
+   "כפי שנראה ב-" media mentions
+   Certification badges
+   Place at 30-40% of video (after establishing credibility)
+
+4. USER-GENERATED FEEL:
+   Even scripted content can feel authentic:
+   - Slightly imperfect framing = more trustworthy
+   - Eye contact with camera = personal connection
+   - Natural pauses = not over-rehearsed
+   - Real location (not studio) = relatable
+
+5. RESULTS-FOCUSED:
+   "לפני: X → אחרי: Y"
+   Specific numbers: "חסכנו 45% בעלויות" (not "חסכנו הרבה")
+   Timeframe: "תוך 30 יום" (adds believability)
+
+When planning text overlays and B-Roll, integrate social proof at these moments:
+- After making a claim → immediately show proof
+- Before CTA → boost confidence with social proof
+- At the "why us" section → differentiate with results`;
+
+
+// ============================================================
+// INDUSTRY-SPECIFIC MARKETING RULES
+// ============================================================
+
+export const INDUSTRY_RULES_PROMPT = `Apply industry-specific marketing rules:
+
+REAL ESTATE (נדל"ן):
+- Lead with lifestyle, not specifications
+- Show the FEELING of living there, not just rooms
+- Aerial shots = luxury signal
+- Golden hour lighting = premium feel
+- Always include: location benefits, price (if competitive), unique features
+- Text overlays: room sizes, floor number, direction (south-facing)
+- CTA: phone number, WhatsApp link, "schedule tour"
+- B-Roll: neighborhood, beach, parks, restaurants, schools nearby
+- Emotional arc: "imagine your life here" → features → proof → "make it yours"
+
+FOOD & RESTAURANT (מזון):
+- Close-up shots of food (ASMR-style if possible)
+- Steam, melting, pouring, cutting = engagement boosters
+- Fast cuts during preparation, slow for final reveal
+- Warm color grading (makes food look appetizing)
+- Text: prices, special ingredients, dietary info
+- CTA: "הזמינו עכשיו" / "מצאו סניף"
+
+FASHION & BEAUTY (אופנה):
+- Model/lifestyle shots, not flat lays
+- Show the product in use/worn
+- Trendy transitions, speed ramps
+- Music: current, trendy, beat-driven
+- Text: price, material, sizes available
+- CTA: "קנו עם X% הנחה"
+
+TECH / SAAS (טכנולוגיה):
+- Screen recordings with zoom-ins on features
+- Problem → Solution structure always
+- Clean, minimal design, lots of whitespace
+- Animated text for feature names
+- Music: modern, electronic, clean
+- CTA: "התחילו ניסיון חינם" / "צפו בהדגמה"
+
+HEALTH & FITNESS (בריאות):
+- Before/after transformations
+- Action shots, energy, movement
+- Motivational tone
+- Warm, vibrant colors
+- Text: results, timeframes, testimonials
+- CTA: "התחילו היום" / "הצטרפו"
+
+EDUCATION (חינוך):
+- Value-first: teach something in the video itself
+- Screen + face split (talking head + visuals)
+- Numbered steps, clear progression
+- Professional but approachable
+- CTA: "הירשמו לקורס" / "הורידו מדריך חינם"
+
+EVENTS (אירועים):
+- Fast montage of highlights
+- Beat-synced cuts mandatory
+- Crowd energy, atmosphere, emotion
+- Speaker soundbites (best 5-second moments)
+- CTA: "הזמינו כרטיסים" / date+location
+
+AUTOMOTIVE (רכב):
+- Cinematic driving shots
+- Detail close-ups (wheels, interior, dashboard)
+- Speed ramps (slow → fast → slow)
+- Deep, cinematic color grading
+- Engine sound design
+- CTA: "קבעו נסיעת מבחן"
+
+E-COMMERCE (חנות אונליין):
+- Product from multiple angles
+- Lifestyle context (product in real use)
+- Price + discount prominent
+- Fast pacing, multiple products in one video
+- "Swipe to shop" / "Link in bio" for social
+- CTA: "קנו עכשיו" with direct link
+
+SERVICE BUSINESS (שירותים):
+- Process explanation: "how we work"
+- Team introduction: faces build trust
+- Results/portfolio showcase
+- Client testimonial integration
+- CTA: "קבעו שיחת ייעוץ חינם"
+
+For each video, identify the industry and apply the correct rules automatically.
+
+Return:
+{
+  "industry": "real-estate",
+  "industryRules": {
+    "leadWith": "lifestyle",
+    "mustInclude": ["aerial", "golden-hour", "location-benefits", "price"],
+    "colorGrading": "warm-luxury",
+    "musicMood": "calm-elegant",
+    "ctaStyle": "phone-number-prominent"
+  }
+}`;
