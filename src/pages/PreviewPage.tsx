@@ -17,6 +17,7 @@ import MarketingPlanPanel from '../components/MarketingPlanPanel';
 import EditingPlanPreview from '../components/EditingPlanPreview';
 import CostBreakdownDetailed from '../components/CostBreakdown';
 import TranscriptPreview from '../components/TranscriptPreview';
+import BrainSuggestionsChecklist from '../components/BrainSuggestionsChecklist';
 import { calculateLiveCost } from '../utils/costCalculator';
 import type { RecommendedConfig } from '../types';
 
@@ -31,6 +32,7 @@ export default function PreviewPage() {
   const [chatError, setChatError] = useState<string | null>(null);
   const [showRecommendationBanner, setShowRecommendationBanner] = useState(false);
   const [recommendationApplied, setRecommendationApplied] = useState(false);
+  const [enabledSuggestionIds, setEnabledSuggestionIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -194,8 +196,8 @@ export default function PreviewPage() {
 
   const job = currentJob!;
 
-  // Planning/generating preview — show loading
-  if (job.status === 'pending' || job.status === 'planning') {
+  // Planning/generating preview — show loading (including new transcribing/analyzing states)
+  if (job.status === 'pending' || job.status === 'planning' || job.status === 'transcribing' || job.status === 'analyzing') {
     return (
       <div className="min-h-screen bg-dark-bg">
         <header className="sticky top-0 z-50 bg-dark-bg/80 backdrop-blur-lg border-b border-dark-border-light/30">
@@ -958,6 +960,15 @@ export default function PreviewPage() {
 
         {/* Detailed Cost Breakdown (updated) */}
         <CostBreakdownDetailed blueprint={editingBlueprint} selectedModel={currentJob?.videoModel} />
+
+        {/* Brain Suggestions Checklist — toggle individual AI additions */}
+        {(preview.brollPrompts?.length > 0 || editingBlueprint) && (
+          <BrainSuggestionsChecklist
+            brollPrompts={preview.brollPrompts || []}
+            editingBlueprint={editingBlueprint}
+            onSuggestionsChange={setEnabledSuggestionIds}
+          />
+        )}
 
         {/* Chat input */}
         {chatError && (

@@ -17,6 +17,40 @@ function updateProgress(job: Job, step: string): void {
   console.log(`[Edit] ${job.id}: ${step}`);
 }
 
+// Safe edit step wrapper: checks input exists, runs operation, verifies output, falls back to input on failure
+async function runEditStep(
+  stepName: string,
+  inputPath: string,
+  outputPath: string,
+  operation: () => Promise<void>,
+  warnings: string[]
+): Promise<string> {
+  // Check input exists BEFORE running
+  if (!fs.existsSync(inputPath)) {
+    console.error(`[Edit] ❌ SKIP ${stepName}: input file missing: ${inputPath}`);
+    warnings.push(`${stepName} skipped: input file missing`);
+    return inputPath;
+  }
+
+  try {
+    await operation();
+
+    // Verify output was created and is not empty
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+      console.log(`[Edit] ✅ ${stepName}: done`);
+      return outputPath;
+    }
+
+    console.error(`[Edit] ❌ ${stepName}: output file not created or empty: ${outputPath}`);
+    warnings.push(`${stepName}: output file not created`);
+    return inputPath; // Fallback to input
+  } catch (error: any) {
+    console.error(`[Edit] ❌ ${stepName} failed: ${error.message}`);
+    warnings.push(`${stepName} failed: ${error.message}`);
+    return inputPath; // Fallback to input (continue pipeline with what we have)
+  }
+}
+
 function saveJSON(filePath: string, data: any): void {
   fs.mkdirSync(filePath.substring(0, filePath.lastIndexOf('/')), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
@@ -94,28 +128,56 @@ export async function runEditAgent(
         const seg = orderedSegments[i];
         const trimStart = seg.start + (seg.editNotes.trimStart || 0);
         const trimEnd = seg.end - (seg.editNotes.trimEnd || 0);
-        const segPath = `${editDir}/selected_seg_${i}.mp4`;
 
-        await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -ss ${trimStart} -to ${trimEnd} -c copy -y "${segPath}"`);
-        segmentFiles.push(segPath);
+        // Validate timestamps
+        if (trimStart >= trimEnd || trimStart < 0) {
+          console.warn(`[Edit] Skipping segment ${i}: invalid timestamps ${trimStart}-${trimEnd}`);
+          continue;
+        }
+
+        const segPath = path.resolve(`${editDir}/selected_seg_${i}.mp4`);
+
+        try {
+          await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -ss ${trimStart} -to ${trimEnd} -c copy -y "${segPath}"`);
+          // Verify segment was created and is not empty
+          if (fs.existsSync(segPath) && fs.statSync(segPath).size > 0) {
+            segmentFiles.push(segPath);
+          } else {
+            console.warn(`[Edit] Segment ${i} produced empty file, skipping`);
+          }
+        } catch (segErr: any) {
+          console.warn(`[Edit] Segment ${i} trim failed: ${segErr.message}, skipping`);
+        }
       }
 
-      // Concat selected segments
-      const listPath = `${editDir}/selected_list.txt`;
-      fs.writeFileSync(listPath, segmentFiles.map(s => `file '${s}'`).join('\n'));
-      const selectedOutput = `${editDir}/selected_assembled.mp4`;
-      await ffmpeg.runFFmpeg(`ffmpeg -f concat -safe 0 -i "${listPath}" -c copy -y "${selectedOutput}"`);
-      currentVideo = selectedOutput;
-      await verifySyncAfterEdit(currentVideo, 'content-selection-concat');
+      if (segmentFiles.length > 0) {
+        // Use absolute paths in concat list
+        const listPath = path.resolve(`${editDir}/selected_list.txt`);
+        fs.writeFileSync(listPath, segmentFiles.map(s => `file '${path.resolve(s)}'`).join('\n'));
+        const selectedOutput = `${editDir}/selected_assembled.mp4`;
+        await ffmpeg.runFFmpeg(`ffmpeg -f concat -safe 0 -i "${listPath}" -c copy -y "${selectedOutput}"`);
 
-      // Cleanup
-      for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch {} }
-      try { fs.unlinkSync(listPath); } catch {}
+        // Verify output exists and is valid
+        if (fs.existsSync(selectedOutput) && fs.statSync(selectedOutput).size > 0) {
+          currentVideo = selectedOutput;
+          await verifySyncAfterEdit(currentVideo, 'content-selection-concat');
+          console.log(`[Edit] Assembled ${segmentFiles.length} selected segments`);
+        } else {
+          console.warn('[Edit] ⚠️ Concat output empty — using original video as base');
+          warnings.push('Segment assembly produced empty output — using original video');
+        }
 
-      console.log(`[Edit] Assembled ${orderedSegments.length} selected segments`);
+        // Cleanup
+        for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch {} }
+        try { fs.unlinkSync(listPath); } catch {}
+      } else {
+        console.warn('[Edit] ⚠️ No valid segments produced — using original video as base');
+        warnings.push('No valid segments could be extracted — using original video');
+      }
     } catch (error: any) {
-      console.error('Content selection assembly failed:', error.message);
+      console.error('[Edit] ⚠️ Content selection assembly failed — using original video as base:', error.message);
       warnings.push('Content selection assembly failed: ' + error.message);
+      // currentVideo stays as cleanVideoPath (the original input)
     }
   }
 

@@ -128,21 +128,69 @@ function generateViralityScore(): ViralityScore {
   };
 }
 
-// startJob: generates plan + preview, then waits for user approval
+// startJob: transcribes → analyzes → generates plan + preview, then waits for user approval
 export async function startJob(job: Job): Promise<void> {
   try {
-    // Step 1: Brain already generated plan (done in routes/jobs.ts)
-    // Step 2: Generate preview (NOT render — just plan + frames)
-    updateJob(job.id, {
-      status: 'planning',
-      currentStep: 'מכין תצוגה מקדימה...',
-      progress: 5,
-    });
-
     const plan = job.plan;
     if (!plan) {
       throw new Error('No execution plan found');
     }
+
+    // Step 1: Transcribe BEFORE preview (so preview shows full editing plan based on transcript)
+    const hasVideo = job.files.some(f => f.type.startsWith('video'));
+    const shouldTranscribe = hasVideo && plan.ingest?.transcribe;
+
+    if (shouldTranscribe) {
+      updateJob(job.id, {
+        status: 'transcribing',
+        currentStep: 'מתמלל את הסרטון...',
+        progress: 2,
+      });
+
+      try {
+        const ingestResult = await runIngestAgent(job, plan);
+        if (ingestResult.transcript) {
+          job.transcript = ingestResult.transcript;
+          updateJob(job.id, { transcript: ingestResult.transcript } as any);
+          console.log(`[Orchestrator] Transcription complete: ${ingestResult.transcript.words.length} words`);
+        }
+        // Store ingest warnings for later
+        if (ingestResult.warnings.length > 0) {
+          job.ingestWarnings = ingestResult.warnings;
+        }
+      } catch (error: any) {
+        console.warn('[Orchestrator] Pre-preview transcription failed (non-critical):', error.message);
+      }
+    }
+
+    // Step 2: Content analysis BEFORE preview (uses transcript)
+    if (job.transcript && hasVideo) {
+      updateJob(job.id, {
+        status: 'analyzing',
+        currentStep: 'מנתח את התוכן...',
+        progress: 5,
+      });
+
+      try {
+        const contentAnalysis = await analyzeContent(
+          job.files[0].path,
+          job.transcript,
+          plan
+        );
+        job.contentAnalysis = contentAnalysis;
+        updateJob(job.id, { contentAnalysis } as any);
+        console.log(`[Orchestrator] Content analysis complete`);
+      } catch (error: any) {
+        console.warn('[Orchestrator] Pre-preview content analysis failed (non-critical):', error.message);
+      }
+    }
+
+    // Step 3: Generate preview (NOT render — just plan + frames)
+    updateJob(job.id, {
+      status: 'planning',
+      currentStep: 'מכין תצוגה מקדימה...',
+      progress: 8,
+    });
 
     const preview = await generatePreview(job, plan);
 
@@ -446,6 +494,9 @@ export async function runPipeline(job: Job): Promise<void> {
     }
 
     // --- REAL INGEST AGENT ---
+    // Reuse transcript from startJob if already done (BUG 7 fix: transcription now runs before preview)
+    let transcript: TranscriptResult | null = job.transcript || null;
+
     const hasIngestSteps =
       job.plan.ingest.transcribe ||
       job.plan.ingest.multiCamSync ||
@@ -455,15 +506,25 @@ export async function runPipeline(job: Job): Promise<void> {
       job.plan.ingest.smartVariety ||
       job.plan.ingest.speakerClassification;
 
-    let transcript: TranscriptResult | null = null;
+    // Only re-run ingest if transcript wasn't already produced in startJob, or if non-transcribe ingest steps are needed
+    const needsFullIngest = !transcript || (hasIngestSteps && (
+      job.plan.ingest.multiCamSync ||
+      job.plan.ingest.lipSyncVerify ||
+      job.plan.ingest.footageClassification ||
+      job.plan.ingest.shotSelection ||
+      job.plan.ingest.smartVariety ||
+      job.plan.ingest.speakerClassification
+    ));
 
-    if (hasIngestSteps) {
+    if (hasIngestSteps && needsFullIngest) {
       console.log(`[Pipeline] Running real ingest agent for job ${job.id}`);
       const ingestResult = await runIngestAgent(job, job.plan);
-      transcript = ingestResult.transcript;
+      if (ingestResult.transcript) {
+        transcript = ingestResult.transcript;
+      }
       allWarnings.push(...ingestResult.warnings);
 
-      // Save transcript to job so frontend can display it in preview
+      // Save transcript to job so frontend can display it
       if (transcript) {
         job.transcript = transcript;
         updateJob(job.id, { transcript } as any);
@@ -475,6 +536,13 @@ export async function runPipeline(job: Job): Promise<void> {
       updateJob(job.id, {
         progress: calculateProgress(completedSteps, totalSteps),
       });
+    } else if (transcript) {
+      console.log(`[Pipeline] Reusing transcript from pre-preview transcription (${transcript.words.length} words)`);
+      // Add ingest warnings from startJob if any
+      if (job.ingestWarnings) allWarnings.push(...job.ingestWarnings);
+      const ingestStepCount = steps.filter(s => s.stage === 'ingest').length;
+      completedSteps += ingestStepCount;
+      updateJob(job.id, { progress: calculateProgress(completedSteps, totalSteps) });
     }
 
     // --- PRESENTER DETECTION + SPEAKER VERIFICATION (3 Layers) ---

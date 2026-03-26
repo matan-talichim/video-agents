@@ -1,4 +1,4 @@
-export type JobStatus = 'pending' | 'planning' | 'preview' | 'approved' | 'processing' | 'done' | 'error';
+export type JobStatus = 'pending' | 'planning' | 'transcribing' | 'analyzing' | 'preview' | 'approved' | 'processing' | 'done' | 'error';
 
 export type EditStyle = 'cinematic' | 'energetic' | 'minimal' | 'trendy';
 
