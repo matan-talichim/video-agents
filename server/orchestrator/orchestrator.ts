@@ -41,6 +41,14 @@ import { predictEngagement } from '../services/engagementPredictor.js';
 import { selectSubtitleStyle } from '../services/subtitleStyler.js';
 import { simulateDevicePreview } from '../services/devicePreview.js';
 import { checkContentSafety } from '../services/contentSafety.js';
+import { detectBeats as detectBeatSync, snapCutsToBeats } from '../services/beatSync.js';
+import { selectPaceMode, PACE_MODES } from '../services/editingRules.js';
+import { filterBRollQuality } from '../services/brollQualityFilter.js';
+import { planAutoReframe, applyAutoReframe } from '../services/autoReframe.js';
+import { rememberProject, getBrainContext } from '../services/editorBrain.js';
+import { getMasterPromptContext } from '../services/masterPromptOptimizer.js';
+import { planAmbientSound } from '../services/ambientSound.js';
+import { generateThumbnails } from '../services/thumbnailGenerator.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -395,6 +403,18 @@ export async function runPipeline(job: Job): Promise<void> {
 
     // === RAW MODE (existing pipeline) ===
 
+    // --- EDITOR BRAIN: Load context from past projects ---
+    let masterContext = '';
+    let brainMemoryContext = '';
+    try {
+      masterContext = getMasterPromptContext();
+      if (masterContext) {
+        console.log('[Pipeline] Master prompt context loaded from past performance data');
+      }
+    } catch (error: any) {
+      console.warn('[Pipeline] Master prompt context load failed (non-critical):', error.message);
+    }
+
     // --- FOOTAGE DOCTOR: Diagnose & auto-fix before editing ---
     if (job.files.length > 0) {
       try {
@@ -615,6 +635,19 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // --- EDITOR BRAIN: Load category-specific memory ---
+    if (job.videoIntelligence?.concept?.category) {
+      try {
+        const platformGuessForBrain = job.plan.export?.formats?.includes('9:16') ? 'tiktok' : 'youtube';
+        brainMemoryContext = getBrainContext(job.videoIntelligence.concept.category, platformGuessForBrain);
+        if (brainMemoryContext) {
+          console.log(`[Pipeline] Brain memory context loaded for ${job.videoIntelligence.concept.category}/${platformGuessForBrain}`);
+        }
+      } catch (error: any) {
+        console.warn('[Pipeline] Brain memory context failed (non-critical):', error.message);
+      }
+    }
+
     // --- CONTENT SELECTION (12-dimension segment scoring) ---
     if (analysisTranscript && job.files.length > 0) {
       try {
@@ -712,6 +745,19 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // --- PACE MODE SELECTION ---
+    try {
+      const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'tiktok' : 'youtube';
+      const videoCategory = job.videoIntelligence?.concept?.category || 'talking-head';
+      const paceMode = selectPaceMode(platformGuess, videoCategory, job.plan.edit.pacing as any);
+      job.paceMode = paceMode;
+      const paceConfig = PACE_MODES[paceMode];
+      updateJob(job.id, { paceMode } as any);
+      console.log(`[Pipeline] Pace mode: ${paceMode} (cut every ${paceConfig.cutFrequency.min}-${paceConfig.cutFrequency.max}s, zoom ${paceConfig.zoomIntensity}x)`);
+    } catch (error: any) {
+      console.warn('[Pipeline] Pace mode selection failed (non-critical):', error.message);
+    }
+
     // --- REAL CLEAN AGENT ---
     const hasCleanSteps =
       job.plan.clean.removeSilences ||
@@ -764,6 +810,70 @@ export async function runPipeline(job: Job): Promise<void> {
       updateJob(job.id, {
         progress: calculateProgress(completedSteps, totalSteps),
       });
+    }
+
+    // --- BEAT-SYNC: Detect beats in music and snap cuts ---
+    if (generateResult?.musicPath && job.plan.edit.beatSyncCuts) {
+      try {
+        updateJob(job.id, { currentStep: 'מנתח ביטים במוזיקה...' });
+        const beatMap = await detectBeatSync(generateResult.musicPath, job.id);
+        job.beatMap = beatMap;
+        updateJob(job.id, { beatMap } as any);
+
+        // Snap existing cuts to nearest beat
+        if (job.editingBlueprint?.cuts) {
+          const snappedCuts = snapCutsToBeats(job.editingBlueprint.cuts, beatMap);
+          job.editingBlueprint.cuts = snappedCuts as any;
+          const snapped = snappedCuts.filter((c: any) => c.snappedToBeat).length;
+          console.log(`[BeatSync] Snapped ${snapped}/${job.editingBlueprint.cuts.length} cuts to beats`);
+        }
+      } catch (error: any) {
+        console.error('Beat sync failed:', error.message);
+        allWarnings.push('Beat sync failed: ' + error.message);
+      }
+    }
+
+    // --- B-ROLL QUALITY FILTER ---
+    if (generateResult?.brollClips && generateResult.brollClips.length > 0) {
+      try {
+        const clipPaths = generateResult.brollClips
+          .filter(c => !c.isStock && fs.existsSync(c.path))
+          .map(c => c.path);
+
+        if (clipPaths.length > 0) {
+          updateJob(job.id, { currentStep: `בודק איכות ${clipPaths.length} קליפי B-Roll...` });
+          const brollQA = await filterBRollQuality(clipPaths);
+          job.brollQA = brollQA;
+          updateJob(job.id, { brollQA } as any);
+
+          const needRegen = brollQA.filter(r => r.recommendation === 'regenerate');
+          if (needRegen.length > 0) {
+            console.log(`[B-Roll QA] ${needRegen.length} clips need regeneration`);
+            allWarnings.push(`${needRegen.length} B-Roll clips had quality issues`);
+          }
+        }
+      } catch (error: any) {
+        console.error('B-Roll QA failed:', error.message);
+        allWarnings.push('B-Roll QA failed: ' + error.message);
+      }
+    }
+
+    // --- SCENE-AWARE AMBIENT SOUND ---
+    if (job.editingBlueprint?.brollInsertions && job.editingBlueprint.brollInsertions.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מתכנן צלילי אווירה לקטעי B-Roll...' });
+        const videoDuration = job.contentAnalysis?.presenter?.totalSpeakingTime || 60;
+        const ambientSoundPlan = await planAmbientSound(
+          job.editingBlueprint.brollInsertions,
+          videoDuration
+        );
+        job.ambientSoundPlan = ambientSoundPlan;
+        updateJob(job.id, { ambientSoundPlan } as any);
+        console.log(`[Pipeline] Ambient sound: ${ambientSoundPlan.segments.length} segments planned`);
+      } catch (error: any) {
+        console.error('Ambient sound planning failed:', error.message);
+        allWarnings.push('Ambient sound planning failed: ' + error.message);
+      }
     }
 
     // --- SUBTITLE STYLE INTELLIGENCE (before rendering) ---
@@ -1049,6 +1159,41 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // === SMART AUTO-REFRAME (Speaker Tracking) ===
+    if (
+      job.plan.export.aiReframe &&
+      editResult?.finalVideoPath &&
+      fs.existsSync(editResult.finalVideoPath) &&
+      job.plan.export.formats.includes('9:16')
+    ) {
+      try {
+        updateJob(job.id, { currentStep: 'מבצע reframe חכם עם מעקב פנים...' });
+        const hasPresenter = !!job.presenterDetection;
+
+        const reframePlan = await planAutoReframe(
+          editResult.finalVideoPath,
+          exportDuration,
+          '16:9',
+          '9:16',
+          hasPresenter
+        );
+        job.reframePlan = reframePlan;
+        updateJob(job.id, { reframePlan } as any);
+
+        const reframedPath = `output/${job.id}/reframed_9x16.mp4`;
+        fs.mkdirSync(`output/${job.id}`, { recursive: true });
+        await applyAutoReframe(editResult.finalVideoPath, reframePlan, reframedPath, '9:16');
+
+        if (fs.existsSync(reframedPath)) {
+          exportExports.push({ format: '9:16-reframed', url: `/api/jobs/${job.id}/video?format=9x16-reframed` });
+          console.log(`[Pipeline] Auto-reframe: ${reframePlan.method} with ${reframePlan.keyframes.length} keyframes`);
+        }
+      } catch (error: any) {
+        console.error('Auto-reframe failed:', error.message);
+        allWarnings.push('Auto-reframe failed: ' + error.message);
+      }
+    }
+
     // === BRANDED INTRO/OUTRO ===
     if (editResult?.finalVideoPath && job.brandKit?.enabled && fs.existsSync(editResult.finalVideoPath)) {
       try {
@@ -1114,6 +1259,41 @@ export async function runPipeline(job: Job): Promise<void> {
       } catch (error: any) {
         console.error('Thumbnail optimization failed:', error.message);
         allWarnings.push('Thumbnail optimization failed: ' + error.message);
+      }
+    }
+
+    // === MULTI-PLATFORM INTELLIGENT THUMBNAILS ===
+    if (editResult?.finalVideoPath && fs.existsSync(editResult.finalVideoPath)) {
+      try {
+        const platformNames = (job.plan.export.platforms || ['youtube']).map((p: string) => {
+          if (p === 'youtube' || p === 'youtube-shorts') return 'youtube';
+          if (p === 'instagram-reels' || p === 'instagram') return 'instagram-reels';
+          if (p === 'tiktok') return 'tiktok';
+          return p;
+        });
+        const uniquePlatforms = [...new Set(platformNames)] as string[];
+
+        if (uniquePlatforms.length > 0) {
+          updateJob(job.id, { currentStep: `מייצר thumbnails ל-${uniquePlatforms.length} פלטפורמות...` });
+          const hookText = job.hookVariations?.[0]?.textOverlay
+            || job.videoIntelligence?.keyPoints?.[0]?.point
+            || '';
+
+          const thumbnailResult = await generateThumbnails(
+            editResult.finalVideoPath,
+            exportDuration,
+            hookText,
+            job.brandKit,
+            uniquePlatforms,
+            job.id
+          );
+          job.thumbnails = thumbnailResult;
+          updateJob(job.id, { thumbnails: thumbnailResult } as any);
+          console.log(`[Pipeline] Multi-platform thumbnails: ${thumbnailResult.thumbnails.length} generated`);
+        }
+      } catch (error: any) {
+        console.error('Multi-platform thumbnails failed:', error.message);
+        allWarnings.push('Multi-platform thumbnails failed: ' + error.message);
       }
     }
 
@@ -1482,6 +1662,13 @@ Return JSON:
       enabledFeaturesCount: totalSteps,
       warnings: allWarnings.length > 0 ? allWarnings : undefined,
     });
+
+    // --- EDITOR BRAIN: Remember this project ---
+    try {
+      rememberProject(job);
+    } catch (error: any) {
+      console.warn('[Pipeline] Brain memory save failed (non-critical):', error.message);
+    }
 
     // Clean up temp files
     try {

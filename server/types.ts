@@ -137,6 +137,12 @@ export interface Job {
   uploadedPhotos?: string[];
   footageDiagnosis?: import('./services/footageDoctor.js').FootageDiagnosis;
   durationCategory?: 'too-short' | 'short' | 'normal' | 'long' | 'very-long';
+  beatMap?: import('./services/beatSync.js').BeatMap;
+  paceMode?: import('./services/editingRules.js').PaceMode;
+  brollQA?: import('./services/brollQualityFilter.js').BRollQAResult[];
+  reframePlan?: import('./services/autoReframe.js').ReframePlan;
+  ambientSoundPlan?: import('./services/ambientSound.js').AmbientSoundPlan;
+  thumbnails?: import('./services/thumbnailGenerator.js').ThumbnailResult;
 }
 
 export interface FileInfo {

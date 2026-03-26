@@ -344,6 +344,36 @@ router.get('/:id/retention', (req, res) => {
   res.json(job.retentionPlan);
 });
 
+// POST /api/jobs/:id/performance — report actual performance metrics (Brain learning)
+router.post('/:id/performance', (req, res) => {
+  const { updateProjectPerformance } = require('../services/editorBrain.js');
+  const { optimizeMasterPrompt } = require('../services/masterPromptOptimizer.js');
+
+  const { views, likes, shares, comments, avgRetention } = req.body;
+  if (views === undefined) {
+    return res.status(400).json({ error: 'views is required' });
+  }
+
+  const engagementRate = views > 0 ? ((likes + shares + comments) / views) * 100 : 0;
+  const updated = updateProjectPerformance(req.params.id, {
+    views: views || 0,
+    likes: likes || 0,
+    shares: shares || 0,
+    comments: comments || 0,
+    engagementRate,
+    avgRetention: avgRetention || 0,
+  });
+
+  if (!updated) {
+    return res.status(404).json({ error: 'Project not found in brain memory' });
+  }
+
+  // Re-optimize master prompt with new data
+  try { optimizeMasterPrompt(); } catch {}
+
+  res.json({ success: true, engagementRate: parseFloat(engagementRate.toFixed(2)) });
+});
+
 // Chat-based editing is now handled by the Claude-powered chatEditor route
 // See: server/routes/chatEditor.ts (registered at /api/jobs/:id/chat)
 
