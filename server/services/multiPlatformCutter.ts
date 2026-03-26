@@ -1,4 +1,5 @@
 import { askClaude } from './claude.js';
+import { PLATFORM_CONTENT_STRATEGY_PROMPT } from './editingRules.js';
 
 export interface PlatformCut {
   platform: 'youtube' | 'instagram-reels' | 'tiktok' | 'linkedin' | 'facebook';
@@ -16,6 +17,11 @@ export interface PlatformCut {
   segmentsToInclude: number[];
   segmentsToExclude: number[];
   additionalNotes: string;
+  hookTone?: string;
+  hookExample?: string;
+  polishLevel?: string;
+  soundStrategy?: string;
+  hashtagStrategy?: string;
 }
 
 export async function planMultiPlatformCuts(
@@ -30,7 +36,9 @@ export async function planMultiPlatformCuts(
 
   try {
     const response = await askClaude(
-      `You create platform-optimized video edits. The SAME footage gets edited DIFFERENTLY for each platform — not just reframed, but actually re-edited with different pacing, duration, and content selection.`,
+      `You create platform-optimized video edits. The SAME footage gets edited DIFFERENTLY for each platform — not just reframed, but actually re-edited with different pacing, duration, and content selection.
+
+${PLATFORM_CONTENT_STRATEGY_PROMPT}`,
 
       `Create editing plans for ${targetPlatforms.length} platforms from this content:
 
@@ -114,7 +122,12 @@ For EACH platform, return JSON:
   "safeZone": { "top": 5, "bottom": 20, "left": 5, "right": 15 },
   "segmentsToInclude": [0, 3, 7],
   "segmentsToExclude": [1, 2, 4, 5, 6],
-  "additionalNotes": "use only hook + strongest point + CTA. 18 seconds total."
+  "additionalNotes": "use only hook + strongest point + CTA. 18 seconds total.",
+  "hookTone": "confrontational",
+  "hookExample": "יזמי הנדל״ן לא רוצים שתראו את זה",
+  "polishLevel": "raw-authentic",
+  "soundStrategy": "trending-sound",
+  "hashtagStrategy": "3-5 niche"
 }
 
 CRITICAL: Each platform gets DIFFERENT segments. TikTok might use only segments [0, 7] while YouTube uses [0, 1, 2, 3, 5, 7]. The same video should NOT be the same length or pace on different platforms.

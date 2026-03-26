@@ -9,6 +9,7 @@ import { planKineticTypography, addKineticTextCommand } from '../services/kineti
 import { buildRemotionProps } from '../services/remotionDataConverter.js';
 import { renderVideo } from '../../src/remotion/render.js';
 import { runSmartTrim } from './smartTrim.js';
+import * as kie from '../services/kie.js';
 import type { Job, ExecutionPlan, GenerateResult, TranscriptResult, EditResult, Segment } from '../types.js';
 
 function updateProgress(job: Job, step: string): void {
@@ -535,6 +536,37 @@ Rules:
   }
 
   // ========================================================
+  // STEP 4.5: VISUAL DNA — STYLE TRANSFER FOR B-ROLL CONSISTENCY
+  // ========================================================
+  if (job.brandKit || job.videoIntelligence?.concept?.category) {
+    try {
+      const category = job.videoIntelligence?.concept?.category || 'general';
+      const visualDNAMap: Record<string, { palette: string; lut: string; contrast: string }> = {
+        'talking-head': { palette: 'warm-natural', lut: 'cinematic', contrast: 'medium' },
+        'interview': { palette: 'warm-natural', lut: 'cinematic', contrast: 'medium' },
+        'product-demo': { palette: 'clean-bright', lut: 'bright', contrast: 'medium' },
+        'tour': { palette: 'warm-luxury', lut: 'cinematic', contrast: 'medium-high' },
+        'testimonial': { palette: 'warm-natural', lut: 'none', contrast: 'low-medium' },
+        'presentation': { palette: 'cool-professional', lut: 'corporate', contrast: 'medium' },
+        'event': { palette: 'high-energy', lut: 'contrast', contrast: 'high' },
+        'broll-only': { palette: 'cinematic', lut: 'cinematic', contrast: 'medium-high' },
+        'screen-recording': { palette: 'clean-bright', lut: 'bright', contrast: 'low' },
+        'mixed': { palette: 'warm-natural', lut: 'cinematic', contrast: 'medium' },
+      };
+
+      job.visualDNA = visualDNAMap[category] || { palette: 'warm-natural', lut: 'cinematic', contrast: 'medium' };
+      updateJob(job.id, { visualDNA: job.visualDNA } as any);
+
+      if (job.visualDNA.lut && job.visualDNA.lut !== 'none') {
+        console.log(`[Edit] Visual DNA: ${job.visualDNA.palette} — applying ${job.visualDNA.lut} LUT to all B-Roll`);
+      }
+    } catch (error: any) {
+      console.error('Visual DNA failed:', error.message);
+      warnings.push('Visual DNA determination failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
   // STEP 5: INSERT B-ROLL (including photo motion clips)
   // ========================================================
   const validBroll = generateResult.brollClips.filter(c => c.timestamp >= 0);
@@ -558,6 +590,76 @@ Rules:
     } catch (error: any) {
       console.error('B-Roll insertion failed:', error.message);
       warnings.push('B-Roll insertion failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
+  // STEP 5.5: AI TRANSITIONS BETWEEN B-ROLL CLIPS
+  // ========================================================
+  const aiTransitions = job.editingBlueprint?.aiTransitions || job.aiTransitions;
+  if (aiTransitions && aiTransitions.length > 0) {
+    try {
+      updateProgress(job, 'יצירת מעברים AI...');
+      const transitionDir = `temp/${job.id}/transitions`;
+      fs.mkdirSync(transitionDir, { recursive: true });
+
+      for (let i = 0; i < Math.min(aiTransitions.length, 3); i++) {
+        const transition = aiTransitions[i];
+        try {
+          updateProgress(job, `מעבר AI ${i + 1}/${Math.min(aiTransitions.length, 3)}...`);
+
+          // Extract last frame of clip A and first frame of clip B
+          const lastFramePath = `${transitionDir}/from_${i}.jpg`;
+          const firstFramePath = `${transitionDir}/to_${i}.jpg`;
+
+          await ffmpeg.extractFrame(currentVideo, transition.fromClipEnd, lastFramePath);
+          await ffmpeg.extractFrame(currentVideo, transition.toClipStart, firstFramePath);
+
+          if (fs.existsSync(lastFramePath) && fs.existsSync(firstFramePath)) {
+            const transitionPath = `${transitionDir}/transition_${i}.mp4`;
+            await kie.firstLastFrame(lastFramePath, firstFramePath, transitionPath);
+
+            if (fs.existsSync(transitionPath)) {
+              // Insert the AI transition clip at the cut point
+              const output = nextOutput();
+              await ffmpeg.runFFmpeg(ffmpeg.replaceBRollSegment(
+                currentVideo, transitionPath,
+                transition.fromClipEnd,
+                transition.fromClipEnd + transition.duration,
+                output
+              ));
+              currentVideo = output;
+              console.log(`[Edit] AI transition ${i}: ${transition.type} at ${transition.fromClipEnd}s`);
+            }
+          }
+        } catch (transError: any) {
+          console.error(`AI transition ${i} failed:`, transError.message);
+          warnings.push(`AI transition ${i} failed: ${transError.message}`);
+        }
+      }
+    } catch (error: any) {
+      console.error('AI transitions failed:', error.message);
+      warnings.push('AI transitions failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
+  // STEP 5.7: APPLY VISUAL DNA LUT TO B-ROLL CLIPS
+  // ========================================================
+  if (job.visualDNA?.lut && job.visualDNA.lut !== 'none' && validBroll.length > 0) {
+    try {
+      const lutPath = `server/assets/luts/${job.visualDNA.lut}.cube`;
+      if (fs.existsSync(lutPath)) {
+        updateProgress(job, 'מתאים סגנון חזותי ל-B-Roll...');
+        // Apply the brand-consistent LUT to ensure all B-Roll matches
+        const output = nextOutput();
+        await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -vf "lut3d='${lutPath}'" -c:a copy -y "${output}"`);
+        currentVideo = output;
+        console.log(`[Edit] Visual DNA: Applied ${job.visualDNA.lut} LUT for B-Roll consistency`);
+      }
+    } catch (error: any) {
+      console.error('Visual DNA LUT failed:', error.message);
+      warnings.push('Visual DNA LUT application failed: ' + error.message);
     }
   }
 
@@ -605,6 +707,56 @@ Rules:
     } catch (error: any) {
       console.error('Blueprint color plan failed:', error.message);
       warnings.push('Blueprint color plan failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
+  // STEP 6.7: AI BACKGROUND PLAN (blur bad backgrounds)
+  // ========================================================
+  const backgroundPlan = job.editingBlueprint?.backgroundPlan;
+  if (backgroundPlan && backgroundPlan.recommendation === 'blur') {
+    try {
+      updateProgress(job, 'מטשטש רקע לא נקי...');
+      const intensity = backgroundPlan.blurIntensity || 15;
+      const output = nextOutput();
+      // Center-focus blur: keep center sharp, blur edges (simulates depth of field)
+      await ffmpeg.runFFmpeg(
+        `ffmpeg -i "${currentVideo}" -vf "split[original][blur];[blur]boxblur=${intensity}[blurred];[original][blurred]overlay=(W-w)/2:(H-h)/2" -c:a copy -y "${output}"`
+      );
+      currentVideo = output;
+      console.log(`[Edit] Background blur applied (intensity: ${intensity}) — issue: ${backgroundPlan.issue}`);
+    } catch (error: any) {
+      console.error('Background blur failed:', error.message);
+      warnings.push('Background blur failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
+  // STEP 6.8: AI RELIGHTING (FFmpeg lighting fixes)
+  // ========================================================
+  const lightingPlan = job.editingBlueprint?.lightingPlan;
+  if (lightingPlan?.autoFix) {
+    try {
+      updateProgress(job, 'מתקן תאורה...');
+      const fix = lightingPlan.autoFix;
+      const filters: string[] = [];
+
+      if (fix.brightness) filters.push(`eq=brightness=${fix.brightness}`);
+      if (fix.contrast && fix.contrast !== 1.0) filters.push(`eq=contrast=${fix.contrast}`);
+      if (fix.colorTemp === 'warm-shift') filters.push(`colorbalance=rs=0.05:gs=0.02`);
+      if (fix.colorTemp === 'cool-shift') filters.push(`colorbalance=bs=0.05`);
+
+      if (filters.length > 0) {
+        const output = nextOutput();
+        await ffmpeg.runFFmpeg(
+          `ffmpeg -i "${currentVideo}" -vf "${filters.join(',')}" -c:a copy -y "${output}"`
+        );
+        currentVideo = output;
+        console.log(`[Edit] Lighting fixes applied: ${filters.join(', ')} — issues: ${lightingPlan.issues.join(', ')}`);
+      }
+    } catch (error: any) {
+      console.error('Lighting fix failed:', error.message);
+      warnings.push('Lighting fix failed: ' + error.message);
     }
   }
 

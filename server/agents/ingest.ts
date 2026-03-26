@@ -250,7 +250,19 @@ async function classifyFootage(
       ...frameImages,
       {
         type: 'text',
-        text: 'Classify this video clip based on these 5 frames. Return JSON: { "type": "performance" | "broll" | "close-up" | "wide-shot" | "product-shot", "confidence": 0-1, "description": "short description" }',
+        text: `Classify this video clip based on these 5 frames. Return JSON:
+{
+  "type": "performance" | "broll" | "close-up" | "wide-shot" | "product-shot",
+  "confidence": 0-1,
+  "description": "short description",
+  "backgroundQuality": 1-10,
+  "backgroundIssue": "messy room" | "green screen" | "cluttered" | "none",
+  "lightingQuality": 1-10,
+  "lightingIssues": ["underexposed", "overexposed", "flat", "mixed-temp", "harsh-shadows", "backlit"] or []
+}
+
+Rate background 1-10 (messy/distracting = low, clean/professional = high).
+Rate lighting 1-10 (dark/harsh/flat = low, well-lit/golden = high).`,
       },
     ]
   );

@@ -17,6 +17,7 @@ import { importDocument, summarizeForVideo } from '../services/documentImport.js
 import { generateMultiPageStory } from '../templates/multiPageStories.js';
 import { applyBrandKitToPlan, getBrandPromptPrefix } from '../services/brandKit.js';
 import { analyzeContent } from '../services/contentAnalyzer.js';
+import { extractFrame } from '../services/ffmpeg.js';
 import { detectPresenter, filterTranscriptToPresenter } from '../services/presenterDetector.js';
 import { verifySpeakers } from '../services/speakerVerifier.js';
 import { analyzeVideoIntelligence, applyIntelligenceToPlan } from '../services/videoIntelligence.js';
@@ -486,6 +487,29 @@ export async function runPipeline(job: Job): Promise<void> {
 
         console.log(`[Pipeline] Filtered transcript: ${presenterTranscript.words.length} words (from ${transcript.words.length} original)`);
         console.log(`[Pipeline] Speaker verification confidence: ${Math.round(speakerVerification.confidence * 100)}%`);
+
+        // Extract character reference frame for AI character consistency
+        try {
+          const presenterSegments = presenterDetection.presenterSegments;
+          const bestFrameTime = presenterSegments.length > 0
+            ? (presenterSegments[0].start + presenterSegments[0].end) / 2
+            : 3.0;
+          const refPath = `temp/${job.id}/character_reference.jpg`;
+          fs.mkdirSync(`temp/${job.id}`, { recursive: true });
+          await extractFrame(job.files[0].path, bestFrameTime, refPath);
+
+          if (fs.existsSync(refPath)) {
+            job.characterReference = {
+              hasReference: true,
+              referenceImagePath: refPath,
+              description: presenterDetection.presenterDescription || '',
+            };
+            updateJob(job.id, { characterReference: job.characterReference } as any);
+            console.log(`[Pipeline] Character reference extracted at ${bestFrameTime.toFixed(1)}s`);
+          }
+        } catch (refError: any) {
+          console.log(`[Pipeline] Character reference extraction skipped: ${refError.message}`);
+        }
       } catch (error: any) {
         console.error('Presenter detection / speaker verification failed:', error.message);
         allWarnings.push('Speaker verification failed: ' + error.message);
@@ -880,6 +904,117 @@ export async function runPipeline(job: Job): Promise<void> {
       } catch (error: any) {
         console.error('Multi-platform planning failed:', error.message);
         allWarnings.push('Multi-platform planning failed: ' + error.message);
+      }
+    }
+
+    // === LIP SYNC TRANSLATION (after main video is complete) ===
+    if (
+      job.plan.generate.aiDubbing &&
+      job.plan.generate.aiDubbingTargetLanguage &&
+      editResult?.finalVideoPath &&
+      fs.existsSync(editResult.finalVideoPath)
+    ) {
+      try {
+        updateJob(job.id, { currentStep: 'מתרגם סרטון עם סנכרון שפתיים...' });
+        const targetLang = job.plan.generate.aiDubbingTargetLanguage;
+        job.lipSyncPlan = {
+          needed: true,
+          useCase: 'translation-dubbing',
+          targetLanguages: [targetLang],
+          reason: `Translation requested to ${targetLang}`,
+        };
+        updateJob(job.id, { lipSyncPlan: job.lipSyncPlan } as any);
+        console.log(`[Pipeline] Lip sync translation plan: ${targetLang}`);
+      } catch (error: any) {
+        console.error('Lip sync plan failed:', error.message);
+        allWarnings.push('Lip sync plan failed: ' + error.message);
+      }
+    }
+
+    // === PLATFORM STRATEGY (generate platform-specific hooks/CTAs) ===
+    if (job.plan.export.formats.length > 1 && (analysisTranscript || transcript)) {
+      try {
+        updateJob(job.id, { currentStep: 'בונה אסטרטגיית פלטפורמות...' });
+        const { askClaude: askClaudeForStrategy } = await import('../services/claude.js');
+        const { PLATFORM_CONTENT_STRATEGY_PROMPT: strategyPrompt } = await import('../services/editingRules.js');
+
+        const platforms = job.plan.export.formats.map((f: string) =>
+          f === '9:16' ? 'tiktok,instagram-reels' : f === '1:1' ? 'linkedin' : 'youtube'
+        ).join(',').split(',');
+
+        const uniquePlatforms = [...new Set(platforms)];
+        const category = job.videoIntelligence?.concept?.category || 'talking-head';
+        const prompt = job.prompt;
+
+        const strategyResponse = await askClaudeForStrategy(
+          strategyPrompt,
+          `Generate platform-specific content strategy for this video:
+Category: ${category}
+Prompt: "${prompt}"
+Platforms: ${uniquePlatforms.join(', ')}
+
+For each platform, return a JSON object with: hookTone, hookExample (in Hebrew), ctaStyle, ctaText (in Hebrew), polishLevel, soundStrategy.
+
+Return ONLY valid JSON: { "tiktok": {...}, "instagram": {...}, ... }`
+        );
+
+        try {
+          const cleaned = strategyResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          const strategy = JSON.parse(cleaned);
+          job.platformStrategy = strategy;
+          updateJob(job.id, { platformStrategy: strategy } as any);
+          console.log(`[Pipeline] Platform strategy generated for ${Object.keys(strategy).length} platforms`);
+        } catch {
+          console.log('[Pipeline] Platform strategy parsing failed, skipping');
+        }
+      } catch (error: any) {
+        console.error('Platform strategy failed:', error.message);
+        allWarnings.push('Platform strategy failed: ' + error.message);
+      }
+    }
+
+    // === AD LOCALIZATION (generate language/audience variations) ===
+    if (
+      job.plan.generate.aiDubbing &&
+      editResult?.finalVideoPath &&
+      fs.existsSync(editResult.finalVideoPath) &&
+      (analysisTranscript || transcript)
+    ) {
+      try {
+        updateJob(job.id, { currentStep: 'מתכנן לוקליזציה...' });
+        const { askClaude: askClaudeForLocale } = await import('../services/claude.js');
+
+        const localeResponse = await askClaudeForLocale(
+          'You plan ad localization for international markets. Return ONLY valid JSON.',
+          `Plan localization for this video:
+Prompt: "${job.prompt}"
+Category: ${job.videoIntelligence?.concept?.category || 'general'}
+Target language: ${job.plan.generate.aiDubbingTargetLanguage || 'en'}
+Original language: Hebrew
+
+Return JSON:
+{
+  "languages": [
+    { "code": "en", "voiceover": true, "lipSync": true, "subtitles": true, "cta": "Schedule a tour" }
+  ],
+  "audienceVariations": [
+    { "audience": "investors", "hookText": "תשואה של 6% מובטחת", "ctaText": "קבלו תוכנית עסקית" }
+  ]
+}`
+        );
+
+        try {
+          const cleaned = localeResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          const localizationPlan = JSON.parse(cleaned);
+          job.localizationPlan = localizationPlan;
+          updateJob(job.id, { localizationPlan } as any);
+          console.log(`[Pipeline] Localization plan: ${localizationPlan.languages?.length || 0} languages, ${localizationPlan.audienceVariations?.length || 0} audience variations`);
+        } catch {
+          console.log('[Pipeline] Localization plan parsing failed, skipping');
+        }
+      } catch (error: any) {
+        console.error('Localization planning failed:', error.message);
+        allWarnings.push('Localization planning failed: ' + error.message);
       }
     }
 

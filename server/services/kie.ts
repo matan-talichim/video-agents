@@ -113,19 +113,26 @@ export async function generateVideo(
   prompt: string,
   model: string,
   duration: number,
-  outputPath: string
+  outputPath: string,
+  negativePrompt?: string
 ): Promise<string> {
   await waitForSlot();
   try {
     console.log(`[KIE] Generating video: "${prompt.slice(0, 50)}..." model=${model} duration=${duration}s`);
     const startTime = Date.now();
 
-    const { task_id } = await kieRequest('/generate/video', {
+    const payload: Record<string, unknown> = {
       prompt,
       model,
       duration,
       aspect_ratio: '16:9',
-    });
+    };
+
+    if (negativePrompt) {
+      payload.negative_prompt = negativePrompt;
+    }
+
+    const { task_id } = await kieRequest('/generate/video', payload);
 
     const resultUrl = await pollUntilDone(task_id);
     await downloadResult(resultUrl, outputPath);

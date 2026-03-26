@@ -512,6 +512,598 @@ For each B-Roll insertion, use word-level timestamps from the transcript:
 }`;
 
 // ============================================================
+// CATEGORY 14: CINEMATIC B-ROLL PROMPTING
+// ============================================================
+export const CINEMATIC_PROMPTING_PROMPT = `You write B-Roll prompts like a Hollywood cinematographer, not like a Google search.
+
+IMAGE-TO-VIDEO WORKFLOW (preferred over text-to-video):
+Professional AI filmmakers prefer image-to-video because it gives:
+- Stronger character/scene consistency
+- More control over composition and framing
+- Better results overall
+When generating B-Roll, FIRST describe an ideal still frame (for image generation), THEN describe the motion (for video generation).
+
+CINEMATIC PROMPT STRUCTURE (use for EVERY B-Roll prompt):
+
+1. CAMERA MOVEMENT (how the camera moves):
+   - "Slow dolly forward" / "Smooth tracking shot" / "Steady push-in"
+   - "Aerial drone descending" / "Crane shot rising"
+   - "Handheld following subject" / "Static locked-off tripod"
+   - "Slow pan left to right" / "Gentle tilt up revealing"
+   - "FPV drone flying through" / "Orbiting around subject"
+
+2. SHOT TYPE (how close):
+   - "Wide establishing shot" / "Medium shot" / "Close-up detail"
+   - "Extreme close-up on texture" / "Bird's eye view"
+   - "Over-the-shoulder" / "Low angle looking up"
+
+3. LIGHTING (mood through light):
+   - "Golden hour warm sunlight" / "Soft overcast diffused light"
+   - "Dramatic side lighting with deep shadows"
+   - "Clean bright studio lighting" / "Moody blue hour twilight"
+   - "Backlit silhouette" / "Neon city lights at night"
+
+4. DEPTH OF FIELD:
+   - "Shallow depth of field, background bokeh" (for focus on subject)
+   - "Deep focus, everything sharp" (for landscapes/architecture)
+   - "Rack focus from foreground to background" (for reveals)
+
+5. STYLE/MOOD:
+   - "Cinematic, film-like, 24fps look"
+   - "Documentary style, natural, authentic"
+   - "Commercial polish, clean, bright"
+   - "Moody, atmospheric, dramatic"
+   - "Luxury, elegant, premium feel"
+
+6. NEGATIVE PROMPTS (always include):
+   - "no text, no watermark, no blurry, no distortion, no shaky camera"
+   - "no artificial looking, no CGI feel, no low quality"
+
+PROMPT TEMPLATES BY CATEGORY:
+
+REAL ESTATE — EXTERIOR:
+"Slow aerial drone shot descending toward [building], golden hour warm sunlight, cinematic 4K, shallow depth of field on the building with city bokeh in background, luxury real estate commercial style, smooth camera movement. No text, no watermark."
+
+REAL ESTATE — INTERIOR:
+"Smooth dolly forward through [room type], bright natural window light, wide angle lens, clean modern interior, real estate showcase style, warm color temperature, deep focus showing full room. No blurry, no distortion."
+
+REAL ESTATE — LOCATION/LIFESTYLE:
+"Cinematic tracking shot of [location feature], golden hour, people enjoying the area naturally, shallow depth of field, documentary style with commercial polish, warm tones. No staged feeling."
+
+PRODUCT — CLOSE-UP:
+"Slow orbit around [product] on clean surface, studio lighting with soft shadows, extreme shallow depth of field, macro detail visible, luxury commercial style, smooth 360 rotation. No background clutter."
+
+TESTIMONIAL — B-ROLL:
+"Medium shot of [activity described by speaker], natural lighting, documentary style, authentic feeling, handheld with slight movement for realism, warm color grading. No overly polished."
+
+NATURE/LANDSCAPE:
+"Wide establishing shot of [landscape], drone ascending slowly, golden hour or blue hour, cinematic color grading, deep focus, epic scale, atmospheric haze in distance. No text overlay."
+
+URBAN/CITY:
+"Tracking shot through [street/area], dynamic movement, night city lights or golden hour, shallow depth of field with bokeh lights, cinematic mood, smooth steadicam movement. No shaky."
+
+For each B-Roll the Brain generates, transform the basic concept into a cinematic prompt:
+
+BEFORE (bad): "beach in Haifa"
+AFTER (good): "Slow aerial drone shot descending toward Haifa coastline, golden hour warm sunlight casting long shadows on the sand, turquoise Mediterranean water, cinematic 4K quality, shallow depth of field with city skyline soft in background, luxury real estate commercial style. No text, no watermark, no blurry."
+
+BEFORE (bad): "modern kitchen"
+AFTER (good): "Smooth dolly forward into spacious modern kitchen, bright natural light from large windows, marble countertops with soft reflections, wide angle showing full space, clean lines, real estate showcase quality, warm neutral tones. No distortion, no artificial lighting."
+
+Return each B-Roll prompt as:
+{
+  "basicConcept": "beach in Haifa",
+  "imagePrompt": "Haifa coastline at golden hour, turquoise Mediterranean, sandy beach, city skyline in distance, cinematic photography, 4K, warm tones",
+  "videoPrompt": "Slow aerial drone shot descending toward coastline, golden hour sunlight, shallow depth of field, cinematic movement, luxury commercial style. No text, no watermark.",
+  "cameraMovement": "aerial-descending",
+  "shotType": "wide-establishing",
+  "lighting": "golden-hour",
+  "style": "cinematic-luxury",
+  "negativePrompt": "no text, no watermark, no blurry, no distortion, no shaky"
+}`;
+
+// ============================================================
+// CATEGORY 15: AI TRANSITIONS (FIRST & LAST FRAME)
+// ============================================================
+export const AI_TRANSITIONS_PROMPT = `Use AI-powered transitions between clips for cinematic flow.
+
+FIRST & LAST FRAME TECHNIQUE (Kling 2.5+):
+Instead of hard cuts or crossfades between B-Roll clips, generate a smooth AI transition:
+1. Take the LAST frame of clip A
+2. Take the FIRST frame of clip B
+3. Send both to AI video generation: "Smooth cinematic transition from scene A to scene B"
+4. The AI generates a 2-3 second seamless morph between the two scenes
+
+WHEN TO USE AI TRANSITIONS:
+- Between two B-Roll clips that show different locations → AI creates smooth spatial transition
+- Between speaker and B-Roll → AI creates elegant reveal
+- Between "before" and "after" shots → AI creates transformation effect
+- Between different rooms in a property tour → AI creates walking-through feel
+
+WHEN NOT TO USE (stick to hard cuts or L-cuts):
+- Between consecutive speaker segments → too flashy, use fake zoom instead
+- More than 2 AI transitions per 30 seconds → overuse looks gimmicky
+- When pacing is fast (energy 8-10) → hard cuts are better for speed
+
+For each transition that would benefit from AI generation:
+{
+  "aiTransitions": [
+    {
+      "fromClipEnd": 15.0,
+      "toClipStart": 15.5,
+      "type": "spatial-morph",
+      "prompt": "Smooth cinematic transition from beach sunset scene to modern apartment interior, camera pushing forward through golden light into clean white space",
+      "duration": 2.0,
+      "reason": "location change — beach to apartment needs smooth bridge"
+    }
+  ]
+}
+
+MAX: 2-3 AI transitions per 60-second video. Each one should feel special.`;
+
+// ============================================================
+// CATEGORY 16: STYLE TRANSFER FOR BRAND CONSISTENCY
+// ============================================================
+export const STYLE_TRANSFER_PROMPT = `Apply visual style transfer to make all B-Roll match the brand aesthetic.
+
+THE PROBLEM:
+AI-generated B-Roll clips look different from each other — different color temperatures, contrast levels, and visual styles. This makes the final video look inconsistent.
+
+THE SOLUTION — STYLE TRANSFER:
+Define a "visual DNA" for the brand/video, then apply it to all AI-generated clips.
+
+VISUAL DNA DEFINITION:
+{
+  "visualDNA": {
+    "colorPalette": "warm-luxury",
+    "contrast": "medium-high",
+    "saturation": "slightly-boosted",
+    "filmGrain": "subtle",
+    "lightingStyle": "golden-hour-warm",
+    "overallFeel": "cinematic-premium",
+    "referenceStyle": "luxury real estate commercial",
+    "lutSuggestion": "orange-teal-cinematic"
+  }
+}
+
+APPLY VISUAL DNA TO B-ROLL PROMPTS:
+When generating B-Roll, append style instructions to every prompt:
+"...Style: warm luxury color palette, medium-high contrast, slightly boosted saturation, subtle film grain, golden hour warmth, cinematic premium feel. Match the visual language of luxury real estate commercials."
+
+APPLY VISUAL DNA TO COLOR GRADING:
+After B-Roll is generated, apply consistent color grading via FFmpeg:
+- Same LUT applied to ALL B-Roll clips
+- Color temperature matched to speaker footage
+- Contrast and saturation normalized across clips
+
+DETERMINE VISUAL DNA FROM:
+1. Brand kit colors → map to warm/cool/neutral palette
+2. Video category → real estate=warm-luxury, tech=cool-clean, food=warm-vibrant
+3. User preference → if specified in prompt
+4. First clip analysis → extract color profile from uploaded footage and match B-Roll to it
+
+For each video, define the visual DNA once, then reference it in every B-Roll prompt and color grade step.`;
+
+// ============================================================
+// CATEGORY 17: CHARACTER CONSISTENCY ACROSS SHOTS
+// ============================================================
+export const CHARACTER_CONSISTENCY_PROMPT = `Maintain character consistency when generating multiple AI video clips with people.
+
+THE PROBLEM:
+When generating multiple B-Roll clips with people, each clip shows DIFFERENT people. This is jarring and confusing.
+
+THE SOLUTION — REFERENCE IMAGES:
+1. If the video has a presenter/speaker → extract a clear face frame as reference
+2. When generating B-Roll that includes the same person → include the reference image
+3. Use Kling "Elements" or equivalent feature to lock character appearance
+
+REFERENCE IMAGE EXTRACTION:
+- Extract the clearest, best-lit frame of the speaker's face
+- Use this as the reference for any B-Roll that should show the same person
+- Store as: temp/{jobId}/character_reference.jpg
+
+WHEN TO USE CHARACTER CONSISTENCY:
+- "Speaker walks through apartment" → must be the SAME speaker
+- "Customer receives product" → should look like a consistent character
+- Multiple lifestyle B-Roll clips → same "model" across all clips
+- Testimonial + B-Roll of the customer → same person
+
+WHEN NOT NEEDED:
+- Generic B-Roll (landscapes, buildings, food) → no character needed
+- Stock-style footage → different people are fine
+- Crowds/groups → consistency not expected
+
+Add to B-Roll generation:
+{
+  "characterReference": {
+    "hasReference": true,
+    "referenceImagePath": "temp/{jobId}/character_reference.jpg",
+    "description": "Male, 40s, dark hair, blue shirt, Israeli appearance",
+    "useInClips": [0, 2, 4]
+  }
+}
+
+When calling KIE.ai or other video generation APIs, include the reference image if the API supports it (Kling Elements, Runway Character Lock, etc.).`;
+
+// ============================================================
+// CATEGORY 18: AI LIP SYNC INTELLIGENCE
+// ============================================================
+export const LIP_SYNC_PROMPT = `Use AI lip sync for dubbing, translation, and avatar-based content.
+
+AI LIP SYNC USE CASES:
+
+1. TRANSLATION DUBBING:
+   Take the original Hebrew video → translate audio to English/Arabic/Russian → AI lip syncs the speaker's mouth to the new language. Same face, same video, different language. Perfect for international marketing.
+
+   Workflow:
+   a. Extract audio from original video
+   b. Translate text (DeepL/Claude)
+   c. Generate new voice in target language (ElevenLabs with voice cloning)
+   d. Apply lip sync to original video with new audio (HeyGen API)
+
+2. VOICE REPLACEMENT:
+   Replace a bad audio recording with a professional AI voice while keeping the original video. The AI adjusts lip movements to match the new audio.
+
+   Workflow:
+   a. Extract transcript from original
+   b. Clean/improve the script text
+   c. Generate professional voiceover (ElevenLabs)
+   d. Apply lip sync to match new audio to original video
+
+3. AI AVATAR FROM PHOTO:
+   Generate a talking-head video from a single photo + audio. No filming needed. Perfect for the "Prompt-Only" mode.
+
+   Workflow:
+   a. User uploads a photo of the spokesperson
+   b. Generate script with Claude
+   c. Generate voice with ElevenLabs
+   d. Create talking video from photo + voice (HeyGen/Hedra API)
+
+4. PRESENTER CLONE:
+   After filming one video, clone the presenter's voice and face. Future videos can be generated without re-filming.
+
+   Workflow:
+   a. Extract 30-second voice sample → clone voice (ElevenLabs)
+   b. Extract clear face reference → store for future lip sync
+   c. Future videos: new script → cloned voice → lip sync on reference
+
+For each video, determine if lip sync would add value:
+{
+  "lipSyncPlan": {
+    "needed": false,
+    "useCase": "none",
+    "reason": "original audio and video are good quality, no translation needed"
+  }
+}
+
+OR for translation:
+{
+  "lipSyncPlan": {
+    "needed": true,
+    "useCase": "translation-dubbing",
+    "targetLanguages": ["en", "ar", "ru"],
+    "reason": "real estate ad targeting international buyers — need English and Arabic versions",
+    "estimatedCost": "$0.30 per language (ElevenLabs + HeyGen)"
+  }
+}`;
+
+// ============================================================
+// CATEGORY 19: AI MOTION GRAPHICS (NO AFTER EFFECTS)
+// ============================================================
+export const AI_MOTION_GRAPHICS_PROMPT = `Generate motion graphics with AI instead of complex After Effects work.
+
+AI MOTION GRAPHICS USE CASES:
+
+1. ANIMATED LOGO INTRO (2-3 seconds):
+   Instead of a static logo, generate an animated version:
+   Prompt: "3D logo animation, [brand name] text appearing with particles, dark background, luxury gold accent, smooth camera orbit, 2 seconds"
+   Use: Video intro/outro
+   Tool: Luma AI or Kling with logo image as reference
+
+2. ANIMATED LOWER THIRDS:
+   Instead of static name bars, generate animated ones:
+   Prompt: "Modern lower third animation, name plate sliding in from left, clean white with [brand color] accent, professional business style"
+   Use: Speaker identification, titles
+   Note: Can be done with Remotion instead of AI generation (cheaper + more consistent)
+
+3. ANIMATED TEXT REVEALS:
+   Key statistics or quotes appearing with cinematic animation:
+   Prompt: "Kinetic typography, number '₪1,890,000' scaling up with golden particles, dark background, luxury feel, 3 seconds"
+   Use: Price reveals, statistics, key quotes
+
+4. TRANSITION GRAPHICS:
+   Custom branded transitions between sections:
+   Prompt: "Smooth geometric transition wipe, [brand colors], modern clean design, 1 second"
+   Use: Section changes, topic transitions
+
+5. ANIMATED ICONS/INFOGRAPHICS:
+   Data visualization or feature icons with motion:
+   Prompt: "Animated icon of [concept], flat design, [brand color], bouncing entrance animation, white background, 2 seconds"
+   Use: Feature lists, benefit highlights
+
+COST-BENEFIT DECISION:
+- Simple text animations → use Remotion (free, consistent, fast)
+- Logo animations → use AI generation (more creative, premium feel)
+- Lower thirds → use Remotion (need to be consistent across videos)
+- Kinetic text → use Remotion with templates (cheaper at scale)
+- Transitions → AI generation for premium, Remotion for standard
+- Infographics → Remotion (need data accuracy, AI might hallucinate)
+
+For each video, decide which motion graphics are needed:
+{
+  "motionGraphicsPlan": {
+    "logoAnimation": { "needed": true, "method": "remotion", "style": "slide-in-with-bounce" },
+    "lowerThirds": { "needed": true, "method": "remotion", "style": "modern-minimal" },
+    "priceReveal": { "needed": true, "method": "remotion", "style": "scale-up-golden" },
+    "sectionTransitions": { "needed": true, "method": "remotion", "style": "geometric-wipe" },
+    "animatedIcons": { "needed": false }
+  }
+}`;
+
+// ============================================================
+// CATEGORY 20: PLATFORM-SPECIFIC CONTENT STRATEGY
+// ============================================================
+export const PLATFORM_CONTENT_STRATEGY_PROMPT = `Apply platform-specific content psychology (not just format/size).
+
+Based on Rourke Heath's insights and social media research:
+
+TIKTOK PSYCHOLOGY:
+- "TikTok is inherently an angry platform" — confrontational hooks work best
+- Hook style: challenge, controversy, "they don't want you to know"
+- Tone: raw, unfiltered, authentic, fast
+- Don't polish too much — over-produced feels fake on TikTok
+- Trending sounds MANDATORY — algorithm heavily favors them
+- Engagement bait in the CTA: "comment if you agree" / "tag someone who needs this"
+- Loop is CRITICAL — design the ending to seamlessly restart
+- Hashtags: 3-5 niche hashtags, not generic ones
+- Best duration: 15-21 seconds for maximum completion rate
+
+INSTAGRAM REELS PSYCHOLOGY:
+- "Instagram feels more welcoming" — inspirational/aspirational hooks work best
+- Hook style: visual beauty, surprising reveal, relatable moment
+- Tone: polished but authentic, warm, inviting
+- Brand consistency matters more here — aesthetic feeds win
+- Music: either trending OR premium/cinematic (both work differently)
+- CTA: "save for later" / "share with a friend who needs this" (save = algorithm gold)
+- Captions are more important than TikTok (professional audience watches muted)
+- Best duration: 15-30 seconds for Reels, 7-15 for Stories
+
+YOUTUBE SHORTS PSYCHOLOGY:
+- "YouTube is where people come to learn" — educational hooks work best
+- Hook style: "How to...", "The secret to...", teach something in the hook itself
+- Tone: authoritative, educational, valuable
+- More patience for longer content (up to 60 seconds still works)
+- Thumbnails matter even for Shorts (they appear in feeds)
+- CTA: "subscribe for more tips" / "watch the full tutorial" (link to long-form)
+- Completion rate is THE metric — 90-100% completion = algorithm boost
+- Best duration: 30-45 seconds for learning content
+
+LINKEDIN VIDEO:
+- Professional, thought-leadership tone
+- No trending sounds, no flashy effects
+- Captions MANDATORY (everyone watches at work, muted)
+- Hook: data, insight, professional opinion
+- CTA: "thoughts?" / "share your experience" / "link in comments"
+- Tone: authoritative but approachable
+- Best duration: 30-60 seconds
+
+For each video export, adjust:
+{
+  "platformStrategy": {
+    "tiktok": {
+      "hookTone": "confrontational",
+      "hookExample": "יזמי הנדל״ן לא רוצים שתראו את זה",
+      "ctaStyle": "engagement-bait",
+      "ctaText": "תגיעו מי שצריך לראות את זה 👇",
+      "polishLevel": "raw-authentic",
+      "soundStrategy": "trending-sound",
+      "hashtagStrategy": "3-5 niche"
+    },
+    "instagram": {
+      "hookTone": "aspirational",
+      "hookExample": "הדירה שתשנה לכם את החיים ✨",
+      "ctaStyle": "save-share",
+      "ctaText": "שמרו לאחר כך 🔖",
+      "polishLevel": "polished-warm",
+      "soundStrategy": "cinematic-or-trending",
+      "hashtagStrategy": "mix niche + broad"
+    },
+    "youtube": {
+      "hookTone": "educational",
+      "hookExample": "3 דברים שאתם חייבים לבדוק לפני שקונים דירה",
+      "ctaStyle": "subscribe",
+      "ctaText": "הירשמו לעוד טיפים 🔔",
+      "polishLevel": "professional",
+      "soundStrategy": "original-background",
+      "hashtagStrategy": "SEO-focused"
+    }
+  }
+}
+
+This means the SAME video gets DIFFERENT:
+- Hook text (confrontational vs aspirational vs educational)
+- CTA text and style
+- Polish level
+- Sound/music choice
+- Hashtag strategy
+All from the same base footage — only the wrapper changes per platform.`;
+
+// ============================================================
+// CATEGORY 21: AI BACKGROUND REPLACEMENT
+// ============================================================
+export const AI_BACKGROUND_PROMPT = `Detect when video background should be replaced or enhanced with AI.
+
+WHEN TO SUGGEST BACKGROUND REPLACEMENT:
+- Speaker filmed in a messy/ugly room → replace with clean office or branded background
+- Speaker filmed on green screen → replace with contextual background
+- Real estate: filmed from outside → composite speaker INTO the property interior
+- Product demo: cluttered desk → clean studio background
+
+WORKFLOW (for the Brain to plan, not execute automatically):
+1. Detect if background quality is low (Claude Vision during ingest)
+2. If low: suggest background replacement in the editing blueprint
+3. Options: a) Blur existing background (FFmpeg, free) b) Replace with brand-colored gradient (FFmpeg, free) c) AI-generate new background matching content context (KIE.ai, $0.10-0.40)
+
+BACKGROUND QUALITY DETECTION (during ingest Vision analysis):
+- Score background 1-10
+- Below 5: suggest blur or replacement
+- 5-7: suggest subtle blur
+- 8+: keep as-is
+
+For talking-head videos with bad backgrounds:
+{
+  "backgroundPlan": {
+    "quality": 4,
+    "issue": "messy room with distracting objects visible behind speaker",
+    "recommendation": "blur",
+    "blurIntensity": 15,
+    "alternativeRecommendation": "replace with modern office background",
+    "estimatedCost": "$0 for blur, $0.15 for AI replacement"
+  }
+}`;
+
+// ============================================================
+// CATEGORY 22: AI RELIGHTING
+// ============================================================
+export const AI_RELIGHTING_PROMPT = `Detect and plan lighting fixes for footage.
+
+BAD LIGHTING SIGNS (detect during ingest):
+- Underexposed (too dark) — faces hard to see
+- Overexposed (too bright) — blown out highlights
+- Flat lighting — no depth, looks amateur
+- Mixed color temperature — warm and cool light sources competing
+- Harsh shadows — direct overhead or side light without diffusion
+- Backlit — subject is silhouette against bright window
+
+LIGHTING FIX OPTIONS (cheapest to most expensive):
+
+1. FFmpeg exposure/brightness correction (FREE):
+   - Underexposed: "eq=brightness=0.1:contrast=1.1"
+   - Overexposed: "eq=brightness=-0.05:contrast=0.95"
+   - Flat: "curves=preset=increase_contrast"
+
+2. FFmpeg color temperature fix (FREE):
+   - Too cool (blue): "colortemperature=6500" or "colorbalance=rs=0.1:gs=0.05"
+   - Too warm (orange): "colortemperature=4500" or "colorbalance=bs=0.1"
+
+3. AI Relighting via API ($0.10-0.30 per clip):
+   - Send frame to relighting API (Clipdrop/Higgsfield)
+   - Get back properly lit version
+   - Apply lighting style across all frames
+   - Best for: golden hour simulation, studio lighting, dramatic mood
+
+LIGHTING QUALITY SCORE (during ingest):
+- Score lighting 1-10 based on Vision analysis
+- Below 4: auto-apply FFmpeg correction
+- 4-6: suggest correction in preview
+- 7+: no correction needed
+
+For each video:
+{
+  "lightingPlan": {
+    "quality": 5,
+    "issues": ["slightly underexposed", "mixed color temperature"],
+    "autoFix": {
+      "brightness": 0.08,
+      "contrast": 1.05,
+      "colorTemp": "warm-shift"
+    },
+    "aiRelightOption": {
+      "available": true,
+      "style": "golden-hour",
+      "estimatedCost": "$0.15",
+      "reason": "real estate content benefits from warm golden lighting"
+    }
+  }
+}`;
+
+// ============================================================
+// CATEGORY 23: AI POV WALKTHROUGH
+// ============================================================
+export const POV_WALKTHROUGH_PROMPT = `Generate POV (first-person) walkthrough videos from still photos.
+
+USE CASE:
+Real estate agent has photos of an apartment but no video. The Brain can generate a virtual walkthrough that looks like someone walking through the property.
+
+WORKFLOW:
+1. User uploads still photos of rooms (living room, kitchen, bedroom, etc.)
+2. Brain orders them in logical walkthrough sequence
+3. For each photo: generate 3-5 second video clip with camera slowly pushing forward
+4. Between rooms: generate AI transition (doorway, hallway)
+5. Concat all clips into a smooth walkthrough
+
+POV CAMERA MOVEMENT PROMPTS:
+- Living room: "Slow steady walk-forward POV through spacious living room, natural light from windows, smooth camera movement at eye level, residential interior"
+- Kitchen: "POV walking into modern kitchen, camera pans slightly to reveal island and appliances, bright clean lighting"
+- Bedroom: "POV entering bedroom through doorway, camera slowly reveals bed and window view, warm morning light"
+- Bathroom: "POV peek into clean bathroom, camera slowly tilts to show fixtures, bright white lighting"
+- Transition: "POV walking through hallway, passing doorframe, transitioning from one room to next, residential interior"
+
+When user uploads photos instead of video (Prompt-Only mode with images):
+{
+  "povWalkthrough": {
+    "enabled": true,
+    "photos": ["living.jpg", "kitchen.jpg", "bedroom.jpg", "bathroom.jpg", "view.jpg"],
+    "sequence": ["entrance", "living", "kitchen", "bedroom", "bathroom", "balcony-view"],
+    "transitionStyle": "doorway-walk",
+    "cameraPace": "slow-elegant",
+    "totalDuration": 30,
+    "perRoomDuration": 4
+  }
+}
+
+This is the MOST valuable feature for real estate agents who only have photos.`;
+
+// ============================================================
+// CATEGORY 24: AD LOCALIZATION AT SCALE
+// ============================================================
+export const AD_LOCALIZATION_PROMPT = `Generate localized ad variations from one master video.
+
+CONCEPT (from Rourke Heath's Kling O1 workflow):
+From ONE master video, automatically generate variations for different:
+- Languages (Hebrew → English, Arabic, Russian)
+- Audiences (young couples, investors, families, immigrants)
+- Platforms (different text/CTA per platform)
+
+LOCALIZATION TYPES:
+
+1. LANGUAGE LOCALIZATION:
+   - Translate subtitles/text overlays to target language
+   - Generate new voiceover in target language (ElevenLabs)
+   - Apply lip sync if speaker is visible (HeyGen)
+   - Change CTA text and phone number per region
+
+2. AUDIENCE LOCALIZATION:
+   - Same video, different hook text per audience:
+     Young couples: "הדירה הראשונה שלכם"
+     Investors: "תשואה של 6% מובטחת"
+     Families: "3 דקות מבית ספר"
+     Olim: "Your new home in Israel"
+   - Different CTA per audience segment
+
+3. PLATFORM LOCALIZATION:
+   Already covered in multi-platform cuts — different edit per platform
+
+When the user requests localization:
+{
+  "localizationPlan": {
+    "languages": [
+      { "code": "en", "voiceover": true, "lipSync": true, "subtitles": true, "cta": "Schedule a tour: +972-4-XXX" },
+      { "code": "ru", "voiceover": true, "lipSync": true, "subtitles": true, "cta": "Запланировать тур" },
+      { "code": "ar", "voiceover": true, "lipSync": false, "subtitles": true, "cta": "حدد موعد جولة" }
+    ],
+    "audienceVariations": [
+      { "audience": "investors", "hookText": "תשואה של 6% מובטחת", "ctaText": "קבלו תוכנית עסקית" },
+      { "audience": "young-couples", "hookText": "הדירה הראשונה שלכם מחכה", "ctaText": "בדקו זכאות למשכנתא" }
+    ],
+    "estimatedCost": "$0.45 per language (translate + voice + lip sync)",
+    "totalVariations": 5
+  }
+}
+
+This means from ONE 45-second video → the system outputs 5+ versions targeting different markets. Each version: same B-Roll, different voiceover/subtitles/CTA.`;
+
+// ============================================================
 // MASTER EDITING PROMPT (all rules combined)
 // ============================================================
 export const MASTER_EDITING_PROMPT = [
@@ -523,7 +1115,18 @@ export const MASTER_EDITING_PROMPT = [
   PATTERN_INTERRUPT_PROMPT, // Pattern interrupts
   EMOTIONAL_ARC_PROMPT,    // Emotional arc rollercoaster
   STRATEGIC_SILENCE_PROMPT, // Strategic silence protection
-  BROLL_PRECISION_PROMPT   // B-Roll word-level precision
+  BROLL_PRECISION_PROMPT,  // B-Roll word-level precision
+  CINEMATIC_PROMPTING_PROMPT, // Cinematic B-Roll prompting
+  AI_TRANSITIONS_PROMPT,   // AI-powered transitions
+  STYLE_TRANSFER_PROMPT,   // Visual style transfer
+  CHARACTER_CONSISTENCY_PROMPT, // Character consistency
+  LIP_SYNC_PROMPT,         // AI lip sync intelligence
+  AI_MOTION_GRAPHICS_PROMPT, // AI motion graphics
+  PLATFORM_CONTENT_STRATEGY_PROMPT, // Platform content strategy
+  AI_BACKGROUND_PROMPT,    // AI background replacement
+  AI_RELIGHTING_PROMPT,    // AI relighting
+  POV_WALKTHROUGH_PROMPT,  // POV walkthrough from photos
+  AD_LOCALIZATION_PROMPT   // Ad localization at scale
 ].join('\n\n');
 
 // ============================================================
@@ -559,6 +1162,13 @@ export interface EditingBlueprint {
     videoEndTime?: number;
     speakerAudioContinues?: boolean;
     kineticTextOverlay?: string;
+    imagePrompt?: string;
+    videoPrompt?: string;
+    negativePrompt?: string;
+    cameraMovement?: string;
+    shotType?: string;
+    lighting?: string;
+    style?: string;
   }>;
   musicSync: {
     ducking: Array<{ start: number; end: number; volume: number; reason: string }>;
@@ -607,5 +1217,29 @@ export interface EditingBlueprint {
     phase: string;
     editStyle: string;
   }>;
+  aiTransitions?: Array<{
+    fromClipEnd: number;
+    toClipStart: number;
+    type: string;
+    prompt: string;
+    duration: number;
+    reason: string;
+  }>;
+  backgroundPlan?: {
+    quality: number;
+    issue: string;
+    recommendation: 'keep' | 'blur' | 'replace';
+    blurIntensity?: number;
+    alternativeRecommendation?: string;
+  };
+  lightingPlan?: {
+    quality: number;
+    issues: string[];
+    autoFix?: {
+      brightness?: number;
+      contrast?: number;
+      colorTemp?: string;
+    };
+  };
   murchAverageScore: number;
 }
