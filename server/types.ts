@@ -47,7 +47,9 @@ export interface Job {
   contentAnalysis?: ContentAnalysis;
   editingBlueprint?: import('./services/editingRules.js').EditingBlueprint;
   emotionalArc?: ContentAnalysis['emotionalArc'];
+  detailedEmotionalArc?: ContentAnalysis['detailedEmotionalArc'];
   cutTransitions?: ContentAnalysis['cutTransitions'];
+  protectedSilences?: ContentAnalysis['protectedSilences'];
   shakeEffects?: Array<{ at: number; duration: number; intensity: number }>;
   presenterDetection?: PresenterDetection;
   speakerVerification?: VerifiedSpeakerMap;
@@ -611,6 +613,8 @@ export interface ContentAnalysis {
     end: number;
     reason: string;
     suggestedPrompt: string;
+    triggerWord?: string;
+    triggerWordTimestamp?: number;
   }>;
   emotionalArc: Array<{
     section: 'hook' | 'build' | 'peak' | 'resolution';
@@ -679,6 +683,23 @@ export interface ContentAnalysis {
     endStrategy: string;
   };
   editingBlueprint?: import('./services/editingRules.js').EditingBlueprint;
+
+  // Detailed emotional arc (rollercoaster phases)
+  detailedEmotionalArc?: Array<{
+    start: number;
+    end: number;
+    energy: number;
+    phase: string;
+    editStyle: string;
+  }>;
+
+  // Protected silences (strategic pauses to keep)
+  protectedSilences?: Array<{
+    at: number;
+    duration: number;
+    type: 'impact' | 'anticipation' | 'rhetorical' | 'emotional' | 'comedic';
+    reason: string;
+  }>;
 }
 
 // --- Presenter Detection Types ---

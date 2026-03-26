@@ -50,25 +50,54 @@ export async function runCleanAgent(
   const tempDir = path.join('temp', job.id);
   fs.mkdirSync(tempDir, { recursive: true });
 
-  // --- REMOVE SILENCES ---
+  // --- REMOVE SILENCES (with strategic silence protection) ---
   if (plan.clean.removeSilences) {
     try {
       updateProgress(job, 'הסרת שתיקות...');
       const threshold = plan.clean.silenceThreshold || 1.5;
 
       const silences = await detectSilences(currentInput, -30, threshold);
-      result.removedSilences = silences;
 
-      if (silences.length > 0) {
+      // Protected silences — strategic pauses that should NOT be removed
+      const protectedSilences = job.contentAnalysis?.protectedSilences || job.protectedSilences || [];
+
+      function isSilenceProtected(silenceStart: number, silenceEnd: number): boolean {
+        return protectedSilences.some((ps: any) => {
+          const psEnd = ps.at + ps.duration;
+          // Check if the silence overlaps with a protected silence
+          return silenceStart < psEnd && silenceEnd > ps.at;
+        });
+      }
+
+      // Filter out protected silences
+      const silencesToRemove: Array<{ start: number; end: number }> = [];
+      let keptCount = 0;
+      for (const silence of silences) {
+        if (isSilenceProtected(silence.start, silence.end)) {
+          const matchedProtected = protectedSilences.find((ps: any) => Math.abs(ps.at - silence.start) < 0.5);
+          console.log(`[Clean] Keeping protected silence at ${silence.start.toFixed(1)}s (${matchedProtected?.type || 'strategic'})`);
+          keptCount++;
+          continue;
+        }
+        silencesToRemove.push(silence);
+      }
+
+      result.removedSilences = silencesToRemove;
+
+      if (keptCount > 0) {
+        console.log(`[Clean] Removed ${silencesToRemove.length} silences, kept ${keptCount} protected pauses`);
+      }
+
+      if (silencesToRemove.length > 0) {
         const totalDuration = await getVideoDuration(currentInput);
-        const keepSegments = invertRanges(silences, totalDuration);
+        const keepSegments = invertRanges(silencesToRemove, totalDuration);
 
         if (keepSegments.length > 0) {
           const outputPath = path.join(tempDir, 'no_silence.mp4');
           await trimAndConcat(currentInput, keepSegments, outputPath, job.id);
           currentInput = outputPath;
           result.cleanVideoPath = currentInput;
-          console.log(`[Clean] Removed ${silences.length} silence segments`);
+          console.log(`[Clean] Removed ${silencesToRemove.length} silence segments`);
         }
       }
     } catch (error) {
