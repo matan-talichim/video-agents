@@ -149,7 +149,7 @@ export default function PreviewPage() {
   const previewCost = useMemo(() => {
     if (!currentJob || !preview) return null;
     return calculateLiveCost({
-      model: currentJob.videoModel || 'kling2.5',
+      model: currentJob.videoModel || 'veo-3.1-fast',
       duration: preview.estimatedDuration || 60,
       options: (currentJob.options || {}) as unknown as Record<string, boolean>,
       editStyle: currentJob.editStyle,
@@ -957,7 +957,7 @@ export default function PreviewPage() {
         )}
 
         {/* Detailed Cost Breakdown (updated) */}
-        <CostBreakdownDetailed blueprint={editingBlueprint} />
+        <CostBreakdownDetailed blueprint={editingBlueprint} selectedModel={currentJob?.videoModel} />
 
         {/* Chat input */}
         {chatError && (

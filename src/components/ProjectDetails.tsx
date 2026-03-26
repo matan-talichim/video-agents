@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Job } from '../types';
+import { getModelById } from '../data/videoModels';
 
 interface Props {
   job: Job;
@@ -10,14 +11,6 @@ const STYLE_LABELS: Record<string, string> = {
   energetic: 'אנרגטי',
   minimal: 'מינימלי',
   trendy: 'טרנדי',
-};
-
-const MODEL_LABELS: Record<string, string> = {
-  'veo3.1': 'Veo 3.1 Fast',
-  sora2: 'Sora 2',
-  'kling2.5': 'Kling v2.5 Turbo',
-  'wan2.5': 'WAN 2.5',
-  'seedance1.5': 'Seedance 1.5 Pro',
 };
 
 export default function ProjectDetails({ job }: Props) {
@@ -44,7 +37,7 @@ export default function ProjectDetails({ job }: Props) {
             </div>
             <div>
               <p className="text-[10px] text-gray-500 mb-0.5">מודל</p>
-              <p>{MODEL_LABELS[job.videoModel] || job.videoModel}</p>
+              <p>{getModelById(job.videoModel)?.name || job.videoModel}</p>
             </div>
             <div>
               <p className="text-[10px] text-gray-500 mb-0.5">משך</p>

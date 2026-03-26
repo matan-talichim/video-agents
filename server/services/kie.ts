@@ -106,6 +106,35 @@ async function downloadResult(url: string, outputPath: string): Promise<string> 
   return outputPath;
 }
 
+// --- Model → API endpoint mapping ---
+
+const MODEL_API_MAP: Record<string, string> = {
+  'veo-3.1-fast': '/veo3/fast/generate',
+  'veo-3.1-quality': '/veo3/quality/generate',
+  'kling-3.0': '/kling/3.0/generate',
+  'kling-2.6': '/kling/2.6/generate',
+  'kling-2.5-turbo': '/kling/2.5-turbo/generate',
+  'kling-2.1-master': '/kling/2.1/master/generate',
+  'kling-avatar-pro': '/kling/avatar-pro/generate',
+  'seedance-1.5-pro': '/bytedance/seedance-1.5-pro/generate',
+  'bytedance-v1-pro': '/bytedance/v1-pro/generate',
+  'bytedance-v1-pro-fast': '/bytedance/v1-pro-fast/generate',
+  'sora-2': '/sora2/generate',
+  'sora-2-pro': '/sora2/pro/generate',
+  'wan-2.6': '/wan/2.6/generate',
+  'wan-2.5': '/wan/2.5/generate',
+  'wan-2.6-flash': '/wan/2.6-flash/generate',
+  'hailuo-2.3-pro': '/hailuo/2.3/pro/generate',
+  'hailuo-standard': '/hailuo/standard/generate',
+  'runway-gen4': '/runway/gen4/generate',
+  'runway-aleph': '/runway/aleph/generate',
+  'grok-imagine': '/grok/imagine/generate',
+  'topaz-upscale': '/topaz/upscale',
+  'infinitalk': '/infinitalk/generate',
+  // Legacy alias
+  'kling-v2.5-turbo': '/kling/2.5-turbo/generate',
+};
+
 // --- Public API functions ---
 
 // Text-to-Video: generate B-Roll from prompt
@@ -118,7 +147,8 @@ export async function generateVideo(
 ): Promise<string> {
   await waitForSlot();
   try {
-    console.log(`[KIE] Generating video: "${prompt.slice(0, 50)}..." model=${model} duration=${duration}s`);
+    const endpoint = MODEL_API_MAP[model] || '/generate/video';
+    console.log(`[KIE] Generating video: "${prompt.slice(0, 50)}..." model=${model} endpoint=${endpoint} duration=${duration}s`);
     const startTime = Date.now();
 
     const payload: Record<string, unknown> = {
@@ -132,7 +162,7 @@ export async function generateVideo(
       payload.negative_prompt = negativePrompt;
     }
 
-    const { task_id } = await kieRequest('/generate/video', payload);
+    const { task_id } = await kieRequest(endpoint, payload);
 
     const resultUrl = await pollUntilDone(task_id);
     await downloadResult(resultUrl, outputPath);

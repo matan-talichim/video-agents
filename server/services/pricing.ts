@@ -18,57 +18,154 @@ export const DEEPGRAM_PRICING = {
   streamingPerMinute: 0.0077,
 };
 
-// === KIE.AI (Video Generation) ===
+// === KIE.AI (Video Generation) — Full model catalog ===
 export const KIE_PRICING: Record<string, any> = {
+  // === Google Veo ===
   'veo-3.1-fast': {
     label: 'Veo 3.1 Fast',
-    per8Seconds: 0.40,
+    perClip: 0.40,
     perSecond: 0.05,
+    clipDuration: 8,
   },
-  'veo-3-quality': {
-    label: 'Veo 3 Quality',
-    per8Seconds: 2.00,
+  'veo-3.1-quality': {
+    label: 'Veo 3.1 Quality',
+    perClip: 2.00,
     perSecond: 0.25,
+    clipDuration: 8,
   },
+  // === Kling ===
+  'kling-3.0': {
+    label: 'Kling 3.0',
+    perClip: 0.50,
+    perSecond: 0.05,
+    clipDuration: 10,
+  },
+  'kling-2.6': {
+    label: 'Kling 2.6',
+    perClip: 0.30,
+    perSecond: 0.03,
+    clipDuration: 10,
+  },
+  'kling-2.5-turbo': {
+    label: 'Kling 2.5 Turbo',
+    perClip: 0.15,
+    perSecond: 0.02,
+    clipDuration: 5,
+  },
+  'kling-2.1-master': {
+    label: 'Kling 2.1 Master',
+    perClip: 0.10,
+    perSecond: 0.02,
+    clipDuration: 5,
+  },
+  'kling-avatar-pro': {
+    label: 'Kling AI Avatar Pro',
+    perClip: 0.80,
+    perSecond: 0.08,
+    clipDuration: 10,
+  },
+  // === ByteDance / Seedance ===
+  'seedance-1.5-pro': {
+    label: 'Seedance 1.5 Pro',
+    perClip: 0.20,
+    perSecond: 0.04,
+    clipDuration: 5,
+  },
+  'bytedance-v1-pro': {
+    label: 'ByteDance V1 Pro',
+    perClip: 0.25,
+    perSecond: 0.05,
+    clipDuration: 5,
+  },
+  'bytedance-v1-pro-fast': {
+    label: 'ByteDance V1 Pro Fast',
+    perClip: 0.15,
+    perSecond: 0.03,
+    clipDuration: 5,
+  },
+  // === OpenAI Sora ===
   'sora-2': {
     label: 'Sora 2',
-    per10Seconds: 0.15,
-    perSecond: 0.015,
+    perClip: 0.50,
+    perSecond: 0.05,
+    clipDuration: 10,
   },
   'sora-2-pro': {
     label: 'Sora 2 Pro',
-    per10Seconds: 0.45,
-    perSecond: 0.045,
-  },
-  'sora-2-pro-hd': {
-    label: 'Sora 2 Pro HD',
-    per10Seconds: 1.00,
+    perClip: 1.50,
     perSecond: 0.10,
+    clipDuration: 15,
   },
-  'kling-v2.5-turbo': {
-    label: 'Kling 2.1 Standard',
-    per5Seconds: 0.10,
+  // === WAN ===
+  'wan-2.6': {
+    label: 'WAN 2.6',
+    perClip: 0.30,
     perSecond: 0.02,
-  },
-  'kling-v2.5-pro': {
-    label: 'Kling 2.1 Pro',
-    per5Seconds: 0.25,
-    perSecond: 0.05,
-  },
-  'kling-v2.5-master': {
-    label: 'Kling 2.1 Master',
-    per5Seconds: 0.80,
-    perSecond: 0.16,
+    clipDuration: 15,
   },
   'wan-2.5': {
     label: 'WAN 2.5',
-    per5Seconds: 0.15,
+    perClip: 0.15,
     perSecond: 0.03,
+    clipDuration: 5,
   },
-  'seedance-1.5-pro': {
-    label: 'Seedance 1.5 Pro',
-    per5Seconds: 0.20,
+  'wan-2.6-flash': {
+    label: 'WAN 2.6 Flash',
+    perClip: 0.10,
+    perSecond: 0.01,
+    clipDuration: 8,
+  },
+  // === Hailuo ===
+  'hailuo-2.3-pro': {
+    label: 'Hailuo 2.3 Pro',
+    perClip: 0.40,
+    perSecond: 0.05,
+    clipDuration: 8,
+  },
+  'hailuo-standard': {
+    label: 'Hailuo Standard',
+    perClip: 0.20,
+    perSecond: 0.025,
+    clipDuration: 8,
+  },
+  // === Runway ===
+  'runway-gen4': {
+    label: 'Runway Gen-4',
+    perClip: 0.50,
+    perSecond: 0.05,
+    clipDuration: 10,
+  },
+  'runway-aleph': {
+    label: 'Runway Aleph',
+    perClip: 0.60,
+    perSecond: 0.06,
+    clipDuration: 10,
+  },
+  // === Other ===
+  'grok-imagine': {
+    label: 'Grok Imagine',
+    perClip: 0.30,
     perSecond: 0.04,
+    clipDuration: 8,
+  },
+  'topaz-upscale': {
+    label: 'Topaz Video Upscale',
+    perClip: 0.20,
+    perSecond: 0.02,
+    clipDuration: 0,
+  },
+  'infinitalk': {
+    label: 'Infinitalk',
+    perClip: 0.40,
+    perSecond: 0.04,
+    clipDuration: 10,
+  },
+  // Legacy aliases (backwards compatibility)
+  'kling-v2.5-turbo': {
+    label: 'Kling 2.5 Turbo',
+    perClip: 0.15,
+    perSecond: 0.02,
+    clipDuration: 5,
   },
   // Other KIE.ai features
   lipsync: 0.30,
@@ -156,7 +253,7 @@ export function calculateJobCost(plan: ExecutionPlan): JobCostBreakdown {
       || estimateBRollClips(duration);
     const model = plan.generate.brollModel || 'kling-v2.5-turbo';
     const modelPricing = KIE_PRICING[model] || KIE_PRICING['kling-v2.5-turbo'];
-    const perClip = modelPricing?.per8Seconds || modelPricing?.per5Seconds || modelPricing?.per10Seconds || 0.20;
+    const perClip = modelPricing?.perClip || modelPricing?.per8Seconds || modelPricing?.per5Seconds || modelPricing?.per10Seconds || 0.20;
     const cost = clipCount * perClip;
     breakdown.push({ service: `B-Roll (${modelPricing?.label || model})`, cost, unit: `${clipCount} קליפים`, free: false });
     total += cost;
