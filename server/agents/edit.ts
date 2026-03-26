@@ -115,6 +115,12 @@ export async function runEditAgent(
     if (analysis.soundDesign) {
       (job as any).soundDesignPlan = analysis.soundDesign;
     }
+    if (analysis.zooms) {
+      (job as any).blueprintZooms = analysis.zooms;
+    }
+    if (analysis.colorPlan) {
+      (job as any).colorPlan = analysis.colorPlan;
+    }
   }
 
   // ========================================================
@@ -346,6 +352,31 @@ Rules:
   }
 
   // ========================================================
+  // STEP 6.5: BLUEPRINT COLOR PLAN (per-segment color grading)
+  // ========================================================
+  const colorPlan = (job as any).colorPlan;
+  if (colorPlan && colorPlan.length > 0 && !plan.edit.colorGrading) {
+    try {
+      updateProgress(job, 'מתאים צבעים...');
+
+      for (const colorSegment of colorPlan) {
+        if (colorSegment.lut && colorSegment.lut !== 'none') {
+          const lutPath = `server/assets/luts/${colorSegment.lut}.cube`;
+          if (fs.existsSync(lutPath)) {
+            const output = nextOutput();
+            await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -vf "lut3d='${lutPath}'" -c:a copy -y "${output}"`);
+            currentVideo = output;
+            break; // apply first matching LUT (full per-segment grading requires trim+concat)
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('Blueprint color plan failed:', error.message);
+      warnings.push('Blueprint color plan failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
   // STEP 7: SKIN TONE + LIGHTING
   // ========================================================
   if (plan.edit.skinToneCorrection) {
@@ -423,9 +454,46 @@ Rules:
   }
 
   // ========================================================
+  // STEP 8.7: BLUEPRINT ZOOMS (from content analysis zoom plan)
+  // ========================================================
+  const blueprintZooms = (job as any).blueprintZooms;
+  if (blueprintZooms && blueprintZooms.length > 0) {
+    try {
+      updateProgress(job, 'מוסיף זומים חכמים...');
+
+      const sortedZooms = [...blueprintZooms].sort((a: any, b: any) => a.timestamp - b.timestamp);
+      zoomPlan = sortedZooms.map((z: any) => ({
+        start: z.timestamp,
+        end: z.timestamp + z.duration,
+        zoom_factor: z.zoomTo,
+        reason: z.reason,
+      }));
+
+      for (const zoom of sortedZooms) {
+        try {
+          const output = nextOutput();
+          await ffmpeg.runFFmpeg(ffmpeg.addZoom(
+            currentVideo,
+            zoom.timestamp,
+            zoom.timestamp + zoom.duration,
+            zoom.zoomTo,
+            output
+          ));
+          currentVideo = output;
+        } catch (zoomErr: any) {
+          console.error(`Blueprint zoom at ${zoom.timestamp}s failed:`, zoomErr.message);
+        }
+      }
+    } catch (error: any) {
+      console.error('Blueprint zooms failed:', error.message);
+      warnings.push('Blueprint zooms failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
   // STEP 9: SMART ZOOMS (snapped to beats if musicSync enabled)
   // ========================================================
-  if (plan.edit.smartZooms && transcript) {
+  if (plan.edit.smartZooms && transcript && !blueprintZooms?.length) {
     try {
       updateProgress(job, 'זומים חכמים...');
 

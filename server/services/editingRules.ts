@@ -136,3 +136,78 @@ Return soundDesign plan:
 
 // Combined prompt for Part 2
 export const EDITING_RULES_PART2 = `${MUSIC_SYNC_RULES_PROMPT}\n\n${SOUND_DESIGN_RULES_PROMPT}`;
+
+// ============================================================
+// CATEGORY 4: SMART ZOOM RULES
+// ============================================================
+export const ZOOM_RULES_PROMPT = `Every zoom must have a PURPOSE. Never zoom randomly.
+
+ZOOM IN (slow 1-2s, to 115-130%):
+- Speaker makes emotional statement → zoom to face (empathy)
+- Speaker reveals key number/statistic → zoom to emphasize
+- Speaker makes eye contact → zoom for intimacy
+- Before CTA → zoom for urgency
+
+ZOOM OUT (slow 1-2s, back to 100%):
+- Speaker transitions to new topic → zoom out = "new chapter"
+- After intense moment → zoom out = "breathing room"
+
+FAKE CUT TECHNIQUE (critical for talking-head):
+- Instead of visible jump cut, zoom in 15% at the cut point
+- Viewer perceives it as camera angle change, not a cut
+- Alternate: 115% for segment A, 100% for B, 115% for C
+- Creates illusion of multi-camera shoot from single camera
+
+KEN BURNS (for still images):
+- Start at 110%, slowly pan to 100% over 4-5 seconds
+- OR start at 100%, slowly zoom to 108% over 4-5 seconds
+- Always move toward the subject of interest
+
+ZOOM FREQUENCY:
+- Talking head: zoom change every 5-8 seconds
+- Interview: zoom on answer starts, zoom out on questions
+- Product demo: zoom to product for features, out for overview
+- Tour: NO artificial zooms — camera already moving
+
+Return zooms: [{ "timestamp": 15.5, "zoomFrom": 1.0, "zoomTo": 1.15, "duration": 1.5, "easing": "ease-in-out", "reason": "key statistic — emphasize" }]`;
+
+// ============================================================
+// CATEGORY 5: COLOR STORY
+// ============================================================
+export const COLOR_RULES_PROMPT = `Color grading must tell a story and match between shots:
+
+COLOR MATCHING:
+- When cutting speaker → B-Roll → speaker, color temperature MUST match
+- If speaker shot is warm, B-Roll must be graded to match
+- Mark each segment's color temperature: warm/neutral/cool
+- Plan color correction per segment, not one LUT for entire video
+
+COLOR STORY (subtle arc):
+- Opening: slightly desaturated or cool → "normal world"
+- Build-up: gradually warming → "getting interesting"
+- Peak/climax: full saturation, warm → "maximum impact"
+- CTA/conclusion: bright, clean → "positive feeling"
+- This should be SUBTLE — viewer shouldn't notice consciously
+
+SKIN TONE PROTECTION:
+- When applying any color grade, skin tones must remain natural
+- If skin looks orange, green, or grey → the grade is wrong
+
+MOOD-BASED GRADING:
+- Luxury/real estate: teal shadows + warm highlights (orange & teal)
+- Corporate/professional: neutral with slight warmth, clean whites
+- Energetic/social: high contrast, vibrant saturation, punchy
+- Testimonial/emotional: soft, warm, gentle contrast
+
+Return colorPlan: [{
+  "segment": { "start": 0, "end": 15 },
+  "temperature": "warm",
+  "saturation": "normal",
+  "contrast": "medium",
+  "lut": "cinematic|bright|moody|vintage|none",
+  "skinToneProtection": true,
+  "matchPrevious": true
+}]`;
+
+// Combined prompt for Part 3
+export const EDITING_RULES_PART3 = `${ZOOM_RULES_PROMPT}\n\n${COLOR_RULES_PROMPT}`;

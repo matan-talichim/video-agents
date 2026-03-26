@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { askClaude, askClaudeVision } from './claude.js';
 import { runFFmpeg, extractFrame, getVideoDuration } from './ffmpeg.js';
-import { EDITING_RULES_PART1, EDITING_RULES_PART2 } from './editingRules.js';
+import { EDITING_RULES_PART1, EDITING_RULES_PART2, EDITING_RULES_PART3 } from './editingRules.js';
 import type { TranscriptResult } from '../types.js';
 
 export interface ContentAnalysis {
@@ -144,6 +144,27 @@ export interface ContentAnalysis {
       reason: string;
     }>;
   };
+
+  // Smart zoom plan
+  zooms?: Array<{
+    timestamp: number;
+    zoomFrom: number;
+    zoomTo: number;
+    duration: number;
+    easing: string;
+    reason: string;
+  }>;
+
+  // Color grading plan
+  colorPlan?: Array<{
+    segment: { start: number; end: number };
+    temperature: 'warm' | 'neutral' | 'cool';
+    saturation: 'low' | 'normal' | 'high';
+    contrast: 'low' | 'medium' | 'high';
+    lut: 'cinematic' | 'bright' | 'moody' | 'vintage' | 'none';
+    skinToneProtection: boolean;
+    matchPrevious: boolean;
+  }>;
 }
 
 export async function analyzeContent(
@@ -381,7 +402,31 @@ Analyze this content and return JSON with ALL of the following fields:
       { "type": "rise", "at": 28.0, "duration": 2.0, "volume": -12, "reason": "building to key point" },
       { "type": "impact", "at": 30.0, "volume": -10, "reason": "main benefit reveal" }
     ]
-  }
+  },
+  "zooms": [
+    { "timestamp": 15.5, "zoomFrom": 1.0, "zoomTo": 1.15, "duration": 1.5, "easing": "ease-in-out", "reason": "key statistic — emphasize" },
+    { "timestamp": 30.0, "zoomFrom": 1.15, "zoomTo": 1.0, "duration": 1.5, "easing": "ease-in-out", "reason": "new topic — zoom out for breathing room" }
+  ],
+  "colorPlan": [
+    {
+      "segment": { "start": 0, "end": 15 },
+      "temperature": "cool",
+      "saturation": "normal",
+      "contrast": "medium",
+      "lut": "cinematic",
+      "skinToneProtection": true,
+      "matchPrevious": false
+    },
+    {
+      "segment": { "start": 15, "end": 45 },
+      "temperature": "warm",
+      "saturation": "high",
+      "contrast": "medium",
+      "lut": "bright",
+      "skinToneProtection": true,
+      "matchPrevious": true
+    }
+  ]
 }
 
 IMPORTANT:
@@ -404,8 +449,10 @@ ${EDITING_RULES_PART1}
 
 ${EDITING_RULES_PART2}
 
-Apply these rules when planning cuts, music sync, and sound design in the editingBlueprint.
-Include "musicSync" and "soundDesign" objects in your response JSON.`
+${EDITING_RULES_PART3}
+
+Apply these rules when planning cuts, music sync, sound design, zooms, and color grading in the editingBlueprint.
+Include "musicSync", "soundDesign", "zooms", and "colorPlan" objects in your response JSON.`
     );
 
     const jsonStr = contentResponse
@@ -431,6 +478,8 @@ Include "musicSync" and "soundDesign" objects in your response JSON.`
       hookOptions: analysis.hookOptions || [],
       musicSync: analysis.musicSync || undefined,
       soundDesign: analysis.soundDesign || undefined,
+      zooms: analysis.zooms || undefined,
+      colorPlan: analysis.colorPlan || undefined,
     };
   } catch (error: any) {
     console.error('[ContentAnalyzer] Content analysis failed:', error.message);
