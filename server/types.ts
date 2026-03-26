@@ -58,6 +58,11 @@ export interface Job {
   originalShakiness?: number;
   freshEyesReview?: import('./services/freshEyesReview.js').FreshEyesResult;
   contentSelection?: import('./services/contentSelector.js').ContentSelectionResult;
+  qaResult?: import('./services/qualityCheck.js').QAResult;
+  hookVariations?: import('./services/hookGenerator.js').HookVariation[];
+  abTestResult?: import('./services/abTesting.js').ABTestResult;
+  retentionPlan?: import('./services/retentionOptimizer.js').RetentionPlan;
+  loopPlan?: import('./services/loopOptimizer.js').LoopPlan;
 }
 
 export interface FileInfo {

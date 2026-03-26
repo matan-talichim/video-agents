@@ -130,10 +130,22 @@ router.get('/:id', (req, res) => {
   res.json(job);
 });
 
-// GET /api/jobs/:id/video — serve video with optional format parameter
+// GET /api/jobs/:id/video — serve video with optional format/variation parameter
 router.get('/:id/video', (req, res) => {
   const format = req.query.format as string;
+  const variationId = req.query.variation as string;
   const jobId = req.params.id;
+
+  // Check for A/B test variation first
+  if (variationId) {
+    const job = getJob(jobId);
+    if (job?.abTestResult) {
+      const variation = job.abTestResult.variations.find(v => v.id === variationId);
+      if (variation?.videoPath && fs.existsSync(variation.videoPath)) {
+        return res.sendFile(path.resolve(variation.videoPath));
+      }
+    }
+  }
 
   let videoPath: string;
 
@@ -298,6 +310,38 @@ router.post('/:id/revisions', async (req, res) => {
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// GET /api/jobs/:id/ab-status — check which A/B variations are ready
+router.get('/:id/ab-status', (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job?.abTestResult) return res.json({ variations: [], status: 'none' });
+
+  res.json({
+    variations: job.abTestResult.variations.map(v => ({
+      id: v.id,
+      hookType: v.hookType,
+      textOverlay: v.textOverlay,
+      viralScore: v.viralScore,
+      status: v.status,
+      videoUrl: v.status === 'ready' ? `/api/jobs/${job.id}/video?variation=${v.id}` : null,
+    })),
+    status: job.abTestResult.status,
+  });
+});
+
+// GET /api/jobs/:id/qa — get QA results
+router.get('/:id/qa', (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job?.qaResult) return res.json({ passed: true, issues: [], overallScore: 10, autoFixes: [], warnings: [] });
+  res.json(job.qaResult);
+});
+
+// GET /api/jobs/:id/retention — get retention prediction
+router.get('/:id/retention', (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job?.retentionPlan) return res.json({ predictions: [], fixes: [], predictedRetention: 0 });
+  res.json(job.retentionPlan);
 });
 
 // Chat-based editing is now handled by the Claude-powered chatEditor route
