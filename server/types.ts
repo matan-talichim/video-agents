@@ -63,6 +63,8 @@ export interface Job {
   abTestResult?: import('./services/abTesting.js').ABTestResult;
   retentionPlan?: import('./services/retentionOptimizer.js').RetentionPlan;
   loopPlan?: import('./services/loopOptimizer.js').LoopPlan;
+  thumbnailPlan?: import('./services/thumbnailOptimizer.js').ThumbnailPlan;
+  platformCuts?: import('./services/multiPlatformCutter.js').PlatformCut[];
 }
 
 export interface FileInfo {
@@ -909,6 +911,44 @@ export interface VideoIntelligence {
     timestamp: number;
     visual: string;
   }>;
+
+  // Marketing frameworks + copywriting + color/sound psychology
+  marketingPlan?: {
+    framework: {
+      selectedFramework: string;
+      frameworkReason: string;
+      frameworkMapping: Array<{ stage: string; start: number; end: number; content: string }>;
+    };
+    copywriting: {
+      textOverlays: Array<{
+        type: string;
+        text: string;
+        timestamp: number;
+        duration: number;
+        fontSize: string;
+        animation: string;
+        position: string;
+        color: string;
+        originalPrice?: string;
+        salePrice?: string;
+      }>;
+    };
+    colorStrategy: {
+      primaryCTAColor: string;
+      primaryCTAReason: string;
+      textHighlightColor: string;
+      priceColor: string;
+      urgencyColor: string;
+      backgroundOverlay: string;
+    };
+    soundStrategy: {
+      musicKey: string;
+      bpmRange: string;
+      genre: string;
+      reason: string;
+      sfxPlan: Array<{ type: string; usage: string }>;
+    };
+  };
 }
 
 export interface RecommendedConfig {

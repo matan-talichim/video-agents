@@ -27,6 +27,8 @@ import { generateHookVariations } from '../services/hookGenerator.js';
 import { generateABVariations } from '../services/abTesting.js';
 import { analyzeRetention } from '../services/retentionOptimizer.js';
 import { planLoop, applyLoop } from '../services/loopOptimizer.js';
+import { planThumbnail, generateThumbnail } from '../services/thumbnailOptimizer.js';
+import { planMultiPlatformCuts } from '../services/multiPlatformCutter.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -832,6 +834,52 @@ export async function runPipeline(job: Job): Promise<void> {
       } catch (error: any) {
         console.error('Export agent failed:', error.message);
         allWarnings.push(`Export failed: ${error.message}`);
+      }
+    }
+
+    // === THUMBNAIL OPTIMIZATION ===
+    if (editResult?.finalVideoPath && fs.existsSync(editResult.finalVideoPath)) {
+      try {
+        updateJob(job.id, { currentStep: 'מייצר תמונה ממוזערת מותאמת...' });
+        const thumbPlan = await planThumbnail(
+          editResult.finalVideoPath,
+          exportDuration,
+          job.videoIntelligence?.concept?.category || 'talking-head',
+          job.videoIntelligence?.keyPoints || [],
+          job.brandKit
+        );
+
+        const thumbPath = `output/${job.id}/thumbnail.jpg`;
+        fs.mkdirSync(`output/${job.id}`, { recursive: true });
+        await generateThumbnail(editResult.finalVideoPath, thumbPlan, thumbPath);
+        (job as any).thumbnailPlan = thumbPlan;
+        updateJob(job.id, { thumbnailPlan: thumbPlan } as any);
+        console.log(`[Pipeline] Thumbnail generated with viral score ${thumbPlan.viralScore}/10`);
+      } catch (error: any) {
+        console.error('Thumbnail optimization failed:', error.message);
+        allWarnings.push('Thumbnail optimization failed: ' + error.message);
+      }
+    }
+
+    // === MULTI-PLATFORM CUTS ===
+    if (job.plan.export.formats.length > 1 && job.contentSelection?.segments) {
+      try {
+        updateJob(job.id, { currentStep: 'מתכנן גרסאות לפלטפורמות שונות...' });
+        const platformNames = job.plan.export.formats.map((f: string) =>
+          f === '9:16' ? 'instagram-reels' : f === '1:1' ? 'linkedin' : 'youtube'
+        );
+        const platformCuts = await planMultiPlatformCuts(
+          job.contentSelection.segments,
+          job.contentAnalysis,
+          exportDuration,
+          platformNames
+        );
+        (job as any).platformCuts = platformCuts;
+        updateJob(job.id, { platformCuts } as any);
+        console.log(`[Pipeline] Planned ${platformCuts.length} platform-specific cuts`);
+      } catch (error: any) {
+        console.error('Multi-platform planning failed:', error.message);
+        allWarnings.push('Multi-platform planning failed: ' + error.message);
       }
     }
 
