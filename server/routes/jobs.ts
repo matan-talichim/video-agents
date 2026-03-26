@@ -245,6 +245,14 @@ router.get('/:id/thumbnail', (req, res) => {
   }
 });
 
+// GET /api/jobs/:id/audit — get pipeline audit report
+router.get('/:id/audit', (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (!(job as any).auditReport) return res.json({ error: 'No audit data' });
+  res.json((job as any).auditReport);
+});
+
 // GET /api/jobs/:id/versions — list all versions
 router.get('/:id/versions', (req, res) => {
   const managedVersions = getManagedVersions(req.params.id);

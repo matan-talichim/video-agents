@@ -15,6 +15,7 @@ import ScoresDashboard from '../components/ScoresDashboard';
 import DownloadOptions from '../components/DownloadOptions';
 import RevisionRequest from '../components/RevisionRequest';
 import FinalApproval from '../components/FinalApproval';
+import AuditPanel from '../components/AuditPanel';
 
 export default function ResultPage() {
   const { id } = useParams<{ id: string }>();
@@ -196,6 +197,9 @@ export default function ResultPage() {
         {/* Project Details */}
         <ProjectDetails job={job} />
       </div>
+
+      {/* Pipeline Audit (dev mode only) */}
+      {id && <AuditPanel jobId={id} />}
 
       {/* Version History Slide-in */}
       <VersionHistory
