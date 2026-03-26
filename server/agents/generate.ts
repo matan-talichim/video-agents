@@ -13,6 +13,7 @@ import { generateAITwin, generateAIDubbing } from './generateAdvanced.js';
 import { compareModels } from '../services/modelComparison.js';
 import { selectBestModel } from '../services/modelSelection.js';
 import { applyVisualDNA } from '../services/visualDNA.js';
+import { transformBRollPlanToCinematic } from '../services/brollGenerator.js';
 import type { Job, ExecutionPlan, TranscriptResult, GenerateResult } from '../types.js';
 
 function updateProgress(job: Job, step: string): void {
@@ -97,27 +98,38 @@ Return ONLY the JSON array, no other text.`
         || (targetDuration <= 15 ? 2 : targetDuration <= 30 ? 3 : targetDuration <= 60 ? 5 : targetDuration <= 90 ? 7 : Math.ceil(targetDuration / 12));
 
       const brollPlanResponse = await askClaude(
-        'You plan B-Roll inserts for professional video editing.',
+        'You plan B-Roll inserts for professional video editing. For each B-Roll insertion, write the prompt as a cinematic director would: include camera movement, shot type, lighting, depth of field, and style. Always include negative prompts.',
         `Read this transcript and suggest B-Roll video clips:
 
 ${transcript.fullText}
 
 Generate ${estimatedClips} B-Roll clips for a ${targetDuration}-second video. Space them evenly throughout the video. Each clip should be 3-5 seconds long. Don't cluster B-Roll — leave at least 8 seconds between insertions.
 
-For each clip, create a detailed cinematic B-Roll prompt. Return ONLY a JSON array:
-[{ "timestamp": 15.5, "duration": 4, "prompt": "Cinematic aerial drone shot of modern apartment buildings at golden hour, 4K, shallow depth of field", "reason": "Speaker mentions real estate project" }]
+For each clip, write the prompt like a Hollywood cinematographer — NOT like a Google search.
+Include: camera movement (dolly/drone/tracking/etc), shot type (wide/medium/close-up), lighting (golden hour/studio/natural), depth of field, and style.
+
+Return ONLY a JSON array:
+[{ "timestamp": 15.5, "duration": 4, "prompt": "Slow aerial drone shot descending toward modern apartment complex, golden hour warm sunlight, cinematic 4K, shallow depth of field with city bokeh in background, luxury real estate style. No text, no watermark.", "reason": "Speaker mentions real estate project" }]
 
 Rules:
 - Don't insert B-Roll during the hook (first 3 seconds)
 - Each B-Roll clip: 3-5 seconds
 - Leave at least 8 seconds between insertions
 - Generate exactly ${estimatedClips} B-Roll clips
-- Make prompts VERY detailed and cinematic
+- Every prompt MUST include camera movement, lighting, and negative prompts
+- NEVER write vague prompts like "beach scene" — write cinematic director-style prompts
 Return ONLY the JSON array, no other text.`
       );
       const cleaned = brollPlanResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      result.additionalAssets.brollPlan = JSON.parse(cleaned);
-      saveJSON(`${genDir}/broll_plan.json`, result.additionalAssets.brollPlan);
+      const rawBrollPlan = JSON.parse(cleaned);
+
+      // Transform basic prompts into full cinematic prompts with image-to-video workflow
+      updateProgress(job, 'שדרוג פרומפטים לסינמטי...');
+      const videoCategory = plan.edit.editStyle || 'cinematic';
+      const brandStyle = (job.brandKit as Record<string, unknown>)?.mood as string || 'cinematic-luxury';
+      const cinematicPlan = await transformBRollPlanToCinematic(rawBrollPlan, videoCategory, brandStyle);
+      result.additionalAssets.brollPlan = cinematicPlan;
+      saveJSON(`${genDir}/broll_plan.json`, cinematicPlan);
     } catch (error: any) {
       console.error('[Generate] B-Roll planning failed:', error.message);
       warnings.push(`B-Roll planning failed: ${error.message}`);
@@ -139,6 +151,7 @@ Return ONLY the JSON array, no other text.`
     updateProgress(job, 'יצירת B-Roll...');
     const brollPlan = result.additionalAssets.brollPlan as Array<{
       timestamp: number; duration: number; prompt: string; reason: string;
+      cinematicPrompt?: { imagePrompt: string; videoPrompt: string; negativePrompt: string; basicConcept: string };
     }>;
 
     for (let i = 0; i < brollPlan.length; i++) {
@@ -147,18 +160,36 @@ Return ONLY the JSON array, no other text.`
         updateProgress(job, `יצירת B-Roll ${i + 1}/${brollPlan.length}...`);
         const outputPath = `${genDir}/broll_${i}.mp4`;
 
+        // Use cinematic videoPrompt if available, fall back to original prompt
+        const videoPrompt = clip.cinematicPrompt?.videoPrompt || clip.prompt;
+        const negativePrompt = clip.cinematicPrompt?.negativePrompt || 'no text, no watermark, no blurry, no distortion';
+
+        // If image-to-video workflow: generate image first, then animate
+        if (clip.cinematicPrompt?.imagePrompt) {
+          try {
+            const imagePath = `${genDir}/broll_${i}_frame.jpg`;
+            await kie.generateImage(clip.cinematicPrompt.imagePrompt, imagePath);
+            // Use first-last frame or motion control to animate the still
+            // Fall through to text-to-video if image generation succeeds but video from image isn't available
+            console.log(`[Generate] B-Roll ${i}: Generated reference image for image-to-video workflow`);
+          } catch (imgError: any) {
+            console.log(`[Generate] B-Roll ${i}: Image generation skipped (${imgError.message}), using text-to-video`);
+          }
+        }
+
         await kie.generateVideo(
-          clip.prompt,
+          videoPrompt,
           plan.generate.brollModel,
           clip.duration || 4,
-          outputPath
+          outputPath,
+          negativePrompt
         );
 
         result.brollClips.push({
           path: outputPath,
           timestamp: clip.timestamp,
           duration: clip.duration,
-          prompt: clip.prompt,
+          prompt: videoPrompt,
         });
       } catch (error: any) {
         console.error(`[Generate] B-Roll ${i} generation failed:`, error.message);

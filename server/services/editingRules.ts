@@ -512,6 +512,97 @@ For each B-Roll insertion, use word-level timestamps from the transcript:
 }`;
 
 // ============================================================
+// CATEGORY 14: CINEMATIC B-ROLL PROMPTING
+// ============================================================
+export const CINEMATIC_PROMPTING_PROMPT = `You write B-Roll prompts like a Hollywood cinematographer, not like a Google search.
+
+IMAGE-TO-VIDEO WORKFLOW (preferred over text-to-video):
+Professional AI filmmakers prefer image-to-video because it gives:
+- Stronger character/scene consistency
+- More control over composition and framing
+- Better results overall
+When generating B-Roll, FIRST describe an ideal still frame (for image generation), THEN describe the motion (for video generation).
+
+CINEMATIC PROMPT STRUCTURE (use for EVERY B-Roll prompt):
+
+1. CAMERA MOVEMENT (how the camera moves):
+   - "Slow dolly forward" / "Smooth tracking shot" / "Steady push-in"
+   - "Aerial drone descending" / "Crane shot rising"
+   - "Handheld following subject" / "Static locked-off tripod"
+   - "Slow pan left to right" / "Gentle tilt up revealing"
+   - "FPV drone flying through" / "Orbiting around subject"
+
+2. SHOT TYPE (how close):
+   - "Wide establishing shot" / "Medium shot" / "Close-up detail"
+   - "Extreme close-up on texture" / "Bird's eye view"
+   - "Over-the-shoulder" / "Low angle looking up"
+
+3. LIGHTING (mood through light):
+   - "Golden hour warm sunlight" / "Soft overcast diffused light"
+   - "Dramatic side lighting with deep shadows"
+   - "Clean bright studio lighting" / "Moody blue hour twilight"
+   - "Backlit silhouette" / "Neon city lights at night"
+
+4. DEPTH OF FIELD:
+   - "Shallow depth of field, background bokeh" (for focus on subject)
+   - "Deep focus, everything sharp" (for landscapes/architecture)
+   - "Rack focus from foreground to background" (for reveals)
+
+5. STYLE/MOOD:
+   - "Cinematic, film-like, 24fps look"
+   - "Documentary style, natural, authentic"
+   - "Commercial polish, clean, bright"
+   - "Moody, atmospheric, dramatic"
+   - "Luxury, elegant, premium feel"
+
+6. NEGATIVE PROMPTS (always include):
+   - "no text, no watermark, no blurry, no distortion, no shaky camera"
+   - "no artificial looking, no CGI feel, no low quality"
+
+PROMPT TEMPLATES BY CATEGORY:
+
+REAL ESTATE — EXTERIOR:
+"Slow aerial drone shot descending toward [building], golden hour warm sunlight, cinematic 4K, shallow depth of field on the building with city bokeh in background, luxury real estate commercial style, smooth camera movement. No text, no watermark."
+
+REAL ESTATE — INTERIOR:
+"Smooth dolly forward through [room type], bright natural window light, wide angle lens, clean modern interior, real estate showcase style, warm color temperature, deep focus showing full room. No blurry, no distortion."
+
+REAL ESTATE — LOCATION/LIFESTYLE:
+"Cinematic tracking shot of [location feature], golden hour, people enjoying the area naturally, shallow depth of field, documentary style with commercial polish, warm tones. No staged feeling."
+
+PRODUCT — CLOSE-UP:
+"Slow orbit around [product] on clean surface, studio lighting with soft shadows, extreme shallow depth of field, macro detail visible, luxury commercial style, smooth 360 rotation. No background clutter."
+
+TESTIMONIAL — B-ROLL:
+"Medium shot of [activity described by speaker], natural lighting, documentary style, authentic feeling, handheld with slight movement for realism, warm color grading. No overly polished."
+
+NATURE/LANDSCAPE:
+"Wide establishing shot of [landscape], drone ascending slowly, golden hour or blue hour, cinematic color grading, deep focus, epic scale, atmospheric haze in distance. No text overlay."
+
+URBAN/CITY:
+"Tracking shot through [street/area], dynamic movement, night city lights or golden hour, shallow depth of field with bokeh lights, cinematic mood, smooth steadicam movement. No shaky."
+
+For each B-Roll the Brain generates, transform the basic concept into a cinematic prompt:
+
+BEFORE (bad): "beach in Haifa"
+AFTER (good): "Slow aerial drone shot descending toward Haifa coastline, golden hour warm sunlight casting long shadows on the sand, turquoise Mediterranean water, cinematic 4K quality, shallow depth of field with city skyline soft in background, luxury real estate commercial style. No text, no watermark, no blurry."
+
+BEFORE (bad): "modern kitchen"
+AFTER (good): "Smooth dolly forward into spacious modern kitchen, bright natural light from large windows, marble countertops with soft reflections, wide angle showing full space, clean lines, real estate showcase quality, warm neutral tones. No distortion, no artificial lighting."
+
+Return each B-Roll prompt as:
+{
+  "basicConcept": "beach in Haifa",
+  "imagePrompt": "Haifa coastline at golden hour, turquoise Mediterranean, sandy beach, city skyline in distance, cinematic photography, 4K, warm tones",
+  "videoPrompt": "Slow aerial drone shot descending toward coastline, golden hour sunlight, shallow depth of field, cinematic movement, luxury commercial style. No text, no watermark.",
+  "cameraMovement": "aerial-descending",
+  "shotType": "wide-establishing",
+  "lighting": "golden-hour",
+  "style": "cinematic-luxury",
+  "negativePrompt": "no text, no watermark, no blurry, no distortion, no shaky"
+}`;
+
+// ============================================================
 // MASTER EDITING PROMPT (all rules combined)
 // ============================================================
 export const MASTER_EDITING_PROMPT = [
@@ -523,7 +614,8 @@ export const MASTER_EDITING_PROMPT = [
   PATTERN_INTERRUPT_PROMPT, // Pattern interrupts
   EMOTIONAL_ARC_PROMPT,    // Emotional arc rollercoaster
   STRATEGIC_SILENCE_PROMPT, // Strategic silence protection
-  BROLL_PRECISION_PROMPT   // B-Roll word-level precision
+  BROLL_PRECISION_PROMPT,  // B-Roll word-level precision
+  CINEMATIC_PROMPTING_PROMPT // Cinematic B-Roll prompting
 ].join('\n\n');
 
 // ============================================================
@@ -559,6 +651,13 @@ export interface EditingBlueprint {
     videoEndTime?: number;
     speakerAudioContinues?: boolean;
     kineticTextOverlay?: string;
+    imagePrompt?: string;
+    videoPrompt?: string;
+    negativePrompt?: string;
+    cameraMovement?: string;
+    shotType?: string;
+    lighting?: string;
+    style?: string;
   }>;
   musicSync: {
     ducking: Array<{ start: number; end: number; volume: number; reason: string }>;

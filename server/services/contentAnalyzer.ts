@@ -491,6 +491,7 @@ IMPORTANT:
 - brollCoverMoments should cover weak visual moments (speaker looking away, bad framing, jump cuts).
 - For brollCoverMoments, use word-level precision: find the exact trigger word timestamp from the transcript and start B-Roll 0.3s before that word.
 - Include triggerWord and triggerWordTimestamp in brollCoverMoments when a specific word triggers the B-Roll need.
+- For each B-Roll suggestedPrompt, write it like a cinematic director: include camera movement (dolly/drone/tracking), shot type (wide/close-up), lighting (golden hour/studio), depth of field, and style. Always add negative prompts (no text, no watermark). NEVER write vague prompts like "beach" — write "Slow aerial drone shot descending toward coastline, golden hour sunlight, shallow depth of field, cinematic 4K".
 - emotionalArc should have 2-4 sections covering the full video.
 - detailedEmotionalArc should design a rollercoaster with phases (start, hook, dip, build, breathe, peak, resolve) — energy must NEVER stay flat for >10 seconds.
 - protectedSilences should mark strategic pauses that should NOT be removed: impact pauses, anticipation pauses, rhetorical pauses, emotional pauses, comedic pauses.

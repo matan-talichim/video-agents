@@ -108,8 +108,8 @@ export async function generatePreview(job: Job, plan: ExecutionPlan): Promise<Pr
   if (plan.generate.brollFromTranscript || plan.generate.broll) {
     try {
       const brollResponse = await askClaude(
-        'You plan B-Roll for video editing. Return ONLY valid JSON, no explanations.',
-        `Suggest 3-5 B-Roll clips for this video:\nPrompt: "${job.prompt}"\nDuration: ${targetDuration}s\nStyle: ${plan.edit.editStyle || plan.edit.colorGradingStyle || 'cinematic'}\n\nReturn JSON:\n[{ "timestamp": 10, "duration": 4, "prompt": "Cinematic aerial shot of...", "reason": "Speaker mentions..." }]`
+        'You plan B-Roll for video editing like a Hollywood cinematographer. Every prompt must include camera movement, shot type, lighting, depth of field, style, and negative prompts. NEVER write vague prompts. Return ONLY valid JSON, no explanations.',
+        `Suggest 3-5 B-Roll clips for this video:\nPrompt: "${job.prompt}"\nDuration: ${targetDuration}s\nStyle: ${plan.edit.editStyle || plan.edit.colorGradingStyle || 'cinematic'}\n\nWrite each prompt as a cinematic director would. Include camera movement (dolly/drone/tracking), shot type (wide/close-up), lighting (golden hour/studio), and negative prompts.\n\nReturn JSON:\n[{ "timestamp": 10, "duration": 4, "prompt": "Slow aerial drone shot descending toward..., golden hour warm sunlight, cinematic 4K, shallow depth of field. No text, no watermark.", "reason": "Speaker mentions..." }]`
       );
 
       const jsonStr = brollResponse.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
