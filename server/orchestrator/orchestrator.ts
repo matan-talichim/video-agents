@@ -22,7 +22,8 @@ import { detectPresenter, filterTranscriptToPresenter } from '../services/presen
 import { verifySpeakers } from '../services/speakerVerifier.js';
 import { analyzeVideoIntelligence, applyIntelligenceToPlan } from '../services/videoIntelligence.js';
 import { runFreshEyesReview, autoApplyFixes } from '../services/freshEyesReview.js';
-import { selectBestContent } from '../services/contentSelector.js';
+import { selectBestContent, applyPresenterQuality } from '../services/contentSelector.js';
+import { analyzePresenterQuality } from '../services/presenterQuality.js';
 import { runQualityCheck } from '../services/qualityCheck.js';
 import { generateHookVariations } from '../services/hookGenerator.js';
 import { generateABVariations } from '../services/abTesting.js';
@@ -698,6 +699,84 @@ export async function runPipeline(job: Job): Promise<void> {
       } catch (error: any) {
         console.error('Content selection failed:', error.message);
         allWarnings.push('Content selection failed: ' + error.message);
+      }
+    }
+
+    // --- PRESENTER QUALITY ANALYSIS (eye contact + body language + complete sentences) ---
+    if (job.presenterDetection?.presenterId !== undefined && job.contentSelection && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מנתח איכות פרזנטור — קשר עין, שפת גוף...' });
+
+        const videoPath = job.cleanVideoPath || job.files[0].path;
+
+        // Prepare segments for analysis (only non-cut, non-filler)
+        const segmentsForAnalysis = job.contentSelection.segments
+          .map((s: any, i: number) => ({ start: s.start, end: s.end, text: s.text, index: i }))
+          .filter((_s: any, i: number) => {
+            const seg = job.contentSelection!.segments[i];
+            return seg.decision !== 'cut' && seg.decision !== 'filler';
+          });
+
+        const presenterQuality = await analyzePresenterQuality(videoPath, segmentsForAnalysis, job.id);
+        job.presenterQuality = presenterQuality;
+        updateJob(job.id, { presenterQuality } as any);
+
+        // Apply presenter quality to content selection scores
+        job.contentSelection.segments = applyPresenterQuality(
+          job.contentSelection.segments,
+          presenterQuality
+        );
+
+        // Auto-add B-Roll cover for weak presenter moments
+        const needsCover = job.contentSelection.segments.filter((s: any) => s.needsBRollCover);
+        if (needsCover.length > 0 && job.editingBlueprint) {
+          console.log(`[Presenter] ${needsCover.length} segments need B-Roll cover (good audio, weak visuals)`);
+          job.editingBlueprint.brollInsertions = job.editingBlueprint.brollInsertions || [];
+          for (const seg of needsCover) {
+            job.editingBlueprint.brollInsertions.push({
+              at: seg.start,
+              duration: seg.end - seg.start,
+              audioOverlap: 0,
+              cutType: 'lcut',
+              prompt: 'contextual B-Roll matching spoken content',
+              reason: `presenter quality: cover face with B-Roll`,
+            } as any);
+          }
+        }
+
+        // Auto-add zoom for excellent eye contact moments
+        const excellentMoments = job.contentSelection.segments.filter((s: any) => s.recommendZoomIn);
+        if (excellentMoments.length > 0 && job.editingBlueprint) {
+          console.log(`[Presenter] ${excellentMoments.length} segments with excellent eye contact — adding zoom`);
+          job.editingBlueprint.zooms = job.editingBlueprint.zooms || [];
+          for (const seg of excellentMoments) {
+            const pqScore = presenterQuality.segmentScores.find((ps: any) => ps.segmentIndex === job.contentSelection!.segments.indexOf(seg));
+            job.editingBlueprint.zooms.push({
+              timestamp: (seg.start + seg.end) / 2,
+              zoomFrom: 1.0,
+              zoomTo: 1.15,
+              duration: 1.5,
+              reason: `excellent eye contact (score ${pqScore?.eyeContact ?? '?'}/10)`,
+            } as any);
+          }
+        }
+
+        // Extend segments with mid-word cuts
+        const midWordCuts = job.contentSelection.segments.filter((s: any) => s.extendEnd);
+        if (midWordCuts.length > 0) {
+          console.log(`[Presenter] ${midWordCuts.length} segments extended to prevent mid-word cuts`);
+          for (const seg of midWordCuts) {
+            seg.end += (seg as any).extendEnd;
+          }
+        }
+
+        const good = presenterQuality.segmentScores.filter(s => s.recommendation === 'use').length;
+        const cover = presenterQuality.segmentScores.filter(s => s.recommendation === 'use-with-broll-cover').length;
+        const avoid = presenterQuality.segmentScores.filter(s => s.recommendation === 'avoid').length;
+        console.log(`[Pipeline] Presenter quality: ${good} use, ${cover} cover, ${avoid} avoid`);
+      } catch (error: any) {
+        console.error('Presenter quality analysis failed:', error.message);
+        allWarnings.push('Presenter quality analysis failed: ' + error.message);
       }
     }
 
