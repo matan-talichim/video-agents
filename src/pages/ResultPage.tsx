@@ -7,6 +7,9 @@ import ViralityScore from '../components/ViralityScore';
 import RevisionPanel from '../components/RevisionPanel';
 import VersionHistory from '../components/VersionHistory';
 import ProjectDetails from '../components/ProjectDetails';
+import QABadge from '../components/QABadge';
+import RetentionCurve from '../components/RetentionCurve';
+import ABTestViewer from '../components/ABTestViewer';
 
 export default function ResultPage() {
   const { id } = useParams<{ id: string }>();
@@ -85,6 +88,9 @@ export default function ResultPage() {
           <ViralityScore score={result.viralityScore} />
         )}
 
+        {/* QA Badge */}
+        {id && <QABadge jobId={id} />}
+
         {/* Video Player */}
         <VideoPlayer
           videoUrl={result?.videoUrl}
@@ -132,6 +138,12 @@ export default function ResultPage() {
             </select>
           </div>
         </div>
+
+        {/* A/B Test Viewer */}
+        {id && <ABTestViewer jobId={id} />}
+
+        {/* Retention Curve */}
+        {id && <RetentionCurve jobId={id} />}
 
         {/* Revision Panel */}
         <RevisionPanel

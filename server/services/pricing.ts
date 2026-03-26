@@ -280,6 +280,19 @@ export function calculateJobCost(plan: ExecutionPlan): JobCostBreakdown {
     total += cost;
   }
 
+  // QA + Hooks + A/B Testing + Retention + Loop
+  // 1 Vision call (QA) + 3 text calls (hooks, retention, loop) = ~$0.11
+  const qaHooksCost =
+    CLAUDE_PRICING.estimatePerVisionCall +  // QA check
+    CLAUDE_PRICING.estimatePerCall * 3;      // hooks + retention + loop
+  breakdown.push({
+    service: 'בקרת איכות + הוקים + A/B',
+    cost: qaHooksCost,
+    unit: '4 קריאות Claude',
+    free: false,
+  });
+  total += qaHooksCost;
+
   // FREE services
   breakdown.push({ service: 'FFmpeg (עיבוד וידאו)', cost: 0, unit: 'חינם', free: true });
 

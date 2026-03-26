@@ -176,6 +176,11 @@ export function calculateLiveCost(s: LiveCostSelections): { items: CostItem[]; t
     add('מעברים (FFmpeg)', 0, 'חינם', true);
   }
 
+  // --- QA + Hooks + A/B Testing ---
+  // Always included: 1 Vision call (QA) + 3 text calls (hooks, retention, loop)
+  const qaHooksCost = CLAUDE_PRICING.estimatePerVisionCall + CLAUDE_PRICING.estimatePerCall * 3;
+  add('בקרת איכות + הוקים + A/B', qaHooksCost, '4 קריאות', false);
+
   // --- FFmpeg processing (always) ---
   add('FFmpeg (עיבוד וידאו)', 0, 'חינם', true);
 

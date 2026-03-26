@@ -22,6 +22,11 @@ import { verifySpeakers } from '../services/speakerVerifier.js';
 import { analyzeVideoIntelligence, applyIntelligenceToPlan } from '../services/videoIntelligence.js';
 import { runFreshEyesReview, autoApplyFixes } from '../services/freshEyesReview.js';
 import { selectBestContent } from '../services/contentSelector.js';
+import { runQualityCheck } from '../services/qualityCheck.js';
+import { generateHookVariations } from '../services/hookGenerator.js';
+import { generateABVariations } from '../services/abTesting.js';
+import { analyzeRetention } from '../services/retentionOptimizer.js';
+import { planLoop, applyLoop } from '../services/loopOptimizer.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -702,6 +707,55 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // --- RETENTION OPTIMIZER (before rendering) ---
+    if (job.editingBlueprint || job.contentAnalysis) {
+      try {
+        updateJob(job.id, { currentStep: 'מנתח שימור צופים...' });
+        const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
+        const targetDur = job.plan.export.targetDuration === 'auto'
+          ? 60
+          : (job.plan.export.targetDuration as number) || 60;
+
+        const retentionPlan = await analyzeRetention(
+          job.editingBlueprint || job.contentAnalysis,
+          job.contentAnalysis || job.videoIntelligence,
+          targetDur,
+          platformGuess
+        );
+
+        job.retentionPlan = retentionPlan;
+        updateJob(job.id, { retentionPlan } as any);
+
+        // Apply retention fixes to the editing blueprint
+        if (retentionPlan.fixes.length > 0 && job.editingBlueprint) {
+          for (const fix of retentionPlan.fixes) {
+            if (fix.type === 'add-zoom' && job.editingBlueprint?.zooms) {
+              job.editingBlueprint.zooms.push({
+                timestamp: fix.timestamp,
+                from: 1.0,
+                to: 1.12,
+                duration: 1.0,
+                reason: `retention fix: ${fix.reason}`,
+              } as any);
+            }
+            if (fix.type === 'add-sfx' && job.editingBlueprint?.soundDesign?.sfx) {
+              job.editingBlueprint.soundDesign.sfx.push({
+                type: 'rise',
+                at: fix.timestamp,
+                volume: -15,
+                duration: 1.5,
+                reason: `retention fix: ${fix.reason}`,
+              } as any);
+            }
+          }
+          console.log(`[Retention] Applied ${retentionPlan.fixes.length} retention fixes. Predicted retention: ${retentionPlan.predictedRetention}%`);
+        }
+      } catch (error: any) {
+        console.error('Retention analysis failed:', error.message);
+        allWarnings.push('Retention analysis failed: ' + error.message);
+      }
+    }
+
     // --- REAL EDIT AGENT ---
     const hasEditSteps = steps.some(s => s.stage === 'edit' || s.stage === 'export');
 
@@ -781,6 +835,89 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // === POST-RENDER: QA + HOOKS + LOOP + A/B TESTING ===
+    let finalVideoPath = editResult?.finalVideoPath || `output/${job.id}/final.mp4`;
+
+    // --- QUALITY CHECK ---
+    if (fs.existsSync(finalVideoPath)) {
+      try {
+        updateJob(job.id, { currentStep: 'בודק איכות סופית...' });
+        const qaResult = await runQualityCheck(finalVideoPath, exportDuration, job.plan);
+        job.qaResult = qaResult;
+        updateJob(job.id, { qaResult } as any);
+
+        if (!qaResult.passed) {
+          allWarnings.push(...qaResult.warnings);
+          console.log(`[Pipeline] QA found ${qaResult.issues.length} issues, ${qaResult.autoFixes.length} auto-fixed`);
+        }
+      } catch (error: any) {
+        console.error('QA check failed:', error.message);
+        allWarnings.push('QA check failed: ' + error.message);
+      }
+    }
+
+    // --- HOOK VARIATIONS ---
+    if (analysisTranscript || transcript) {
+      try {
+        updateJob(job.id, { currentStep: 'יוצר וריאציות הוקים...' });
+        const hooks = await generateHookVariations(
+          (analysisTranscript || transcript)!,
+          job.contentSelection?.topMoments || job.contentAnalysis?.bestMoments || [],
+          job.videoIntelligence?.concept?.category || 'talking-head',
+          job.plan.export.formats.includes('9:16') ? 'instagram-reels' : 'youtube'
+        );
+        job.hookVariations = hooks;
+        updateJob(job.id, { hookVariations: hooks } as any);
+
+        // --- LOOP (for short-form) ---
+        if (job.plan.export.formats.includes('9:16') && exportDuration <= 60) {
+          try {
+            const loopPlan = await planLoop(
+              analysisTranscript || transcript,
+              hooks[0]?.textOverlay || '',
+              exportDuration,
+              'instagram-reels'
+            );
+            job.loopPlan = loopPlan;
+            updateJob(job.id, { loopPlan } as any);
+
+            if (loopPlan.strategy !== 'none' && fs.existsSync(finalVideoPath)) {
+              const loopedPath = finalVideoPath.replace('.mp4', '_looped.mp4');
+              const result = await applyLoop(finalVideoPath, loopPlan, loopedPath, exportDuration);
+              if (result !== finalVideoPath) {
+                finalVideoPath = result;
+              }
+            }
+          } catch (error: any) {
+            console.error('Loop optimization failed:', error.message);
+            allWarnings.push('Loop optimization failed: ' + error.message);
+          }
+        }
+
+        // --- A/B TEST VARIATIONS ---
+        if (hooks.length > 0 && fs.existsSync(finalVideoPath)) {
+          try {
+            updateJob(job.id, { currentStep: 'מייצר גרסאות A/B...' });
+            const abResult = await generateABVariations(
+              finalVideoPath,
+              hooks,
+              exportDuration,
+              job.plan,
+              `output/${job.id}`
+            );
+            job.abTestResult = abResult;
+            updateJob(job.id, { abTestResult: abResult } as any);
+          } catch (error: any) {
+            console.error('A/B testing failed:', error.message);
+            allWarnings.push('A/B testing failed: ' + error.message);
+          }
+        }
+      } catch (error: any) {
+        console.error('Hook generation failed:', error.message);
+        allWarnings.push('Hook generation failed: ' + error.message);
+      }
+    }
+
     // Phase 3: Finalize
     updateJob(job.id, {
       currentStep: 'מסיים עיבוד...',
@@ -788,7 +925,9 @@ export async function runPipeline(job: Job): Promise<void> {
     });
     await delay(500);
 
-    const videoUrl = `/api/jobs/${job.id}/video`;
+    const videoUrl = job.abTestResult
+      ? `/api/jobs/${job.id}/video?variation=${job.abTestResult.variations[0]?.id || 'A'}`
+      : `/api/jobs/${job.id}/video`;
     const duration = exportDuration;
     const timeline = editResult
       ? buildEditTimeline(generateResult || { brollClips: [], voiceoverPath: null, musicPath: null, sfxMoments: [], thumbnailPath: null, stockClips: [], additionalAssets: {} }, duration)
