@@ -51,6 +51,16 @@ async function runEditStep(
   }
 }
 
+// Verify step output exists; if not, keep using previous file
+function verifyStepOutput(output: string, previous: string, stepName: string, warnings: string[]): string {
+  if (fs.existsSync(output) && fs.statSync(output).size > 0) {
+    return output;
+  }
+  console.error(`[Edit] ❌ ${stepName}: output missing or empty: ${output}, keeping previous`);
+  warnings.push(`${stepName}: output missing, kept previous file`);
+  return previous;
+}
+
 function saveJSON(filePath: string, data: any): void {
   fs.mkdirSync(filePath.substring(0, filePath.lastIndexOf('/')), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
@@ -190,7 +200,7 @@ export async function runEditAgent(
 
       const trimmedPath = `${editDir}/smart_trimmed.mp4`;
       await runSmartTrim(currentVideo, job.contentAnalysis, trimmedPath);
-      currentVideo = trimmedPath;
+      currentVideo = verifyStepOutput(trimmedPath, currentVideo, 'Smart trim', warnings);
       await verifySyncAfterEdit(currentVideo, 'smart-trim');
 
       console.log(`[Edit] Smart trim: ${job.contentAnalysis.recommendedEdit.totalDuration}s from original`);
@@ -368,7 +378,7 @@ export async function runEditAgent(
       fs.writeFileSync(listPath, segmentFiles.map(f => `file '${path.resolve(f)}'`).join('\n'));
       const speedOutput = `${editDir}/speed_ramped.mp4`;
       await ffmpeg.runFFmpeg(`ffmpeg -f concat -safe 0 -i "${listPath}" -c copy -y "${speedOutput}"`);
-      currentVideo = speedOutput;
+      currentVideo = verifyStepOutput(speedOutput, currentVideo, 'Speed ramp concat', warnings);
       await verifySyncAfterEdit(currentVideo, 'speed-ramp');
 
       // Cleanup
@@ -516,7 +526,7 @@ Rules:
           fs.writeFileSync(listPath, segments.map(s => `file '${s}'`).join('\n'));
           const output = nextOutput();
           await ffmpeg.runFFmpeg(`ffmpeg -f concat -safe 0 -i "${listPath}" -c copy -y "${output}"`);
-          currentVideo = output;
+          currentVideo = verifyStepOutput(output, currentVideo, 'Beat-sync concat', warnings);
 
           // Cleanup temp segments
           for (const seg of segments) {
@@ -546,7 +556,7 @@ Rules:
       const switches = JSON.parse(switchPlanResponse);
       const output = nextOutput();
       await buildMultiCamVideo(job.id, job.files[0].path, job.files[1].path, switches, output);
-      currentVideo = output;
+      currentVideo = verifyStepOutput(output, currentVideo, 'Multi-cam angle switch', warnings);
     } catch (error: any) {
       console.error('Angle switching failed:', error.message);
       warnings.push('Auto angle switching failed: ' + error.message);
@@ -561,7 +571,7 @@ Rules:
       updateProgress(job, 'איחוד צבעים בין מצלמות...');
       const output = nextOutput();
       await ffmpeg.runFFmpeg(ffmpeg.colorMatchCameras(job.files[0].path, currentVideo, output));
-      currentVideo = output;
+      currentVideo = verifyStepOutput(output, currentVideo, 'Color match cameras', warnings);
     } catch (error: any) {
       console.error('Color matching failed:', error.message);
       warnings.push('Color matching failed: ' + error.message);
@@ -673,11 +683,21 @@ Rules:
           warnings.push(`B-Roll clip not found: ${clip.path}`);
           continue;
         }
+        if (!fs.existsSync(currentVideo)) {
+          console.error(`[Edit] ❌ SKIP B-Roll insert: input missing: ${currentVideo}`);
+          warnings.push('B-Roll insert skipped: input file missing');
+          break;
+        }
         const output = nextOutput();
-        await ffmpeg.runFFmpeg(ffmpeg.replaceBRollSegment(
-          currentVideo, clip.path, clip.timestamp, clip.timestamp + clip.duration, output
-        ));
-        currentVideo = output;
+        try {
+          await ffmpeg.runFFmpeg(ffmpeg.replaceBRollSegment(
+            currentVideo, clip.path, clip.timestamp, clip.timestamp + clip.duration, output
+          ));
+          currentVideo = verifyStepOutput(output, currentVideo, `B-Roll insert ${clip.path}`, warnings);
+        } catch (brollErr: any) {
+          console.error(`[Edit] B-Roll clip insert failed: ${brollErr.message}`);
+          warnings.push(`B-Roll insert failed: ${brollErr.message}`);
+        }
       }
     } catch (error: any) {
       console.error('B-Roll insertion failed:', error.message);
@@ -711,7 +731,7 @@ Rules:
             const transitionPath = `${transitionDir}/transition_${i}.mp4`;
             await kie.firstLastFrame(lastFramePath, firstFramePath, transitionPath);
 
-            if (fs.existsSync(transitionPath)) {
+            if (fs.existsSync(transitionPath) && fs.existsSync(currentVideo)) {
               // Insert the AI transition clip at the cut point
               const output = nextOutput();
               await ffmpeg.runFFmpeg(ffmpeg.replaceBRollSegment(
@@ -720,7 +740,7 @@ Rules:
                 transition.fromClipEnd + transition.duration,
                 output
               ));
-              currentVideo = output;
+              currentVideo = verifyStepOutput(output, currentVideo, `AI transition ${i}`, warnings);
               console.log(`[Edit] AI transition ${i}: ${transition.type} at ${transition.fromClipEnd}s`);
             }
           }
@@ -746,7 +766,7 @@ Rules:
         // Apply the brand-consistent LUT to ensure all B-Roll matches
         const output = nextOutput();
         await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -vf "lut3d='${lutPath}'" -c:a copy -y "${output}"`);
-        currentVideo = output;
+        currentVideo = verifyStepOutput(output, currentVideo, 'Visual DNA LUT', warnings);
         console.log(`[Edit] Visual DNA: Applied ${job.visualDNA.lut} LUT for B-Roll consistency`);
       }
     } catch (error: any) {
@@ -767,7 +787,7 @@ Rules:
       if (fs.existsSync(lutFile)) {
         const output = nextOutput();
         await ffmpeg.runFFmpeg(ffmpeg.applyLUT(currentVideo, lutFile, output));
-        currentVideo = output;
+        currentVideo = verifyStepOutput(output, currentVideo, 'Color grading LUT', warnings);
       } else {
         warnings.push(`LUT file not found: ${lutFile}`);
       }
@@ -791,7 +811,7 @@ Rules:
           if (fs.existsSync(lutPath)) {
             const output = nextOutput();
             await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -vf "lut3d='${lutPath}'" -c:a copy -y "${output}"`);
-            currentVideo = output;
+            currentVideo = verifyStepOutput(output, currentVideo, 'Blueprint color LUT', warnings);
             break; // apply first matching LUT (full per-segment grading requires trim+concat)
           }
         }
@@ -815,7 +835,7 @@ Rules:
       await ffmpeg.runFFmpeg(
         `ffmpeg -i "${currentVideo}" -vf "split[original][blur];[blur]boxblur=${intensity}[blurred];[original][blurred]overlay=(W-w)/2:(H-h)/2" -c:a copy -y "${output}"`
       );
-      currentVideo = output;
+      currentVideo = verifyStepOutput(output, currentVideo, 'Background blur (AI plan)', warnings);
       console.log(`[Edit] Background blur applied (intensity: ${intensity}) — issue: ${backgroundPlan.issue}`);
     } catch (error: any) {
       console.error('Background blur failed:', error.message);
@@ -843,7 +863,7 @@ Rules:
         await ffmpeg.runFFmpeg(
           `ffmpeg -i "${currentVideo}" -vf "${filters.join(',')}" -c:a copy -y "${output}"`
         );
-        currentVideo = output;
+        currentVideo = verifyStepOutput(output, currentVideo, 'Lighting fix', warnings);
         console.log(`[Edit] Lighting fixes applied: ${filters.join(', ')} — issues: ${lightingPlan.issues.join(', ')}`);
       }
     } catch (error: any) {
@@ -860,7 +880,7 @@ Rules:
       updateProgress(job, 'תיקון צבע עור...');
       const output = nextOutput();
       await ffmpeg.runFFmpeg(ffmpeg.skinToneCorrection(currentVideo, output));
-      currentVideo = output;
+      currentVideo = verifyStepOutput(output, currentVideo, 'Skin tone correction', warnings);
     } catch (error: any) {
       console.error('Skin tone correction failed:', error.message);
       warnings.push('Skin tone correction failed: ' + error.message);
@@ -872,7 +892,7 @@ Rules:
       updateProgress(job, 'שיפור תאורה...');
       const output = nextOutput();
       await ffmpeg.runFFmpeg(ffmpeg.lightingEnhancement(currentVideo, output));
-      currentVideo = output;
+      currentVideo = verifyStepOutput(output, currentVideo, 'Lighting enhancement', warnings);
     } catch (error: any) {
       console.error('Lighting enhancement failed:', error.message);
       warnings.push('Lighting enhancement failed: ' + error.message);
@@ -887,7 +907,7 @@ Rules:
       updateProgress(job, 'טשטוש רקע...');
       const output = nextOutput();
       await ffmpeg.runFFmpeg(ffmpeg.backgroundBlur(currentVideo, 15, output));
-      currentVideo = output;
+      currentVideo = verifyStepOutput(output, currentVideo, 'Background blur', warnings);
     } catch (error: any) {
       console.error('Background blur failed:', error.message);
       warnings.push('Background blur failed: ' + error.message);
@@ -906,6 +926,10 @@ Rules:
         updateProgress(job, 'זום מדומה לחיתוכים — סימולציית מצלמה...');
         let cutIndex = 0;
         for (const cut of fakeZoomCuts) {
+          if (!fs.existsSync(currentVideo)) {
+            warnings.push('Fake zoom skipped: input file missing');
+            break;
+          }
           try {
             const isOdd = cutIndex % 2 === 0;
             const output = nextOutput();
@@ -916,7 +940,7 @@ Rules:
               isOdd ? 1.15 : 1.0,
               output
             ));
-            currentVideo = output;
+            currentVideo = verifyStepOutput(output, currentVideo, `Fake zoom at ${cut.at}s`, warnings);
           } catch (zoomErr: any) {
             console.error(`Fake zoom at ${cut.at}s failed:`, zoomErr.message);
           }
@@ -946,6 +970,10 @@ Rules:
       }));
 
       for (const zoom of sortedZooms) {
+        if (!fs.existsSync(currentVideo)) {
+          warnings.push('Blueprint zoom skipped: input file missing');
+          break;
+        }
         try {
           const output = nextOutput();
           await ffmpeg.runFFmpeg(ffmpeg.addZoom(
@@ -955,7 +983,7 @@ Rules:
             zoom.zoomTo,
             output
           ));
-          currentVideo = output;
+          currentVideo = verifyStepOutput(output, currentVideo, `Blueprint zoom at ${zoom.timestamp}s`, warnings);
         } catch (zoomErr: any) {
           console.error(`Blueprint zoom at ${zoom.timestamp}s failed:`, zoomErr.message);
         }
@@ -983,9 +1011,18 @@ Rules:
       zoomPlan = zooms; // Save for potential music sync snapping
 
       for (const zoom of zooms) {
+        if (!fs.existsSync(currentVideo)) {
+          warnings.push('Smart zoom skipped: input file missing');
+          break;
+        }
         const output = nextOutput();
-        await ffmpeg.runFFmpeg(ffmpeg.addZoom(currentVideo, zoom.start, zoom.end, zoom.zoom_factor, output));
-        currentVideo = output;
+        try {
+          await ffmpeg.runFFmpeg(ffmpeg.addZoom(currentVideo, zoom.start, zoom.end, zoom.zoom_factor, output));
+          currentVideo = verifyStepOutput(output, currentVideo, `Smart zoom at ${zoom.start}s`, warnings);
+        } catch (zoomErr: any) {
+          console.error(`Smart zoom at ${zoom.start}s failed:`, zoomErr.message);
+          warnings.push(`Smart zoom failed: ${zoomErr.message}`);
+        }
       }
     } catch (error: any) {
       console.error('Smart zooms failed:', error.message);
@@ -1269,7 +1306,7 @@ Rules:
 
       const remotionOutput = nextOutput();
       await renderVideo(remotionProps, remotionOutput, compositionId);
-      currentVideo = remotionOutput;
+      currentVideo = verifyStepOutput(remotionOutput, currentVideo, 'Remotion render', warnings);
 
     } catch (error: any) {
       console.error('Remotion render failed, falling back to FFmpeg:', error.message);
@@ -1281,7 +1318,7 @@ Rules:
           for (const element of kineticTextPlan) {
             const output = nextOutput();
             await ffmpeg.runFFmpeg(addKineticTextCommand(currentVideo, element, output));
-            currentVideo = output;
+            currentVideo = verifyStepOutput(output, currentVideo, 'Kinetic text', warnings);
           }
         } catch {
           warnings.push('FFmpeg kinetic typography fallback also failed');
@@ -1293,7 +1330,7 @@ Rules:
           subtitles.generateSRT(transcript, srtPath);
           const output = nextOutput();
           await ffmpeg.runFFmpeg(ffmpeg.addSubtitlesSimple(currentVideo, srtPath, output));
-          currentVideo = output;
+          currentVideo = verifyStepOutput(output, currentVideo, 'Subtitles', warnings);
         } catch {
           warnings.push('FFmpeg subtitles fallback also failed');
         }
@@ -1309,7 +1346,7 @@ Rules:
             4,
             output
           ));
-          currentVideo = output;
+          currentVideo = verifyStepOutput(output, currentVideo, 'Lower thirds', warnings);
         } catch {
           warnings.push('FFmpeg lower thirds fallback also failed');
         }
@@ -1325,7 +1362,7 @@ Rules:
             duration,
             output
           ));
-          currentVideo = output;
+          currentVideo = verifyStepOutput(output, currentVideo, 'CTA overlay', warnings);
         } catch {
           warnings.push('FFmpeg CTA fallback also failed');
         }
@@ -1347,7 +1384,7 @@ Rules:
           validSfx.map(s => ({ file: s.filePath, timestamp: s.timestamp, volume: s.volume })),
           output
         ));
-        currentVideo = output;
+        currentVideo = verifyStepOutput(output, currentVideo, 'SFX overlay', warnings);
       }
     } catch (error: any) {
       console.error('SFX overlay failed:', error.message);
@@ -1371,7 +1408,7 @@ Rules:
         updateProgress(job, 'מעבד אודיו...');
         const output = nextOutput();
         await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -af "${filters.join(',')}" -c:v copy -y "${output}"`);
-        currentVideo = output;
+        currentVideo = verifyStepOutput(output, currentVideo, 'Voice processing', warnings);
       }
     } catch (error: any) {
       console.error('Voice processing failed:', error.message);
@@ -1402,7 +1439,7 @@ Rules:
       } else {
         await ffmpeg.runFFmpeg(ffmpeg.mixMusicSimple(currentVideo, musicPath, 0.15, output));
       }
-      currentVideo = output;
+      currentVideo = verifyStepOutput(output, currentVideo, 'Music mixing', warnings);
     } catch (error: any) {
       console.error('Music mixing failed:', error.message);
       warnings.push('Music mixing failed: ' + error.message);
@@ -1418,7 +1455,7 @@ Rules:
       if (fs.existsSync(plan.edit.logoFile)) {
         const output = nextOutput();
         await ffmpeg.runFFmpeg(ffmpeg.addLogo(currentVideo, plan.edit.logoFile, 'bottom-right', 0.7, output));
-        currentVideo = output;
+        currentVideo = verifyStepOutput(output, currentVideo, 'Logo watermark', warnings);
       } else {
         warnings.push('Logo file not found: ' + plan.edit.logoFile);
       }
@@ -1436,7 +1473,7 @@ Rules:
       updateProgress(job, 'הפחתת רעש...');
       const output = nextOutput();
       await ffmpeg.runFFmpeg(ffmpeg.noiseReduction(currentVideo, output));
-      currentVideo = output;
+      currentVideo = verifyStepOutput(output, currentVideo, 'Noise reduction', warnings);
     } catch (error: any) {
       console.error('Noise reduction failed:', error.message);
       warnings.push('Noise reduction failed: ' + error.message);
@@ -1448,7 +1485,7 @@ Rules:
       updateProgress(job, 'שיפור דיבור...');
       const output = nextOutput();
       await ffmpeg.runFFmpeg(ffmpeg.enhanceSpeech(currentVideo, output));
-      currentVideo = output;
+      currentVideo = verifyStepOutput(output, currentVideo, 'Speech enhancement', warnings);
     } catch (error: any) {
       console.error('Speech enhancement failed:', error.message);
       warnings.push('Speech enhancement failed: ' + error.message);
@@ -1462,24 +1499,33 @@ Rules:
     try {
       updateProgress(job, 'אפקטים ויזואליים...');
       for (const vfxType of plan.edit.vfxTypes) {
-        const output = nextOutput();
-        switch (vfxType) {
-          case 'camera-shake':
-            await ffmpeg.runFFmpeg(ffmpeg.cameraShake(currentVideo, 'small', output));
-            break;
-          case 'film-burn':
-            await ffmpeg.runFFmpeg(ffmpeg.filmGrain(currentVideo, 15, output));
-            break;
-          case 'crt':
-            await ffmpeg.runFFmpeg(ffmpeg.crtEffect(currentVideo, output));
-            break;
-          case 'glitch':
-            await ffmpeg.runFFmpeg(ffmpeg.glitchEffect(currentVideo, output));
-            break;
-          default:
-            continue;
+        if (!fs.existsSync(currentVideo)) {
+          warnings.push('VFX skipped: input file missing');
+          break;
         }
-        currentVideo = output;
+        const output = nextOutput();
+        try {
+          switch (vfxType) {
+            case 'camera-shake':
+              await ffmpeg.runFFmpeg(ffmpeg.cameraShake(currentVideo, 'small', output));
+              break;
+            case 'film-burn':
+              await ffmpeg.runFFmpeg(ffmpeg.filmGrain(currentVideo, 15, output));
+              break;
+            case 'crt':
+              await ffmpeg.runFFmpeg(ffmpeg.crtEffect(currentVideo, output));
+              break;
+            case 'glitch':
+              await ffmpeg.runFFmpeg(ffmpeg.glitchEffect(currentVideo, output));
+              break;
+            default:
+              continue;
+          }
+          currentVideo = verifyStepOutput(output, currentVideo, `VFX ${vfxType}`, warnings);
+        } catch (vfxErr: any) {
+          console.error(`VFX ${vfxType} failed:`, vfxErr.message);
+          warnings.push(`VFX ${vfxType} failed: ${vfxErr.message}`);
+        }
       }
     } catch (error: any) {
       console.error('VFX failed:', error.message);
@@ -1488,11 +1534,56 @@ Rules:
   }
 
   // ========================================================
-  // FINAL: COPY TO OUTPUT
+  // FINAL: COPY TO OUTPUT (resilient — find last good file)
   // ========================================================
   const finalPath = `output/${job.id}/final.mp4`;
   fs.mkdirSync(`output/${job.id}`, { recursive: true });
-  fs.copyFileSync(currentVideo, finalPath);
+
+  // If currentVideo doesn't exist, search backwards for last successful step
+  let lastGoodFile: string | null = null;
+  if (fs.existsSync(currentVideo) && fs.statSync(currentVideo).size > 0) {
+    lastGoodFile = currentVideo;
+  } else {
+    console.warn(`[Edit] ⚠️ currentVideo missing: ${currentVideo} — searching for last good step file`);
+    for (let i = stepIndex; i >= 0; i--) {
+      const stepPath = `${editDir}/step_${i}.mp4`;
+      if (fs.existsSync(stepPath) && fs.statSync(stepPath).size > 0) {
+        lastGoodFile = stepPath;
+        console.log(`[Edit] Found last good step: step_${i}.mp4`);
+        break;
+      }
+    }
+  }
+
+  // Fallback to assembled, speed-ramped, or original input
+  if (!lastGoodFile) {
+    const fallbacks = [
+      `${editDir}/selected_assembled.mp4`,
+      `${editDir}/speed_ramped.mp4`,
+      cleanVideoPath,
+    ];
+    for (const f of fallbacks) {
+      if (f && fs.existsSync(f) && fs.statSync(f).size > 0) {
+        lastGoodFile = f;
+        console.log(`[Edit] Using fallback: ${f}`);
+        break;
+      }
+    }
+  }
+
+  if (!lastGoodFile) {
+    console.error('[Edit] ❌ No output file produced — no step files, no fallbacks');
+    warnings.push('No output file produced');
+    return {
+      finalVideoPath: cleanVideoPath,
+      duration: 0,
+      formats: plan.export.formats as string[],
+      warnings,
+    };
+  }
+
+  fs.copyFileSync(lastGoodFile, finalPath);
+  console.log(`[Pipeline] Used ${lastGoodFile} as final output`);
 
   // === EXPORT ADDITIONAL FORMATS ===
   if (plan.export.formats.length > 1 || !plan.export.formats.includes('16:9')) {
