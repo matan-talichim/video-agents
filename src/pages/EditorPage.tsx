@@ -57,15 +57,15 @@ export default function EditorPage() {
   const [targetDuration, setTargetDuration] = useState<number | undefined>(undefined);
   const defaultOptions: UserOptions = {
     removeSilences: true,
-    addBRoll: false,
+    addBRoll: true,
     hebrewSubtitles: true,
     englishSubtitles: false,
     backgroundMusic: false,
     energeticMusic: false,
     calmMusic: false,
     soundEffects: false,
-    colorCorrection: false,
-    autoZoom: false,
+    colorCorrection: true,
+    autoZoom: true,
     transitions: false,
     intro: false,
     outro: false,
@@ -76,7 +76,7 @@ export default function EditorPage() {
     aiBackground: false,
     backgroundBlur: false,
     cinematic: false,
-    eyeContact: false,
+    eyeContact: true,
     calmProfessional: false,
     trendy: false,
     lowerThirds: false,
@@ -96,6 +96,7 @@ export default function EditorPage() {
   const [userOverrides, setUserOverrides] = useState<Record<string, boolean>>({});
   const [optionStates, setOptionStates] = useState<Record<string, OptionState>>({});
   const [animatingOptions, setAnimatingOptions] = useState<Set<string>>(new Set());
+  const [isCustomized, setIsCustomized] = useState(false);
   const [presetBanner, setPresetBanner] = useState<{ count: number; label: string } | null>(null);
   const prevOptionsRef = useRef<UserOptions>(defaultOptions);
   const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -152,10 +153,15 @@ export default function EditorPage() {
       // Mutual exclusivity
       if (key === 'energeticMusic' && next.energeticMusic) next.calmMusic = false;
       if (key === 'calmMusic' && next.calmMusic) next.energeticMusic = false;
+      if (key === 'cinematic' && next.cinematic) next.trendy = false;
+      if (key === 'trendy' && next.trendy) next.cinematic = false;
+      if (key === 'backgroundBlur' && next.backgroundBlur) next.aiBackground = false;
+      if (key === 'aiBackground' && next.aiBackground) next.backgroundBlur = false;
       return next;
     });
 
     // Track user override
+    setIsCustomized(true);
     setUserOverrides((prev) => ({ ...prev, [key]: !options[key] }));
 
     // Update option state to reflect user source
@@ -246,6 +252,7 @@ export default function EditorPage() {
 
         // Clear user overrides when switching presets
         setUserOverrides({});
+        setIsCustomized(false);
 
         // Animate changed options
         if (changedKeys.size > 0) {
@@ -265,6 +272,7 @@ export default function EditorPage() {
       // Freeform or no autoConfig — reset states
       setOptionStates({});
       setUserOverrides({});
+      setIsCustomized(false);
       setPresetBanner(null);
     }
 
@@ -324,6 +332,7 @@ export default function EditorPage() {
       fd.append('userOverrides', JSON.stringify(userOverrides));
       fd.append('presetDefaults', JSON.stringify(presetDefaults));
     }
+    if (isCustomized) fd.append('isCustomized', 'true');
 
     files.forEach((f) => fd.append('files', f));
     if (logo) fd.append('logo', logo);
@@ -389,6 +398,11 @@ export default function EditorPage() {
           <div className="bg-accent-purple/10 border border-accent-purple/30 rounded-xl p-3 text-center preset-banner-enter">
             <p className="text-sm text-accent-purple-light font-medium">
               המערכת בחרה {presetBanner.count} אפשרויות לתבנית {presetBanner.label}
+              {isCustomized && (
+                <span className="inline-block mr-2 text-[10px] text-amber-400 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
+                  מותאם אישית
+                </span>
+              )}
             </p>
           </div>
         )}

@@ -14,12 +14,6 @@ const ENV_REQUIREMENTS: EnvCheck[] = [
   { key: 'ELEVENLABS_API_KEY', required: false, description: 'ElevenLabs for voiceover' },
   { key: 'SUNO_API_KEY', required: false, description: 'Suno for music generation' },
   { key: 'PEXELS_API_KEY', required: false, description: 'Pexels for stock footage' },
-  { key: 'FAL_API_KEY', required: false, description: 'FAL.ai for image generation' },
-  { key: 'GEMINI_API_KEY', required: false, description: 'Google Gemini for Veo video gen' },
-  { key: 'R2_ACCOUNT_ID', required: false, description: 'Cloudflare R2 storage' },
-  { key: 'R2_ACCESS_KEY_ID', required: false, description: 'R2 access key' },
-  { key: 'R2_SECRET_ACCESS_KEY', required: false, description: 'R2 secret key' },
-  { key: 'R2_BUCKET_NAME', required: false, description: 'R2 bucket name' },
   { key: 'PORT', required: false, description: 'Server port' },
 ];
 
