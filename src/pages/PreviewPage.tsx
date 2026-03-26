@@ -135,6 +135,24 @@ export default function PreviewPage() {
     navigate(`/editor/upload?jobId=${id}&fromBrain=true`);
   }, [id, currentJob, navigate]);
 
+  // Compute cost breakdown from job selections (must be before early returns to respect Rules of Hooks)
+  const preview = currentJob?.status === 'preview' ? currentJob.previewData : null;
+  const previewCost = useMemo(() => {
+    if (!currentJob || !preview) return null;
+    return calculateLiveCost({
+      model: currentJob.videoModel || 'kling2.5',
+      duration: preview.estimatedDuration || 60,
+      options: (currentJob.options || {}) as unknown as Record<string, boolean>,
+      editStyle: currentJob.editStyle,
+      voiceoverStyle: currentJob.voiceoverStyle,
+      preset: currentJob.preset,
+      aiTwin: currentJob.options?.aiTwin || false,
+      aiDubbing: currentJob.preset === 'dubbing',
+      voiceClone: false,
+      hasFiles: currentJob.mode === 'upload' && (currentJob.files?.length ?? 0) > 0,
+    });
+  }, [currentJob, preview]);
+
   // Loading state
   if (!currentJob && !error) {
     return (
@@ -209,7 +227,6 @@ export default function PreviewPage() {
   }
 
   // Preview ready
-  const preview = job.previewData;
   if (!preview) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -238,23 +255,6 @@ export default function PreviewPage() {
   const freshEyesReview = (job as any).freshEyesReview;
   const contentSelection = (job as any).contentSelection;
   const footageDiagnosis = (job as any).footageDiagnosis;
-
-  // Compute cost breakdown from job selections
-  const previewCost = useMemo(() => {
-    if (!job) return null;
-    return calculateLiveCost({
-      model: job.videoModel || 'kling2.5',
-      duration: preview.estimatedDuration || 60,
-      options: (job.options || {}) as unknown as Record<string, boolean>,
-      editStyle: job.editStyle,
-      voiceoverStyle: job.voiceoverStyle,
-      preset: job.preset,
-      aiTwin: job.options?.aiTwin || false,
-      aiDubbing: job.preset === 'dubbing',
-      voiceClone: false,
-      hasFiles: job.mode === 'upload' && (job.files?.length ?? 0) > 0,
-    });
-  }, [job, preview.estimatedDuration]);
 
   return (
     <div className="min-h-screen bg-dark-bg pb-20">
