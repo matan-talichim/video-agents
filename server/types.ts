@@ -62,6 +62,9 @@ export interface Job {
   versionPlan?: import('./services/autoVersioning.js').VersionPlan;
   brandCompliance?: import('./services/brandCompliance.js').BrandComplianceResult;
   textReadability?: Array<{ text: string; timestamp: number; readable: boolean; issue?: string }>;
+  introOutroPlan?: import('./services/brandedIntroOutro.js').IntroOutroPlan;
+  expressionAnalysis?: import('./services/expressionAnalyzer.js').ExpressionAnalysis;
+  engagementPrediction?: import('./services/engagementPredictor.js').EngagementPrediction;
   hookVariations?: import('./services/hookGenerator.js').HookVariation[];
   abTestResult?: import('./services/abTesting.js').ABTestResult;
   retentionPlan?: import('./services/retentionOptimizer.js').RetentionPlan;

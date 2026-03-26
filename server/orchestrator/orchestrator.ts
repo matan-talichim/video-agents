@@ -35,6 +35,9 @@ import { getExportCommand, EXPORT_PRESETS } from '../services/smartExporter.js';
 import { planAutoVersions } from '../services/autoVersioning.js';
 import { checkBrandCompliance } from '../services/brandCompliance.js';
 import { checkTextReadability } from '../services/qualityCheck.js';
+import { planIntroOutro, generateIntro, generateOutro, attachIntroOutro } from '../services/brandedIntroOutro.js';
+import { analyzeExpressions } from '../services/expressionAnalyzer.js';
+import { predictEngagement } from '../services/engagementPredictor.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -549,6 +552,28 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // --- MICRO-EXPRESSION ANALYSIS ---
+    if (job.presenterDetection && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מנתח הבעות פנים...' });
+        const presenterSegs = job.presenterDetection.presenterSegments;
+        if (presenterSegs.length > 0) {
+          const expressionAnalysis = await analyzeExpressions(
+            job.files[0].path,
+            job.contentAnalysis?.presenter?.totalSpeakingTime || 60,
+            presenterSegs
+          );
+          job.expressionAnalysis = expressionAnalysis;
+          saveJSON(`temp/${job.id}/expression_analysis.json`, expressionAnalysis);
+          updateJob(job.id, { expressionAnalysis } as any);
+          console.log(`[Pipeline] Expression analysis: ${expressionAnalysis.expressions.length} frames analyzed`);
+        }
+      } catch (error: any) {
+        console.error('Expression analysis failed:', error.message);
+        allWarnings.push('Expression analysis failed: ' + error.message);
+      }
+    }
+
     // Use presenter-filtered transcript for all subsequent analysis (fallback to original)
     const analysisTranscript = presenterTranscript || transcript;
 
@@ -834,6 +859,33 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // --- EXPRESSION-BASED EDITING ENHANCEMENTS ---
+    if (job.expressionAnalysis && job.editingBlueprint) {
+      for (const expr of job.expressionAnalysis.expressions) {
+        if (expr.recommendation === 'zoom-in' && job.editingBlueprint.zooms) {
+          job.editingBlueprint.zooms.push({
+            timestamp: expr.timestamp,
+            zoomFrom: 1.0,
+            zoomTo: 1.15,
+            duration: 1.5,
+            easing: 'ease-out',
+            reason: `expression: ${expr.expression}`,
+          });
+        }
+        if (expr.recommendation === 'cover-with-broll' && job.editingBlueprint.brollInsertions) {
+          job.editingBlueprint.brollInsertions.push({
+            at: expr.timestamp,
+            duration: 3,
+            audioOverlap: 1,
+            cutType: 'lcut',
+            prompt: 'contextual B-Roll',
+            speakerAudioContinues: true,
+          });
+        }
+      }
+      console.log(`[Pipeline] Applied expression-based editing: ${job.expressionAnalysis.expressions.filter(e => e.recommendation === 'zoom-in').length} zooms, ${job.expressionAnalysis.expressions.filter(e => e.recommendation === 'cover-with-broll').length} B-Roll covers`);
+    }
+
     // --- REAL EDIT AGENT ---
     const hasEditSteps = steps.some(s => s.stage === 'edit' || s.stage === 'export');
 
@@ -930,6 +982,50 @@ export async function runPipeline(job: Job): Promise<void> {
             allWarnings.push(`Smart export ${platform} failed: ${error.message}`);
           }
         }
+      }
+    }
+
+    // === BRANDED INTRO/OUTRO ===
+    if (editResult?.finalVideoPath && job.brandKit?.enabled && fs.existsSync(editResult.finalVideoPath)) {
+      try {
+        updateJob(job.id, { currentStep: 'יוצר פתיחה וסיום ממותגים...' });
+        const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
+        const introOutroPlan = planIntroOutro(job.brandKit, job.videoIntelligence?.marketingStrategy?.ctaPlan, platformGuess);
+        job.introOutroPlan = introOutroPlan;
+        updateJob(job.id, { introOutroPlan } as any);
+
+        const resolution = job.plan.export?.formats?.includes('9:16') ? '1080:1920' : '1920:1080';
+        fs.mkdirSync(`temp/${job.id}`, { recursive: true });
+
+        const introPath = await generateIntro(
+          job.brandKit,
+          introOutroPlan.intro,
+          `temp/${job.id}/intro.mp4`,
+          resolution
+        );
+
+        const ctaText = job.videoIntelligence?.marketingStrategy?.ctaPlan?.primaryCTA?.text || '';
+        const outroPath = await generateOutro(
+          job.brandKit,
+          introOutroPlan.outro,
+          ctaText,
+          {},
+          `temp/${job.id}/outro.mp4`,
+          resolution
+        );
+
+        if (introPath || outroPath) {
+          const withIntroOutro = `output/${job.id}/final_branded.mp4`;
+          fs.mkdirSync(`output/${job.id}`, { recursive: true });
+          const result = await attachIntroOutro(editResult.finalVideoPath, introPath, outroPath, withIntroOutro);
+          if (result !== editResult.finalVideoPath) {
+            editResult.finalVideoPath = result;
+            console.log(`[Pipeline] Branded intro/outro attached (intro: ${!!introPath}, outro: ${!!outroPath})`);
+          }
+        }
+      } catch (error: any) {
+        console.error('Branded intro/outro failed:', error.message);
+        allWarnings.push('Branded intro/outro failed: ' + error.message);
       }
     }
 
@@ -1237,6 +1333,28 @@ Return JSON:
         console.error('Virality score failed:', error.message);
         viralityScore = generateViralityScore(); // fallback to simulated
       }
+    }
+
+    // --- ENGAGEMENT PREDICTION (final step) ---
+    try {
+      updateJob(job.id, { currentStep: 'מחשב ציון engagement צפוי...' });
+      const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
+      const engagementPrediction = await predictEngagement(
+        job.editingBlueprint,
+        job.contentSelection,
+        job.videoIntelligence?.marketingPlan,
+        job.retentionPlan,
+        job.qaResult,
+        job.hookVariations || [],
+        exportDuration,
+        platformGuess
+      );
+      job.engagementPrediction = engagementPrediction;
+      updateJob(job.id, { engagementPrediction } as any);
+      console.log(`[Pipeline] Engagement prediction: ${engagementPrediction.overallScore}/100, Rate: ${engagementPrediction.predictedEngagementRate}% (avg: ${engagementPrediction.platformAverage}%)`);
+    } catch (error: any) {
+      console.error('Engagement prediction failed:', error.message);
+      allWarnings.push('Engagement prediction failed: ' + error.message);
     }
 
     // Create version 0 (original) via versionManager
