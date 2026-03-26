@@ -77,6 +77,17 @@ app.get('/api/system-test', async (_req, res) => {
   }
 });
 
+// Full diagnostic endpoint — tests Brain, Claude API, FFmpeg, and all services
+app.get('/api/diagnostic', async (_req, res) => {
+  try {
+    const { runFullDiagnostic } = await import('./tests/fullDiagnostic.js');
+    const result = await runFullDiagnostic();
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Brain status endpoint — verify all editing rules reach Claude
 app.get('/api/brain-status', (_req, res) => {
   const brainRules = countBrainRules();
