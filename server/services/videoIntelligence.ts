@@ -2,6 +2,7 @@ import fs from 'fs';
 import { askClaude, askClaudeVision } from './claude.js';
 import { runFFmpeg, getVideoDuration } from './ffmpeg.js';
 import type { TranscriptResult, ExecutionPlan } from '../types.js';
+import { CTA_RULES_PROMPT, VIDEO_AD_TYPES_PROMPT, CONVERSION_RULES_PROMPT, SOCIAL_PROOF_PROMPT, INDUSTRY_RULES_PROMPT } from './marketingIntelligence.js';
 
 export interface VideoIntelligence {
   // What is this video about?
@@ -121,6 +122,51 @@ export interface VideoIntelligence {
     warnings: string[];
   };
 
+  // Marketing intelligence (CTA + video ad type)
+  marketingStrategy?: {
+    videoAdType: string;
+    videoAdTypeHebrew: string;
+    suggestedStructure: string[];
+    ctaPlan: {
+      primaryCTA: { text: string; subtext: string; timestamp: string; style: string; position: string };
+      midrollCTA?: { text: string; timestamp: string; style: string; subtle: boolean };
+      ctaVariation?: { text: string; urgency: boolean };
+    };
+    textOverlaysByType: Array<{ timestamp: number; text: string; type: string }>;
+  };
+
+  // Conversion optimization (funnel + psychological triggers)
+  conversionStrategy?: {
+    funnelStage: 'top' | 'middle' | 'bottom';
+    psychologicalTriggers: string[];
+    triggerImplementation: Array<{
+      trigger: string;
+      text: string;
+      timestamp: string | number;
+      visual: string;
+    }>;
+  };
+
+  // Industry-specific strategy
+  industryStrategy?: {
+    industry: string;
+    industryRules: {
+      leadWith: string;
+      mustInclude: string[];
+      colorGrading: string;
+      musicMood: string;
+      ctaStyle: string;
+    };
+  };
+
+  // Social proof elements
+  socialProofPlan?: Array<{
+    type: 'numbers' | 'testimonial' | 'logos' | 'results';
+    text: string;
+    timestamp: number;
+    visual: string;
+  }>;
+
   // Brain auto-selected optimal configuration
   recommendedConfig?: {
     model: string;
@@ -209,6 +255,11 @@ export async function analyzeVideoIntelligence(
       edgeCases,
       // Ensure recommendedConfig exists
       recommendedConfig: parsed.recommendedConfig || undefined,
+      // Ensure marketing fields exist
+      marketingStrategy: parsed.marketingStrategy || undefined,
+      conversionStrategy: parsed.conversionStrategy || undefined,
+      industryStrategy: parsed.industryStrategy || undefined,
+      socialProofPlan: parsed.socialProofPlan || undefined,
       // Ensure all arrays exist
       keyPoints: parsed.keyPoints || [],
       textOverlayPlan: parsed.textOverlayPlan || [],
@@ -445,6 +496,64 @@ TYPE: VERY LONG (>5min → 60s) — Be RUTHLESS. Cut 90%+. Keep ONLY hook + top 
 
 All user-facing text MUST be in Hebrew. Technical field values stay in English.
 
+${CTA_RULES_PROMPT}
+
+${VIDEO_AD_TYPES_PROMPT}
+
+${CONVERSION_RULES_PROMPT}
+
+${SOCIAL_PROOF_PROMPT}
+
+${INDUSTRY_RULES_PROMPT}
+
+Based on the content analysis, determine:
+1. Which of the 20 video ad types best fits this content
+2. The optimal CTA strategy (primary + midroll + variation)
+3. Text overlay plan specific to the video type
+4. The right structure for this type
+5. Funnel stage and psychological triggers for conversion
+6. Social proof elements to integrate
+7. Industry-specific rules to apply
+
+Add to the response these marketing fields:
+{
+  "marketingStrategy": {
+    "videoAdType": "real-estate-listing",
+    "videoAdTypeHebrew": "נכס למכירה",
+    "suggestedStructure": ["aerial-exterior", "entrance", "living", "kitchen", "features", "location", "cta"],
+    "ctaPlan": {
+      "primaryCTA": { "text": "קבעו סיור בדירה", "subtext": "שיחה של 5 דקות, ללא התחייבות", "timestamp": "last 4 seconds", "style": "pulse-button", "position": "center-bottom" },
+      "midrollCTA": { "text": "רוצים לראות את הדירה?", "timestamp": "60% of video", "style": "text-overlay", "subtle": true },
+      "ctaVariation": { "text": "רק 5 דירות נותרו!", "urgency": true }
+    },
+    "textOverlaysByType": [
+      { "timestamp": 5, "text": "סלון 45 מ״ר", "type": "room-label" },
+      { "timestamp": 15, "text": "₪1,890,000", "type": "price" }
+    ]
+  },
+  "conversionStrategy": {
+    "funnelStage": "top|middle|bottom",
+    "psychologicalTriggers": ["scarcity", "social-proof", "authority", "reciprocity", "loss-aversion", "anchoring", "bandwagon"],
+    "triggerImplementation": [
+      { "trigger": "scarcity", "text": "רק 5 דירות נותרו", "timestamp": "last 5s", "visual": "countdown-timer" },
+      { "trigger": "anchoring", "text": "₪2,500,000 → ₪1,890,000", "timestamp": "at price reveal", "visual": "strikethrough-animation" }
+    ]
+  },
+  "industryStrategy": {
+    "industry": "real-estate|food|fashion|tech|health|education|events|automotive|ecommerce|services",
+    "industryRules": {
+      "leadWith": "lifestyle|product|problem|value|energy",
+      "mustInclude": ["array of must-include elements"],
+      "colorGrading": "warm-luxury|warm-appetizing|trendy-vibrant|clean-minimal|cinematic-deep",
+      "musicMood": "calm-elegant|upbeat-modern|energetic-beat|professional-moderate",
+      "ctaStyle": "phone-number-prominent|buy-now-button|free-trial|soft-follow"
+    }
+  },
+  "socialProofPlan": [
+    { "type": "numbers|testimonial|logos|results", "text": "Hebrew social proof text", "timestamp": 15, "visual": "counter-animation|lower-third|logo-bar|before-after" }
+  ]
+}
+
 IMPORTANT: You must also output a "recommendedConfig" field with the OPTIMAL configuration for this video.
 You must choose the BEST option for each setting — not the cheapest, but the one that will produce the best video.
 
@@ -582,6 +691,39 @@ Return a complete VideoIntelligence JSON with ALL fields:
   ],
   "smartBRollPlan": [
     { "timestamp": 15, "duration": 4, "reason": "Hebrew reason", "prompt": "detailed generation prompt in English", "priority": "must-have|nice-to-have|optional", "alternative": "search keyword if generation fails" }
+  ],
+  "marketingStrategy": {
+    "videoAdType": "one of the 20 types (kebab-case)",
+    "videoAdTypeHebrew": "Hebrew name of the type",
+    "suggestedStructure": ["array of structure steps for this type"],
+    "ctaPlan": {
+      "primaryCTA": { "text": "Hebrew CTA", "subtext": "Hebrew micro-text", "timestamp": "last N seconds", "style": "pulse-button|text-overlay|subtle-text", "position": "center-bottom|center-vertical" },
+      "midrollCTA": { "text": "Hebrew soft CTA", "timestamp": "60% of video", "style": "text-overlay", "subtle": true },
+      "ctaVariation": { "text": "Hebrew urgency CTA", "urgency": true }
+    },
+    "textOverlaysByType": [
+      { "timestamp": 5, "text": "Hebrew overlay text", "type": "room-label|price|feature|step-number|statistic|name-title|comparison" }
+    ]
+  },
+  "conversionStrategy": {
+    "funnelStage": "top|middle|bottom",
+    "psychologicalTriggers": ["2-3 triggers from: scarcity, social-proof, authority, reciprocity, loss-aversion, anchoring, bandwagon"],
+    "triggerImplementation": [
+      { "trigger": "trigger-name", "text": "Hebrew trigger text", "timestamp": "when to show", "visual": "countdown-timer|strikethrough-animation|counter-animation|badge-display" }
+    ]
+  },
+  "industryStrategy": {
+    "industry": "detected industry (kebab-case)",
+    "industryRules": {
+      "leadWith": "what to lead the video with",
+      "mustInclude": ["required elements for this industry"],
+      "colorGrading": "recommended color grading style",
+      "musicMood": "recommended music mood",
+      "ctaStyle": "recommended CTA style"
+    }
+  },
+  "socialProofPlan": [
+    { "type": "numbers|testimonial|logos|results", "text": "Hebrew text", "timestamp": 15, "visual": "counter-animation|lower-third|logo-bar|before-after" }
   ],
   "recommendedConfig": {
     "model": "veo-3.1-fast|sora-2|kling-v2.5-turbo|wan-2.5|seedance-1.5-pro",

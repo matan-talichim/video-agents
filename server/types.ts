@@ -864,6 +864,51 @@ export interface VideoIntelligence {
 
   // Brain auto-selected optimal configuration
   recommendedConfig?: RecommendedConfig;
+
+  // Marketing intelligence (CTA + video ad type)
+  marketingStrategy?: {
+    videoAdType: string;
+    videoAdTypeHebrew: string;
+    suggestedStructure: string[];
+    ctaPlan: {
+      primaryCTA: { text: string; subtext: string; timestamp: string; style: string; position: string };
+      midrollCTA?: { text: string; timestamp: string; style: string; subtle: boolean };
+      ctaVariation?: { text: string; urgency: boolean };
+    };
+    textOverlaysByType: Array<{ timestamp: number; text: string; type: string }>;
+  };
+
+  // Conversion optimization (funnel + psychological triggers)
+  conversionStrategy?: {
+    funnelStage: 'top' | 'middle' | 'bottom';
+    psychologicalTriggers: string[];
+    triggerImplementation: Array<{
+      trigger: string;
+      text: string;
+      timestamp: string | number;
+      visual: string;
+    }>;
+  };
+
+  // Industry-specific strategy
+  industryStrategy?: {
+    industry: string;
+    industryRules: {
+      leadWith: string;
+      mustInclude: string[];
+      colorGrading: string;
+      musicMood: string;
+      ctaStyle: string;
+    };
+  };
+
+  // Social proof elements
+  socialProofPlan?: Array<{
+    type: 'numbers' | 'testimonial' | 'logos' | 'results';
+    text: string;
+    timestamp: number;
+    visual: string;
+  }>;
 }
 
 export interface RecommendedConfig {
