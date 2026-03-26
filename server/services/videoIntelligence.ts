@@ -120,6 +120,24 @@ export interface VideoIntelligence {
     isMultipleClips: boolean;
     warnings: string[];
   };
+
+  // Brain auto-selected optimal configuration
+  recommendedConfig?: {
+    model: string;
+    modelReason: string;
+    editStyle: 'cinematic' | 'energetic' | 'minimal' | 'trendy';
+    editStyleReason: string;
+    suggestedDuration: number;
+    durationReason: string;
+    subtitleStyle: string;
+    subtitleStyleReason: string;
+    enabledOptions: Record<string, boolean>;
+    optionReasons: Record<string, string>;
+    formats: string[];
+    formatReason: string;
+    estimatedCost: number;
+    confidence: number;
+  };
 }
 
 export async function analyzeVideoIntelligence(
@@ -189,6 +207,8 @@ export async function analyzeVideoIntelligence(
     return {
       ...parsed,
       edgeCases,
+      // Ensure recommendedConfig exists
+      recommendedConfig: parsed.recommendedConfig || undefined,
       // Ensure all arrays exist
       keyPoints: parsed.keyPoints || [],
       textOverlayPlan: parsed.textOverlayPlan || [],
@@ -424,6 +444,69 @@ TYPE: POOR QUALITY — Detect issues and suggest fixes (stabilize, brighten, noi
 TYPE: VERY LONG (>5min → 60s) — Be RUTHLESS. Cut 90%+. Keep ONLY hook + top 3 points + CTA.
 
 All user-facing text MUST be in Hebrew. Technical field values stay in English.
+
+IMPORTANT: You must also output a "recommendedConfig" field with the OPTIMAL configuration for this video.
+You must choose the BEST option for each setting — not the cheapest, but the one that will produce the best video.
+
+MODEL SELECTION:
+- Real estate / architecture / nature → "veo-3.1-fast" (best cinematic B-Roll)
+- Quick social media / TikTok → "kling-v2.5-turbo" (fast + cheap for multiple clips)
+- High-end brand / luxury → "sora-2" (highest quality)
+- Products / e-commerce → "seedance-1.5-pro" (best for products)
+- Artistic / creative → "wan-2.5" (most artistic style)
+
+EDIT STYLE:
+- Professional / corporate / real estate → "cinematic"
+- Social media / TikTok / energetic speaker → "energetic"
+- Clean / elegant / testimonial → "minimal"
+- Young audience / trendy content → "trendy"
+
+OPTIONS — enable based on content needs:
+- removeSilences: ALWAYS true (no reason to keep dead air)
+- hebrewSubtitles: true if speaker talks in Hebrew
+- englishSubtitles: true if speaker talks in English
+- addBRoll: true if talking-head (needs visual variety)
+- backgroundMusic: true UNLESS content is music-related
+- energeticMusic: true if pacing is fast or content is energetic
+- calmMusic: true if pacing is calm or content is professional
+- aiSoundEffects: true if content has topic changes or emphasis moments
+- colorCorrection: true if footage quality < 8
+- autoZoom: true if talking-head (adds movement to static shot)
+- transitions: true if multiple segments exist
+- intro: true if no natural hook exists (system will create one)
+- outro: true (always add CTA)
+- logoWatermark: true if logo was uploaded
+- thumbnailGeneration: true (always generate)
+- viralityScore: true if destination is social media
+- kineticTypography: true if there are key statistics or strong quotes
+- backgroundBlur: true if background quality is "messy" or "acceptable"
+- eyeContact: true if speaker doesn't always look at camera
+- lowerThirds: true if content is professional/corporate
+- musicSync: true if edit style is energetic or trendy
+- trendingSounds: true if destination is TikTok/Instagram
+
+SUBTITLE STYLE:
+- Professional/corporate → "bold" or "box"
+- TikTok/social → "karaoke" or "neon"
+- Minimal/elegant → "minimal" or "classic"
+- Energetic → "gradient" or "bounce"
+
+DURATION:
+- Calculate from usable content
+- If 30s of good content exists → suggest 30s
+- If 90s of good content → suggest 60s (leave room for B-Roll)
+- Social media max: 60s for Reels, 30s for TikTok
+- Never suggest longer than the usable content allows
+
+FORMAT:
+- If social media preset → ["9:16", "1:1"]
+- If brand/corporate → ["16:9"]
+- If real estate → ["16:9", "9:16"] (both platforms)
+- If TikTok specifically → ["9:16"]
+
+Return "optionReasons" explaining WHY each option is on/off in Hebrew.
+Set "confidence" between 0 and 1 based on how certain you are about the recommendations.
+
 Return ONLY valid JSON, no markdown code blocks.`;
 }
 
@@ -499,7 +582,55 @@ Return a complete VideoIntelligence JSON with ALL fields:
   ],
   "smartBRollPlan": [
     { "timestamp": 15, "duration": 4, "reason": "Hebrew reason", "prompt": "detailed generation prompt in English", "priority": "must-have|nice-to-have|optional", "alternative": "search keyword if generation fails" }
-  ]
+  ],
+  "recommendedConfig": {
+    "model": "veo-3.1-fast|sora-2|kling-v2.5-turbo|wan-2.5|seedance-1.5-pro",
+    "modelReason": "Hebrew reason for model choice",
+    "editStyle": "cinematic|energetic|minimal|trendy",
+    "editStyleReason": "Hebrew reason for edit style",
+    "suggestedDuration": 45,
+    "durationReason": "Hebrew reason for duration",
+    "subtitleStyle": "classic|bold|neon|gradient|outline|shadow|box|typewriter|karaoke|minimal",
+    "subtitleStyleReason": "Hebrew reason for subtitle style",
+    "enabledOptions": {
+      "removeSilences": true,
+      "addBRoll": true,
+      "hebrewSubtitles": true,
+      "englishSubtitles": false,
+      "backgroundMusic": true,
+      "energeticMusic": false,
+      "calmMusic": true,
+      "soundEffects": false,
+      "colorCorrection": true,
+      "autoZoom": true,
+      "transitions": true,
+      "intro": true,
+      "outro": true,
+      "logoWatermark": false,
+      "thumbnailGeneration": true,
+      "viralityScore": false,
+      "aiTwin": false,
+      "aiBackground": false,
+      "backgroundBlur": false,
+      "cinematic": false,
+      "eyeContact": false,
+      "calmProfessional": false,
+      "trendy": false,
+      "lowerThirds": false,
+      "aiSoundEffects": false,
+      "kineticTypography": false,
+      "musicSync": false,
+      "trendingSounds": false
+    },
+    "optionReasons": {
+      "removeSilences": "תמיד — אין סיבה לשמור שתיקות",
+      "addBRoll": "Hebrew reason"
+    },
+    "formats": ["16:9"],
+    "formatReason": "Hebrew reason for format choice",
+    "estimatedCost": 1.50,
+    "confidence": 0.85
+  }
 }
 
 Be thorough. This analysis determines the quality of the final video.

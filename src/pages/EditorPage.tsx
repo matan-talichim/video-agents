@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import useJobStore from '../store/useJobStore';
 import type {
   EditStyle,
@@ -10,6 +10,7 @@ import type {
   UserOptions,
   BrandKit,
   PresetAutoConfig,
+  RecommendedConfig,
 } from '../types';
 import FileUpload from '../components/FileUpload';
 import SourceDocumentUpload from '../components/SourceDocumentUpload';
@@ -32,6 +33,7 @@ import { calculateLiveCost } from '../utils/costCalculator';
 export default function EditorPage() {
   const { mode } = useParams<{ mode: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { createJob, isLoading, loadBrandKit } = useJobStore();
 
   const isUpload = mode === 'upload';
@@ -88,12 +90,45 @@ export default function EditorPage() {
     font: 'Heebo',
     enabled: false,
   });
+  const [brainConfig, setBrainConfig] = useState<RecommendedConfig | null>(null);
+  const [userOverrides, setUserOverrides] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadBrandKit().then((kit) => {
       if (kit) setBrandKit(kit);
     });
   }, [loadBrandKit]);
+
+  // Auto-apply Brain recommendations when navigating from PreviewPage
+  useEffect(() => {
+    const jobId = searchParams.get('jobId');
+    const fromBrain = searchParams.get('fromBrain');
+    if (!jobId || !fromBrain) return;
+
+    const stored = sessionStorage.getItem(`brain-config-${jobId}`);
+    if (!stored) return;
+
+    try {
+      const config: RecommendedConfig = JSON.parse(stored);
+      setBrainConfig(config);
+
+      // Map model name to VideoModel type
+      const modelMap: Record<string, VideoModel> = {
+        'veo-3.1-fast': 'veo3.1',
+        'sora-2': 'sora2',
+        'kling-v2.5-turbo': 'kling2.5',
+        'wan-2.5': 'wan2.5',
+        'seedance-1.5-pro': 'seedance1.5',
+      };
+      if (modelMap[config.model]) setVideoModel(modelMap[config.model]);
+      setEditStyle(config.editStyle);
+      setTargetDuration(config.suggestedDuration);
+      if (config.subtitleStyle) setCaptionTemplate(config.subtitleStyle as CaptionTemplate);
+      setOptions({ ...defaultOptions, ...config.enabledOptions } as UserOptions);
+    } catch {
+      // Invalid stored config
+    }
+  }, [searchParams]);
 
   const toggleOption = useCallback((key: keyof UserOptions) => {
     setOptions((prev) => {
@@ -103,7 +138,28 @@ export default function EditorPage() {
       if (key === 'calmMusic' && next.calmMusic) next.energeticMusic = false;
       return next;
     });
-  }, []);
+    // Track that user overrode this option
+    if (brainConfig) {
+      setUserOverrides((prev) => new Set(prev).add(key));
+    }
+  }, [brainConfig]);
+
+  const handleResetToBrain = useCallback(() => {
+    if (!brainConfig) return;
+    const modelMap: Record<string, VideoModel> = {
+      'veo-3.1-fast': 'veo3.1',
+      'sora-2': 'sora2',
+      'kling-v2.5-turbo': 'kling2.5',
+      'wan-2.5': 'wan2.5',
+      'seedance-1.5-pro': 'seedance1.5',
+    };
+    if (modelMap[brainConfig.model]) setVideoModel(modelMap[brainConfig.model]);
+    setEditStyle(brainConfig.editStyle);
+    setTargetDuration(brainConfig.suggestedDuration);
+    if (brainConfig.subtitleStyle) setCaptionTemplate(brainConfig.subtitleStyle as CaptionTemplate);
+    setOptions({ ...defaultOptions, ...brainConfig.enabledOptions } as UserOptions);
+    setUserOverrides(new Set());
+  }, [brainConfig]);
 
   const handlePresetChange = useCallback((p: PresetType, text: string, autoConfig?: PresetAutoConfig) => {
     setPreset(p);
@@ -190,6 +246,33 @@ export default function EditorPage() {
       </header>
 
       <div className="max-w-5xl mx-auto px-4 mt-6 space-y-8">
+        {/* Brain recommendations banner */}
+        {brainConfig && (
+          <div className="bg-accent-purple/10 border border-accent-purple/30 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🧠</span>
+                <span className="text-sm text-accent-purple-light font-medium">
+                  ההגדרות מולאו לפי המלצות המוח
+                </span>
+                {userOverrides.size > 0 && (
+                  <span className="text-[10px] text-amber-400 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
+                    שינית {userOverrides.size} הגדרות
+                  </span>
+                )}
+              </div>
+              {userOverrides.size > 0 && (
+                <button
+                  onClick={handleResetToBrain}
+                  className="text-[11px] text-accent-purple-light hover:underline"
+                >
+                  חזור להמלצות המוח
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Project Name */}
         <div>
           <label className="block text-sm text-gray-400 mb-2">שם הפרויקט</label>

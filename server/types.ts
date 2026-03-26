@@ -763,4 +763,24 @@ export interface VideoIntelligence {
     isMultipleClips: boolean;
     warnings: string[];
   };
+
+  // Brain auto-selected optimal configuration
+  recommendedConfig?: RecommendedConfig;
+}
+
+export interface RecommendedConfig {
+  model: string;
+  modelReason: string;
+  editStyle: 'cinematic' | 'energetic' | 'minimal' | 'trendy';
+  editStyleReason: string;
+  suggestedDuration: number;
+  durationReason: string;
+  subtitleStyle: string;
+  subtitleStyleReason: string;
+  enabledOptions: Record<string, boolean>;
+  optionReasons: Record<string, string>;
+  formats: string[];
+  formatReason: string;
+  estimatedCost: number;
+  confidence: number;
 }
