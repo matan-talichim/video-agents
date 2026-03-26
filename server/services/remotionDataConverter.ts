@@ -71,49 +71,38 @@ export function buildRemotionProps(
 }
 
 function buildSubtitleEntries(transcript: TranscriptResult): SubtitleEntry[] {
-  // Group words into subtitle lines (max 3 words, max 1.5 seconds — word-by-word style)
+  // Filter out low-confidence and filler words — use RAW Deepgram text only
+  const HEBREW_FILLERS = new Set(['אה', 'אמ', 'כאילו', 'נו', 'אהה', 'אממ', 'כזה', 'כזאת']);
+  const MIN_CONFIDENCE = 0.7;
+
+  const filteredWords = transcript.words.filter(w => {
+    if (typeof w.confidence === 'number' && w.confidence < MIN_CONFIDENCE) return false;
+    if (HEBREW_FILLERS.has(w.word.replace(/[.!?,]/g, ''))) return false;
+    if (!w.word.trim()) return false;
+    return true;
+  });
+
+  // Group into 2-word pairs using exact Deepgram timestamps for tight sync
   const entries: SubtitleEntry[] = [];
-  let currentGroup: TranscriptResult['words'][0][] = [];
-  let groupStart = 0;
 
-  for (const word of transcript.words) {
-    if (currentGroup.length === 0) {
-      groupStart = word.start;
-    }
-    currentGroup.push(word);
+  for (let i = 0; i < filteredWords.length; i += 2) {
+    const word1 = filteredWords[i];
+    const word2 = filteredWords[i + 1];
 
-    const isEndOfSentence = /[.!?]$/.test(word.word);
-    const isTooLong = currentGroup.length >= 3;
-    const isTooLongDuration = (word.end - groupStart) >= 1.5;
+    const words = word2 ? [word1, word2] : [word1];
+    const startTime = word1.start;
+    const endTime = word2 ? word2.end : word1.end;
 
-    if (isEndOfSentence || isTooLong || isTooLongDuration) {
-      entries.push({
-        text: currentGroup.map(w => w.word).join(' '),
-        startFrame: Math.round(groupStart * FPS),
-        endFrame: Math.round(word.end * FPS),
-        words: currentGroup.map(w => ({
-          word: w.word,
-          startFrame: Math.round(w.start * FPS),
-          endFrame: Math.round(w.end * FPS),
-        })),
-        highlightWords: [], // Will be filled by Claude keyword detection
-      });
-      currentGroup = [];
-    }
-  }
-
-  if (currentGroup.length > 0) {
-    const lastWord = currentGroup[currentGroup.length - 1];
     entries.push({
-      text: currentGroup.map(w => w.word).join(' '),
-      startFrame: Math.round(groupStart * FPS),
-      endFrame: Math.round(lastWord.end * FPS),
-      words: currentGroup.map(w => ({
+      text: words.map(w => w.word).join(' '),
+      startFrame: Math.round(startTime * FPS),
+      endFrame: Math.round(endTime * FPS),
+      words: words.map(w => ({
         word: w.word,
         startFrame: Math.round(w.start * FPS),
         endFrame: Math.round(w.end * FPS),
       })),
-      highlightWords: [],
+      highlightWords: [], // Will be filled by Claude keyword detection
     });
   }
 

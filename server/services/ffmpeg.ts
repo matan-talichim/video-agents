@@ -380,7 +380,7 @@ export function addLogo(input: string, logoFile: string, position: string, opaci
 // === SUBTITLES ===
 
 // Burn Hebrew RTL subtitles (simple — FFmpeg drawtext)
-// Small text at the bottom, 1-3 words at a time. NOT huge multi-line blocks.
+// Small text at the bottom, 2 words at a time synced to speech. NOT huge multi-line blocks.
 export function addSubtitlesSimple(input: string, srtFile: string, output: string, fontFile?: string): string {
   const font = fontFile || 'Heebo';
   return `ffmpeg -i "${input}" -vf "subtitles='${srtFile}':force_style='FontName=${font},FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Bold=1,Alignment=2,MarginV=80'" -c:a copy -y "${output}"`;

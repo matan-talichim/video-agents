@@ -3,27 +3,56 @@ import path from 'path';
 import { askClaude } from './claude.js';
 import type { TranscriptResult } from '../types.js';
 
+// Hebrew filler words to exclude from subtitles
+const HEBREW_FILLERS = new Set(['אה', 'אמ', 'כאילו', 'נו', 'אהה', 'אממ', 'כזה', 'כזאת']);
+
+// Minimum confidence threshold for including a word in subtitles
+const MIN_CONFIDENCE = 0.7;
+
 interface SubtitleGroup {
   words: Array<{word: string; start: number; end: number}>;
   start: number;
   end: number;
 }
 
-// Convert transcript to SRT format
+// Filter transcript words for subtitle use:
+// - Remove low-confidence words (Deepgram unsure)
+// - Remove Hebrew filler words
+// - Keep ORIGINAL Deepgram text — never rewrite/modify
+function filterWordsForSubtitles(
+  words: Array<{word: string; start: number; end: number; confidence?: number}>
+): Array<{word: string; start: number; end: number}> {
+  return words.filter(w => {
+    // Skip low-confidence words
+    if (typeof w.confidence === 'number' && w.confidence < MIN_CONFIDENCE) return false;
+    // Skip filler words
+    if (HEBREW_FILLERS.has(w.word.replace(/[.!?,]/g, ''))) return false;
+    // Skip empty/whitespace
+    if (!w.word.trim()) return false;
+    return true;
+  });
+}
+
+// Convert transcript to SRT format using Deepgram word-level timestamps.
+// Uses 2-word groups for tight speech sync — each subtitle matches exactly when words are spoken.
 export function generateSRT(transcript: TranscriptResult, outputPath: string): string {
+  // Use RAW Deepgram words with confidence filtering — don't use rewritten text
+  const filteredWords = filterWordsForSubtitles(transcript.words);
+
   const lines: string[] = [];
   let subtitleIndex = 1;
 
-  // Group words into subtitle lines (max 8 words or 3 seconds per line)
-  const groups = groupWordsForSubtitles(transcript.words);
+  // Group into pairs (2 words per subtitle) using exact Deepgram timestamps
+  for (let i = 0; i < filteredWords.length; i += 2) {
+    const word1 = filteredWords[i];
+    const word2 = filteredWords[i + 1];
 
-  for (const group of groups) {
-    const startTime = formatSRTTime(group.start);
-    const endTime = formatSRTTime(group.end);
-    const text = group.words.map(w => w.word).join(' ');
+    const startTime = word1.start;
+    const endTime = word2 ? word2.end : word1.end;
+    const text = word2 ? `${word1.word} ${word2.word}` : word1.word;
 
     lines.push(`${subtitleIndex}`);
-    lines.push(`${startTime} --> ${endTime}`);
+    lines.push(`${formatSRTTime(startTime)} --> ${formatSRTTime(endTime)}`);
     lines.push(text);
     lines.push('');
 
@@ -37,7 +66,8 @@ export function generateSRT(transcript: TranscriptResult, outputPath: string): s
 
 // Get keywords to highlight per subtitle line
 export async function getKeywordsForHighlight(transcript: TranscriptResult): Promise<Map<number, string[]>> {
-  const groups = groupWordsForSubtitles(transcript.words);
+  const filteredWords = filterWordsForSubtitles(transcript.words);
+  const groups = groupWordsForSubtitles(filteredWords);
   const subtitleTexts = groups.map((g, i) => `${i}: "${g.words.map(w => w.word).join(' ')}"`).join('\n');
 
   const response = await askClaude(
@@ -58,33 +88,21 @@ export async function getKeywordsForHighlight(transcript: TranscriptResult): Pro
 }
 
 // Group transcript words into subtitle lines.
-// Shows 1-3 words at a time for word-by-word highlight style (social/reels).
-// Each entry should be 0.3-1.5 seconds max — keeps subtitles snappy and readable.
+// Shows 2 words at a time for word-by-word sync (social/reels style).
+// Uses exact Deepgram timestamps for precise speech synchronization.
 function groupWordsForSubtitles(words: Array<{word: string; start: number; end: number}>): SubtitleGroup[] {
   const groups: SubtitleGroup[] = [];
-  let currentGroup: SubtitleGroup = { words: [], start: 0, end: 0 };
 
-  for (const word of words) {
-    if (currentGroup.words.length === 0) {
-      currentGroup.start = word.start;
-    }
+  for (let i = 0; i < words.length; i += 2) {
+    const word1 = words[i];
+    const word2 = words[i + 1];
 
-    currentGroup.words.push(word);
-    currentGroup.end = word.end;
-
-    // Break conditions: 3 words max (word-by-word style), or 1.5 seconds max, or sentence end
-    const isEndOfSentence = /[.!?]$/.test(word.word);
-    const isTooLong = currentGroup.words.length >= 3;
-    const isTooLongDuration = (currentGroup.end - currentGroup.start) >= 1.5;
-
-    if (isEndOfSentence || isTooLong || isTooLongDuration) {
-      groups.push({ ...currentGroup });
-      currentGroup = { words: [], start: 0, end: 0 };
-    }
-  }
-
-  if (currentGroup.words.length > 0) {
-    groups.push(currentGroup);
+    const group: SubtitleGroup = {
+      words: word2 ? [word1, word2] : [word1],
+      start: word1.start,
+      end: word2 ? word2.end : word1.end,
+    };
+    groups.push(group);
   }
 
   return groups;
@@ -95,7 +113,7 @@ function formatSRTTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
-  const ms = Math.floor((seconds % 1) * 1000);
+  const ms = Math.round((seconds % 1) * 1000);
   return `${pad(h)}:${pad(m)}:${pad(s)},${pad3(ms)}`;
 }
 
