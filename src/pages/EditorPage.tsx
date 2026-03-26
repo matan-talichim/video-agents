@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import useJobStore from '../store/useJobStore';
 import type {
@@ -11,6 +11,7 @@ import type {
   BrandKit,
   PresetAutoConfig,
   RecommendedConfig,
+  OptionState,
 } from '../types';
 import FileUpload from '../components/FileUpload';
 import SourceDocumentUpload from '../components/SourceDocumentUpload';
@@ -19,7 +20,7 @@ import PromptInput from '../components/PromptInput';
 import PresetSelector from '../components/PresetSelector';
 import ModelSelector from '../components/ModelSelector';
 import EditStyleSelector from '../components/EditStyleSelector';
-import ProOptions from '../components/ProOptions';
+import ProOptions, { OPTIONS_LABELS } from '../components/ProOptions';
 import CaptionTemplatePicker from '../components/CaptionTemplatePicker';
 import VoiceoverStyleSelector from '../components/VoiceoverStyleSelector';
 import LanguageSelector from '../components/LanguageSelector';
@@ -29,6 +30,7 @@ import LogoUpload from '../components/LogoUpload';
 import BrandKitEditor from '../components/BrandKitEditor';
 import LiveCostBreakdown from '../components/LiveCostBreakdown';
 import { calculateLiveCost } from '../utils/costCalculator';
+import { PRESETS } from '../components/PresetSelector';
 
 export default function EditorPage() {
   const { mode } = useParams<{ mode: string }>();
@@ -91,7 +93,12 @@ export default function EditorPage() {
     enabled: false,
   });
   const [brainConfig, setBrainConfig] = useState<RecommendedConfig | null>(null);
-  const [userOverrides, setUserOverrides] = useState<Set<string>>(new Set());
+  const [userOverrides, setUserOverrides] = useState<Record<string, boolean>>({});
+  const [optionStates, setOptionStates] = useState<Record<string, OptionState>>({});
+  const [animatingOptions, setAnimatingOptions] = useState<Set<string>>(new Set());
+  const [presetBanner, setPresetBanner] = useState<{ count: number; label: string } | null>(null);
+  const prevOptionsRef = useRef<UserOptions>(defaultOptions);
+  const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     loadBrandKit().then((kit) => {
@@ -124,7 +131,16 @@ export default function EditorPage() {
       setEditStyle(config.editStyle);
       setTargetDuration(config.suggestedDuration);
       if (config.subtitleStyle) setCaptionTemplate(config.subtitleStyle as CaptionTemplate);
-      setOptions({ ...defaultOptions, ...config.enabledOptions } as UserOptions);
+      const newOptions = { ...defaultOptions, ...config.enabledOptions } as UserOptions;
+      setOptions(newOptions);
+
+      // Build option states for brain source
+      const newStates: Record<string, OptionState> = {};
+      for (const key of Object.keys(defaultOptions)) {
+        const enabled = (newOptions as Record<string, boolean>)[key] || false;
+        newStates[key] = { enabled, source: 'brain', presetDefault: enabled };
+      }
+      setOptionStates(newStates);
     } catch {
       // Invalid stored config
     }
@@ -138,11 +154,20 @@ export default function EditorPage() {
       if (key === 'calmMusic' && next.calmMusic) next.energeticMusic = false;
       return next;
     });
-    // Track that user overrode this option
-    if (brainConfig) {
-      setUserOverrides((prev) => new Set(prev).add(key));
-    }
-  }, [brainConfig]);
+
+    // Track user override
+    setUserOverrides((prev) => ({ ...prev, [key]: !options[key] }));
+
+    // Update option state to reflect user source
+    setOptionStates((prev) => ({
+      ...prev,
+      [key]: {
+        enabled: !options[key],
+        source: 'user' as const,
+        presetDefault: prev[key]?.presetDefault ?? false,
+      },
+    }));
+  }, [options]);
 
   const handleResetToBrain = useCallback(() => {
     if (!brainConfig) return;
@@ -157,11 +182,38 @@ export default function EditorPage() {
     setEditStyle(brainConfig.editStyle);
     setTargetDuration(brainConfig.suggestedDuration);
     if (brainConfig.subtitleStyle) setCaptionTemplate(brainConfig.subtitleStyle as CaptionTemplate);
-    setOptions({ ...defaultOptions, ...brainConfig.enabledOptions } as UserOptions);
-    setUserOverrides(new Set());
+    const newOptions = { ...defaultOptions, ...brainConfig.enabledOptions } as UserOptions;
+    setOptions(newOptions);
+    setUserOverrides({});
+
+    // Rebuild option states
+    const newStates: Record<string, OptionState> = {};
+    for (const key of Object.keys(defaultOptions)) {
+      const enabled = (newOptions as Record<string, boolean>)[key] || false;
+      newStates[key] = { enabled, source: 'brain', presetDefault: enabled };
+    }
+    setOptionStates(newStates);
   }, [brainConfig]);
 
+  const handleResetToPreset = useCallback(() => {
+    const presetDef = PRESETS.find((p) => p.id === preset);
+    if (!presetDef?.autoConfig?.options) return;
+
+    const newOptions = { ...defaultOptions, ...presetDef.autoConfig.options };
+    setOptions(newOptions);
+    setUserOverrides({});
+
+    // Rebuild option states for preset source
+    const newStates: Record<string, OptionState> = {};
+    for (const key of Object.keys(defaultOptions)) {
+      const presetValue = (presetDef.autoConfig.options as Record<string, boolean>)[key] || false;
+      newStates[key] = { enabled: (newOptions as Record<string, boolean>)[key], source: 'preset', presetDefault: presetValue };
+    }
+    setOptionStates(newStates);
+  }, [preset]);
+
   const handlePresetChange = useCallback((p: PresetType, text: string, autoConfig?: PresetAutoConfig) => {
+    const prevOpts = { ...options };
     setPreset(p);
     if (text) setPrompt(text);
 
@@ -174,10 +226,61 @@ export default function EditorPage() {
 
       // Replace options entirely with preset defaults + overrides (clean config per preset)
       if (autoConfig.options) {
-        setOptions({ ...defaultOptions, ...autoConfig.options });
+        const newOptions = { ...defaultOptions, ...autoConfig.options };
+        setOptions(newOptions);
+
+        // Build option states for preset
+        const newStates: Record<string, OptionState> = {};
+        const changedKeys = new Set<string>();
+        let enabledCount = 0;
+
+        for (const key of Object.keys(defaultOptions)) {
+          const presetValue = (autoConfig.options as Record<string, boolean>)[key] || false;
+          const newValue = (newOptions as Record<string, boolean>)[key];
+          const oldValue = (prevOpts as Record<string, boolean>)[key];
+          newStates[key] = { enabled: newValue, source: 'preset', presetDefault: presetValue };
+          if (newValue !== oldValue) changedKeys.add(key);
+          if (presetValue) enabledCount++;
+        }
+        setOptionStates(newStates);
+
+        // Clear user overrides when switching presets
+        setUserOverrides({});
+
+        // Animate changed options
+        if (changedKeys.size > 0) {
+          setAnimatingOptions(new Set(changedKeys));
+          if (animationTimerRef.current) clearTimeout(animationTimerRef.current);
+          animationTimerRef.current = setTimeout(() => setAnimatingOptions(new Set()), 600);
+        }
+
+        // Show preset banner
+        const presetDef = PRESETS.find((pd) => pd.id === p);
+        if (presetDef && enabledCount > 0) {
+          setPresetBanner({ count: enabledCount, label: presetDef.label });
+          setTimeout(() => setPresetBanner(null), 4000);
+        }
       }
+    } else {
+      // Freeform or no autoConfig — reset states
+      setOptionStates({});
+      setUserOverrides({});
+      setPresetBanner(null);
     }
-  }, []);
+
+    prevOptionsRef.current = options;
+  }, [options]);
+
+  // Calculate override summary
+  const overrideCount = Object.keys(userOverrides).length;
+  const addedByUser = useMemo(() =>
+    Object.entries(userOverrides).filter(([key, val]) => val && !optionStates[key]?.presetDefault),
+    [userOverrides, optionStates]
+  );
+  const removedByUser = useMemo(() =>
+    Object.entries(userOverrides).filter(([key, val]) => !val && optionStates[key]?.presetDefault),
+    [userOverrides, optionStates]
+  );
 
   // Live cost calculation — recalculates on every selection change
   const liveCost = useMemo(() => {
@@ -213,6 +316,14 @@ export default function EditorPage() {
     if (preset === 'dubbing') fd.append('targetLanguage', targetLanguage);
     if (preset === 'multi_story') fd.append('storyPages', String(storyPages));
     if (brandKit.enabled) fd.append('brandKit', JSON.stringify(brandKit));
+
+    // Send user overrides so the Brain can respect them
+    if (overrideCount > 0) {
+      const presetDef = PRESETS.find((pd) => pd.id === preset);
+      const presetDefaults = presetDef?.autoConfig?.options || {};
+      fd.append('userOverrides', JSON.stringify(userOverrides));
+      fd.append('presetDefaults', JSON.stringify(presetDefaults));
+    }
 
     files.forEach((f) => fd.append('files', f));
     if (logo) fd.append('logo', logo);
@@ -255,13 +366,13 @@ export default function EditorPage() {
                 <span className="text-sm text-accent-purple-light font-medium">
                   ההגדרות מולאו לפי המלצות המוח
                 </span>
-                {userOverrides.size > 0 && (
+                {overrideCount > 0 && (
                   <span className="text-[10px] text-amber-400 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
-                    שינית {userOverrides.size} הגדרות
+                    שינית {overrideCount} הגדרות
                   </span>
                 )}
               </div>
-              {userOverrides.size > 0 && (
+              {overrideCount > 0 && (
                 <button
                   onClick={handleResetToBrain}
                   className="text-[11px] text-accent-purple-light hover:underline"
@@ -270,6 +381,15 @@ export default function EditorPage() {
                 </button>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Preset selection banner */}
+        {presetBanner && (
+          <div className="bg-accent-purple/10 border border-accent-purple/30 rounded-xl p-3 text-center preset-banner-enter">
+            <p className="text-sm text-accent-purple-light font-medium">
+              המערכת בחרה {presetBanner.count} אפשרויות לתבנית {presetBanner.label}
+            </p>
           </div>
         )}
 
@@ -311,7 +431,48 @@ export default function EditorPage() {
         <EditStyleSelector selected={editStyle} onSelect={setEditStyle} />
 
         {/* Pro Options */}
-        <ProOptions options={options} onToggle={toggleOption} />
+        <ProOptions
+          options={options}
+          onToggle={toggleOption}
+          optionStates={optionStates}
+          animatingOptions={animatingOptions}
+          activePreset={preset !== 'freeform' ? preset : null}
+        />
+
+        {/* Overrides summary */}
+        {overrideCount > 0 && preset !== 'freeform' && (
+          <div className="bg-dark-card border border-amber-500/20 rounded-xl p-4 space-y-2">
+            <p className="text-sm text-amber-300 font-medium">
+              שינית {overrideCount} אפשרויות מהתבנית:
+            </p>
+            {addedByUser.length > 0 && (
+              <p className="text-xs text-green-400">
+                + הוספת: {addedByUser.map(([k]) => OPTIONS_LABELS[k] || k).join(', ')}
+              </p>
+            )}
+            {removedByUser.length > 0 && (
+              <p className="text-xs text-red-400">
+                - הסרת: {removedByUser.map(([k]) => OPTIONS_LABELS[k] || k).join(', ')}
+              </p>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={handleResetToPreset}
+                className="text-[11px] text-accent-purple-light hover:underline"
+              >
+                ↩️ חזור לתבנית
+              </button>
+              {brainConfig && (
+                <button
+                  onClick={handleResetToBrain}
+                  className="text-[11px] text-teal-400 hover:underline"
+                >
+                  🧠 חזור להמלצות המוח
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Caption Template (conditional) */}
         {options.hebrewSubtitles && (

@@ -67,6 +67,16 @@ router.post('/', upload.array('files', 20), async (req, res) => {
       }
     }
 
+    // Parse user overrides if provided
+    let userOverrides: Record<string, boolean> | undefined;
+    let presetDefaults: Record<string, boolean> | undefined;
+    if (req.body.userOverrides) {
+      try { userOverrides = JSON.parse(req.body.userOverrides); } catch { /* ignore */ }
+    }
+    if (req.body.presetDefaults) {
+      try { presetDefaults = JSON.parse(req.body.presetDefaults); } catch { /* ignore */ }
+    }
+
     // Build brain context from user selections
     const brainContext = {
       editStyle,
@@ -75,12 +85,19 @@ router.post('/', upload.array('files', 20), async (req, res) => {
       targetLanguage,
       storyPageCount,
       brandKit: job.brandKit,
+      preset: req.body.preset,
+      presetDefaults,
+      userOverrides,
     };
 
     // Generate execution plan via Claude API
-    const { plan, enabledCount } = await generatePlan(prompt, files, job.options, model, brainContext);
+    const { plan, enabledCount, brainNotes } = await generatePlan(prompt, files, job.options, model, brainContext);
     const costEstimate = estimateCost(plan);
-    updateJob(job.id, { plan, enabledFeaturesCount: enabledCount, costEstimate });
+    const updateFields: Record<string, unknown> = { plan, enabledFeaturesCount: enabledCount, costEstimate };
+    if (brainNotes && brainNotes.length > 0) {
+      updateFields.brainNotes = brainNotes;
+    }
+    updateJob(job.id, updateFields);
 
     // Get updated job with plan
     const updatedJob = getJob(job.id)!;

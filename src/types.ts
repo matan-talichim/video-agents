@@ -87,6 +87,12 @@ export interface PresetAutoConfig {
   estimatedCost: string;
 }
 
+export interface OptionState {
+  enabled: boolean;
+  source: 'preset' | 'user' | 'brain';
+  presetDefault: boolean;
+}
+
 export interface UserOptions {
   removeSilences: boolean;
   addBRoll: boolean;

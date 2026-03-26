@@ -11,6 +11,9 @@ interface BrainContext {
   targetLanguage?: string;
   storyPageCount?: number;
   brandKit?: BrandKit;
+  preset?: string;
+  presetDefaults?: Record<string, boolean>;
+  userOverrides?: Record<string, boolean>;
 }
 
 export async function generatePlan(
@@ -19,7 +22,7 @@ export async function generatePlan(
   options: UserOptions,
   model: BRollModel,
   context?: BrainContext
-): Promise<{ plan: ExecutionPlan; enabledCount: number }> {
+): Promise<{ plan: ExecutionPlan; enabledCount: number; brainNotes?: string[] }> {
   const userMessage = buildUserMessage(prompt, files, options, model, context);
 
   try {
@@ -44,6 +47,15 @@ export async function generatePlan(
       return { plan: fallback, enabledCount: countEnabledFeatures(fallback) };
     }
 
+    // Extract brainNotes before validation strips them
+    const brainNotes: string[] = Array.isArray((parsed as Record<string, unknown>).brainNotes)
+      ? ((parsed as Record<string, unknown>).brainNotes as string[])
+      : [];
+    if (brainNotes.length > 0) {
+      console.log(`[Brain] Brain notes: ${brainNotes.length} override notes`);
+      delete (parsed as Record<string, unknown>).brainNotes;
+    }
+
     // Validate and sanitize the plan
     const { valid, plan, errors } = validatePlan(parsed, model);
     if (!valid) {
@@ -65,7 +77,7 @@ export async function generatePlan(
     const enabledCount = countEnabledFeatures(plan);
     console.log(`[Brain] Plan generated — ${enabledCount} features enabled out of 95`);
 
-    return { plan, enabledCount };
+    return { plan, enabledCount, brainNotes: brainNotes.length > 0 ? brainNotes : undefined };
   } catch (error) {
     console.error('[Brain] Claude API call failed, using fallback plan:', error);
     const fallback = buildFallbackPlan(prompt, files, options, model, context);
@@ -107,6 +119,35 @@ function buildUserMessage(
 
     if (contextParts.length > 0) {
       parts.push(`\n## Additional Context\n${contextParts.join('\n')}`);
+    }
+
+    // Include user overrides so the Brain respects them
+    if (context.userOverrides && Object.keys(context.userOverrides).length > 0) {
+      const overrides = context.userOverrides;
+      const presetDefaults = context.presetDefaults || {};
+      const addedByUser = Object.entries(overrides).filter(([k, v]) => v && !presetDefaults[k]).map(([k]) => k);
+      const removedByUser = Object.entries(overrides).filter(([k, v]) => !v && presetDefaults[k]).map(([k]) => k);
+
+      const overrideParts: string[] = [
+        `\n## User Manual Overrides`,
+        `Selected preset: ${context.preset || 'none'}`,
+        `Preset default options: ${JSON.stringify(presetDefaults)}`,
+        `User manual overrides: ${JSON.stringify(overrides)}`,
+        `\nIMPORTANT: The user manually changed these options from the preset defaults:`,
+      ];
+      if (addedByUser.length > 0) {
+        overrideParts.push(...addedByUser.map(k => `+ ADDED: ${k} (user specifically wants this)`));
+      }
+      if (removedByUser.length > 0) {
+        overrideParts.push(...removedByUser.map(k => `- REMOVED: ${k} (user specifically does NOT want this)`));
+      }
+      overrideParts.push(
+        `\nYou MUST respect user overrides. If user added an option, keep it ON even if you wouldn't normally enable it.`,
+        `If user removed an option, keep it OFF even if you would normally enable it.`,
+        `For all other options, use your best judgment based on content analysis.`,
+        `In your response, include a "brainNotes" array with notes about options you would have changed if the user hadn't overridden them.`
+      );
+      parts.push(overrideParts.join('\n'));
     }
   }
 

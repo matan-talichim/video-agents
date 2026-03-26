@@ -10,6 +10,7 @@ import PreviewChat from '../components/PreviewChat';
 import ApproveButton from '../components/ApproveButton';
 import ContentIntelligencePanel from '../components/ContentIntelligencePanel';
 import BrainRecommendations from '../components/BrainRecommendations';
+import BrainNotes from '../components/BrainNotes';
 import { calculateLiveCost } from '../utils/costCalculator';
 import type { RecommendedConfig } from '../types';
 
@@ -227,6 +228,7 @@ export default function PreviewPage() {
   const contentAnalysis = (job as any).contentAnalysis;
   const presenterDetection = (job as any).presenterDetection;
   const videoIntelligence = (job as any).videoIntelligence;
+  const brainNotes: string[] = (job as any).brainNotes || [];
 
   // Compute cost breakdown from job selections
   const previewCost = useMemo(() => {
@@ -275,6 +277,11 @@ export default function PreviewPage() {
             onEditManually={handleEditManually}
             applied={recommendationApplied}
           />
+        )}
+
+        {/* Brain Notes — override suggestions */}
+        {brainNotes.length > 0 && (
+          <BrainNotes notes={brainNotes} />
         )}
 
         {/* Recommendation banner */}
