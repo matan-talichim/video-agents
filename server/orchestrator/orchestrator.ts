@@ -215,14 +215,37 @@ export async function startJob(job: Job): Promise<void> {
   }
 }
 
+// Helper to update job step with user-friendly keys for cinematic processing page
+function updateJobStep(job: Job, stepKey: string, progress: number) {
+  const stepOrder = [
+    'transcribing', 'analyzing', 'planning',
+    'generating-broll', 'generating-music',
+    'editing-cuts', 'editing-effects', 'editing-broll',
+    'editing-subtitles', 'editing-music', 'editing-color',
+    'quality-check', 'finalizing',
+  ];
+
+  // Track completed steps
+  const completedPipelineSteps: string[] = (job as any).completedPipelineSteps || [];
+  const currentIndex = stepOrder.indexOf(stepKey);
+  for (let i = 0; i < currentIndex; i++) {
+    if (!completedPipelineSteps.includes(stepOrder[i])) {
+      completedPipelineSteps.push(stepOrder[i]);
+    }
+  }
+  (job as any).completedPipelineSteps = completedPipelineSteps;
+
+  updateJob(job.id, {
+    currentStep: stepKey,
+    progress,
+    completedPipelineSteps,
+  } as any);
+}
+
 export async function runPipeline(job: Job): Promise<void> {
   try {
     // Phase 1: Planning
-    updateJob(job.id, {
-      status: 'planning',
-      currentStep: 'המוח מתכנן את העריכה...',
-      progress: 2,
-    });
+    updateJobStep(job, 'planning', 2);
     await delay(1000);
 
     if (!job.plan) {
@@ -731,7 +754,8 @@ export async function runPipeline(job: Job): Promise<void> {
           job.files[0].path,
           transcript!,
           presenterTranscript,
-          targetDur
+          targetDur,
+          job.videoType
         );
 
         job.videoIntelligence = videoIntelligence;

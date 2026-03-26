@@ -39,6 +39,7 @@ router.post('/', upload.array('files', 20), async (req, res) => {
     const voiceoverStyle = req.body.voiceoverStyle || undefined;
     const targetLanguage = req.body.targetLanguage || undefined;
     const storyPageCount = req.body.storyPageCount ? parseInt(req.body.storyPageCount, 10) : undefined;
+    const videoType = req.body.videoType || undefined;
 
     // Map uploaded files to FileInfo
     const multerFiles = (req.files as Express.Multer.File[]) || [];
@@ -58,6 +59,7 @@ router.post('/', upload.array('files', 20), async (req, res) => {
     if (voiceoverStyle) updateJob(job.id, { voiceoverStyle });
     if (targetLanguage) updateJob(job.id, { targetLanguage });
     if (storyPageCount) updateJob(job.id, { storyPageCount });
+    if (videoType) updateJob(job.id, { videoType } as any);
 
     // Parse brand kit if provided
     if (req.body.brandKit) {

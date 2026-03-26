@@ -150,6 +150,8 @@ export default function PreviewPage() {
   const preview = currentJob?.status === 'preview' ? currentJob.previewData : null;
   const previewCost = useMemo(() => {
     if (!currentJob || !preview) return null;
+    // Use actual B-Roll count from blueprint as single source of truth
+    const blueprintBRollCount = preview.brollPrompts?.length || undefined;
     return calculateLiveCost({
       model: currentJob.videoModel || 'veo-3.1-fast',
       duration: preview.estimatedDuration || 60,
@@ -161,6 +163,7 @@ export default function PreviewPage() {
       aiDubbing: currentJob.preset === 'dubbing',
       voiceClone: false,
       hasFiles: currentJob.mode === 'upload' && (currentJob.files?.length ?? 0) > 0,
+      blueprintBRollCount,
     });
   }, [currentJob, preview]);
 

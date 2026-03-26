@@ -37,17 +37,25 @@ router.post('/:id/preview/approve', async (req, res) => {
   if (!job) return res.status(404).json({ error: 'Job not found' });
   if (!job.previewData) return res.status(400).json({ error: 'No preview to approve' });
 
-  // Update job status — start rendering with the approved plan
+  // Save approved suggestions if provided
+  const approvedSuggestions = req.body.approvedSuggestions || {};
+
+  // Update job status to 'processing' BEFORE starting pipeline
+  // so the frontend can navigate to ProcessingPage immediately
   updateJob(job.id, {
-    status: 'approved',
+    status: 'processing',
     approvedAt: new Date().toISOString(),
     plan: job.previewData.plan,
+    currentStep: 'transcribing',
+    progress: 0,
   } as any);
 
   // Get the updated job
   const updatedJob = getJob(job.id)!;
+  (updatedJob as any).approvedSuggestions = approvedSuggestions;
+  if (!updatedJob.completedPipelineSteps) (updatedJob as any).completedPipelineSteps = [];
 
-  // Start the real rendering pipeline in background
+  // Start the real rendering pipeline in background (don't await)
   runPipeline(updatedJob).catch((error: any) => {
     console.error('Pipeline failed:', error);
     updateJob(job.id, {
@@ -56,7 +64,8 @@ router.post('/:id/preview/approve', async (req, res) => {
     });
   });
 
-  res.json({ success: true, message: 'הסרטון מתחיל להיערך!' });
+  // Return immediately so frontend can navigate
+  res.json({ success: true, status: 'processing', message: 'הסרטון מתחיל להיערך!' });
 });
 
 // POST /api/jobs/:id/preview/change — user requests a change, regenerate preview

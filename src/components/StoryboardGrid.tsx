@@ -22,7 +22,13 @@ export default function StoryboardGrid({ scenes, jobId }: Props) {
           >
             {/* Frame thumbnail */}
             <div className="aspect-video bg-gray-800 relative">
-              {scene.framePath ? (
+              {scene.presenterQuality === 'use-with-broll-cover' ? (
+                /* B-Roll cover overlay for segments with poor presenter quality */
+                <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-purple-900/60 to-blue-900/60">
+                  <span className="text-2xl mb-1">🎬</span>
+                  <span className="text-[9px] text-purple-300 font-medium">B-Roll כיסוי</span>
+                </div>
+              ) : scene.framePath ? (
                 <img
                   src={`/api/jobs/${jobId}/preview/frame/${i}`}
                   alt={scene.title}
@@ -42,6 +48,12 @@ export default function StoryboardGrid({ scenes, jobId }: Props) {
               <div className="absolute bottom-1.5 left-1.5 bg-black/70 text-[10px] text-gray-300 px-1.5 py-0.5 rounded">
                 {scene.duration}s
               </div>
+              {/* B-Roll cover indicator */}
+              {scene.presenterQuality === 'use-with-broll-cover' && (
+                <div className="absolute top-1.5 left-1.5 bg-purple-600/80 text-[9px] text-white px-1.5 py-0.5 rounded">
+                  B-Roll
+                </div>
+              )}
             </div>
             {/* Scene info */}
             <div className="p-2.5">

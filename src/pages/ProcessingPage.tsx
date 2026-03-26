@@ -1,32 +1,113 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useJobStore from '../store/useJobStore';
-import ProgressTimeline from '../components/ProgressTimeline';
-import FeatureList from '../components/FeatureList';
+
+// Cinematic step display map — user-friendly descriptions (no technical details)
+const STEP_DISPLAY_MAP: Record<string, { icon: string; label: string; description: string }> = {
+  'transcribing': {
+    icon: '🎙️',
+    label: 'מקשיב לסרטון',
+    description: 'מבין את התוכן ומזהה כל מילה',
+  },
+  'analyzing': {
+    icon: '🧠',
+    label: 'מנתח את הסיפור',
+    description: 'מזהה רגעים מעניינים ובוחר את הקטעים הטובים ביותר',
+  },
+  'planning': {
+    icon: '🎬',
+    label: 'מתכנן את העריכה',
+    description: 'בונה תוכנית עריכה קולנועית',
+  },
+  'generating-broll': {
+    icon: '🎨',
+    label: 'יוצר קליפים מקוריים',
+    description: 'מייצר וידאו AI שמתאים בדיוק לתוכן',
+  },
+  'generating-music': {
+    icon: '🎵',
+    label: 'בוחר מוזיקה',
+    description: 'מתאים פסקול שמחזק את המסר',
+  },
+  'editing-cuts': {
+    icon: '✂️',
+    label: 'חותך ומעצב',
+    description: 'מסיר חלקים חלשים ושומר רק את הטוב ביותר',
+  },
+  'editing-effects': {
+    icon: '✨',
+    label: 'מוסיף אפקטים',
+    description: 'זומים, מעברים, ואפקטים ויזואליים',
+  },
+  'editing-broll': {
+    icon: '🎞️',
+    label: 'משלב קליפים',
+    description: 'מכניס B-Roll ברגעים המדויקים',
+  },
+  'editing-subtitles': {
+    icon: '📝',
+    label: 'מוסיף כתוביות',
+    description: 'כתוביות מעוצבות שמושכות תשומת לב',
+  },
+  'editing-music': {
+    icon: '🎵',
+    label: 'מערבב שמע',
+    description: 'מאזן מוזיקה, דיבור ואפקטי קול',
+  },
+  'editing-color': {
+    icon: '🎨',
+    label: 'מתאים צבעים',
+    description: 'צביעה קולנועית לאווירה מושלמת',
+  },
+  'quality-check': {
+    icon: '🔍',
+    label: 'בודק איכות',
+    description: 'וידוא שהכל מושלם לפני הסיום',
+  },
+  'finalizing': {
+    icon: '🏁',
+    label: 'מסיים',
+    description: 'ממלא את הנגיעות האחרונות',
+  },
+};
+
+// Map technical step names from the backend to our display keys
+function mapStepKey(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (lower.includes('תמלול') || lower.includes('transcrib')) return 'transcribing';
+  if (lower.includes('מנתח') || lower.includes('analyz') || lower.includes('ניתוח')) return 'analyzing';
+  if (lower.includes('מתכנן') || lower.includes('plan') || lower.includes('מכין')) return 'planning';
+  if (lower.includes('b-roll') || lower.includes('broll') || lower.includes('קליפ')) return 'generating-broll';
+  if (lower.includes('מוזיק') || lower.includes('music')) return 'generating-music';
+  if (lower.includes('חותך') || lower.includes('cut') || lower.includes('עריכה') || lower.includes('edit')) return 'editing-cuts';
+  if (lower.includes('אפקט') || lower.includes('effect') || lower.includes('zoom') || lower.includes('זום')) return 'editing-effects';
+  if (lower.includes('כתובי') || lower.includes('subtitle')) return 'editing-subtitles';
+  if (lower.includes('שמע') || lower.includes('audio') || lower.includes('mix')) return 'editing-music';
+  if (lower.includes('צבע') || lower.includes('color') || lower.includes('grad')) return 'editing-color';
+  if (lower.includes('בדיק') || lower.includes('qa') || lower.includes('quality') || lower.includes('check')) return 'quality-check';
+  if (lower.includes('ייצוא') || lower.includes('export') || lower.includes('מסיים') || lower.includes('final')) return 'finalizing';
+  return raw;
+}
 
 export default function ProcessingPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { currentJob, fetchJob, error } = useJobStore();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [completedSteps, setCompletedSteps] = useState<string[]>([]);
 
   useEffect(() => {
     if (!id) return;
-
-    // Initial fetch
     fetchJob(id);
-
-    // Poll every 2 seconds
     intervalRef.current = setInterval(() => {
       fetchJob(id);
     }, 2000);
-
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [id, fetchJob]);
 
-  // Redirect based on status
+  // Track completed steps and redirect based on status
   useEffect(() => {
     if (!currentJob) return;
 
@@ -37,20 +118,26 @@ export default function ProcessingPage() {
       return;
     }
 
+    // Track completed pipeline steps
+    const jobAny = currentJob as any;
+    if (jobAny.completedPipelineSteps) {
+      setCompletedSteps(jobAny.completedPipelineSteps);
+    }
+
     if (currentJob.status === 'done') {
       if (intervalRef.current) clearInterval(intervalRef.current);
       const timer = setTimeout(() => {
         navigate(`/jobs/${id}/result`);
-      }, 500);
+      }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [currentJob?.status, currentJob?.approvedAt, id, navigate]);
+  }, [currentJob?.status, currentJob?.approvedAt, currentJob?.progress, id, navigate]);
 
   if (!currentJob && !error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div dir="rtl" className="min-h-screen bg-[#0a0a1a] text-white flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin text-4xl mb-4">🔄</div>
+          <div className="text-5xl mb-4 animate-pulse">🎬</div>
           <p className="text-gray-400">טוען פרויקט...</p>
         </div>
       </div>
@@ -59,17 +146,16 @@ export default function ProcessingPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-4xl mb-4">❌</div>
-          <p className="text-red-400 mb-2">{error}</p>
-          <button
-            onClick={() => navigate('/')}
-            className="text-accent-purple-light text-sm hover:underline"
-          >
-            חזרה לדף הבית
-          </button>
-        </div>
+      <div dir="rtl" className="min-h-screen bg-[#0a0a1a] text-white flex items-center justify-center flex-col">
+        <div className="text-5xl mb-4">❌</div>
+        <h2 className="text-xl font-bold text-red-400 mb-2">שגיאה בעריכה</h2>
+        <p className="text-sm text-gray-500 mb-5">{error}</p>
+        <button
+          onClick={() => navigate('/')}
+          className="px-6 py-3 bg-accent-purple text-white rounded-lg hover:bg-accent-purple/80 transition-colors"
+        >
+          חזרה לדף הבית
+        </button>
       </div>
     );
   }
@@ -77,157 +163,101 @@ export default function ProcessingPage() {
   const job = currentJob!;
   const progress = job.progress || 0;
 
+  // Resolve current step to display info
+  const currentStepKey = job.currentStep ? mapStepKey(job.currentStep) : 'analyzing';
+  const currentStepInfo = STEP_DISPLAY_MAP[currentStepKey] || {
+    icon: '⏳',
+    label: job.currentStep || 'מעבד...',
+    description: '',
+  };
+
+  if (job.status === 'error') {
+    return (
+      <div dir="rtl" className="min-h-screen bg-[#0a0a1a] text-white flex items-center justify-center flex-col p-8">
+        <div className="text-5xl mb-4">❌</div>
+        <h2 className="text-xl font-bold text-red-400 mb-2">שגיאה בעריכה</h2>
+        <p className="text-sm text-gray-500 mb-5">{job.error || 'Pipeline failed'}</p>
+        <button
+          onClick={() => navigate('/')}
+          className="px-6 py-3 bg-accent-purple text-white rounded-lg hover:bg-accent-purple/80 transition-colors"
+        >
+          חזרה לדף הבית
+        </button>
+      </div>
+    );
+  }
+
+  if (job.status === 'done') {
+    return (
+      <div dir="rtl" className="min-h-screen bg-[#0a0a1a] text-white flex items-center justify-center flex-col">
+        <div className="text-6xl mb-4">✅</div>
+        <h2 className="text-2xl font-bold mb-2">הסרטון מוכן!</h2>
+        <p className="text-sm text-gray-400">מעביר לתוצאה...</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-dark-bg">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-dark-bg/80 backdrop-blur-lg border-b border-dark-border-light/30">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-lg font-bold">{job.projectName || 'עיבוד סרטון'}</h1>
-          <span className="text-xs text-gray-500">{job.id.slice(0, 8)}</span>
-        </div>
-      </header>
-
-      <div className="max-w-3xl mx-auto px-4 mt-8 space-y-8">
-        {/* Overall Progress */}
-        <div className="text-center">
-          {job.status === 'error' ? (
-            <>
-              <div className="text-5xl mb-3">❌</div>
-              <h2 className="text-xl font-bold text-red-400 mb-1">שגיאה בעיבוד</h2>
-              <p className="text-sm text-gray-400">{job.error || 'אירעה שגיאה לא צפויה'}</p>
-            </>
-          ) : job.status === 'done' ? (
-            <>
-              <div className="text-5xl mb-3">✅</div>
-              <h2 className="text-xl font-bold mb-1">הסרטון מוכן!</h2>
-              <p className="text-sm text-gray-400">מעביר לדף התוצאה...</p>
-            </>
-          ) : (
-            <>
-              <div className="text-5xl mb-3 animate-pulse">🧠</div>
-              <h2 className="text-xl font-bold mb-1">
-                {job.status === 'planning' ? 'המוח מתכנן...' : 'מעבד את הסרטון...'}
-              </h2>
-              <p className="text-sm text-gray-400 mb-4">
-                {job.currentStep || 'מתחיל...'}
-              </p>
-            </>
-          )}
-
-          {/* Progress Bar */}
-          <div className="relative mt-4">
-            <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-700 ease-out relative overflow-hidden"
-                style={{
-                  width: `${progress}%`,
-                  background: 'linear-gradient(90deg, #7c3aed, #6d28d9, #3b82f6, #7c3aed)',
-                  backgroundSize: '200% 100%',
-                  animation: 'gradient-shift 2s linear infinite',
-                }}
-              />
-            </div>
-            <p className="text-2xl font-bold mt-3 font-mono">{progress}%</p>
-          </div>
-        </div>
-
-        {/* Features selected */}
-        {job.plan && (
-          <FeatureList
-            enabledFeatures={job.plan.enabledFeatures}
-            costEstimate={(job as unknown as Record<string, unknown>).costEstimate as { total: number; breakdown: Record<string, number> } | undefined}
-          />
-        )}
-
-        {/* Virality Score */}
-        {job.result?.viralityScore && (
-          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-              <span className="text-lg">📊</span>
-              ציון ויראליות
-            </h3>
-            <div className="flex items-center gap-4 mb-3">
-              <div className={`text-3xl font-bold font-mono ${
-                job.result.viralityScore.overall >= 80 ? 'text-green-400' :
-                job.result.viralityScore.overall >= 60 ? 'text-yellow-400' : 'text-red-400'
-              }`}>
-                {job.result.viralityScore.overall}
-              </div>
-              <div className="flex-1">
-                <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${job.result.viralityScore.overall}%`,
-                      background: job.result.viralityScore.overall >= 80
-                        ? 'linear-gradient(90deg, #22c55e, #4ade80)'
-                        : job.result.viralityScore.overall >= 60
-                        ? 'linear-gradient(90deg, #eab308, #facc15)'
-                        : 'linear-gradient(90deg, #ef4444, #f87171)',
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-5 gap-2 mb-3">
-              {[
-                { label: 'הוק', value: job.result.viralityScore.hook },
-                { label: 'קצב', value: job.result.viralityScore.pacing },
-                { label: 'ויזואל', value: job.result.viralityScore.visual },
-                { label: 'אודיו', value: job.result.viralityScore.audio },
-                { label: 'CTA', value: job.result.viralityScore.cta },
-              ].map((item) => (
-                <div key={item.label} className="text-center">
-                  <div className="text-xs text-gray-500 mb-1">{item.label}</div>
-                  <div className="text-sm font-mono font-bold text-gray-300">{item.value}/10</div>
-                </div>
-              ))}
-            </div>
-            {(job.result.viralityScore.tips?.length ?? 0) > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs text-gray-500">טיפים לשיפור:</p>
-                {job.result.viralityScore.tips.map((tip, i) => (
-                  <p key={i} className="text-xs text-gray-400 pr-3">• {tip}</p>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Step Timeline */}
-        {(job.steps?.length ?? 0) > 0 && (
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">שלבי עיבוד</h3>
-            <ProgressTimeline steps={job.steps!} currentStep={job.currentStep} />
-          </div>
-        )}
-
-        {/* Processing Steps (when no steps array but currentStep exists) */}
-        {(!job.steps || job.steps.length === 0) && job.currentStep && job.status === 'processing' && (
-          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">שלבי עיבוד</h3>
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-accent-purple-light animate-pulse" />
-              <span className="text-sm text-gray-400">{job.currentStep}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Brain reasoning */}
-        {job.plan?.reasoning && (
-          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-            <h3 className="text-xs text-gray-500 mb-2">🧠 החלטת המוח</h3>
-            <p className="text-sm text-gray-400 leading-relaxed">{job.plan.reasoning}</p>
-          </div>
-        )}
+    <div dir="rtl" className="min-h-screen bg-[#0a0a1a] text-white flex flex-col items-center justify-center p-8">
+      {/* Main animated icon */}
+      <div className="text-6xl mb-6" style={{ animation: 'pulse 2s ease-in-out infinite' }}>
+        {currentStepInfo.icon}
       </div>
 
-      {/* Animated gradient keyframe */}
+      {/* Current step label */}
+      <h2 className="text-2xl md:text-3xl font-bold mb-2">{currentStepInfo.label}</h2>
+
+      {/* Description */}
+      <p className="text-base text-gray-500 mb-8">{currentStepInfo.description}</p>
+
+      {/* Progress bar */}
+      <div className="w-full max-w-md mb-10">
+        <div className="bg-white/10 rounded-full h-2 overflow-hidden">
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${progress}%`,
+              background: 'linear-gradient(90deg, #7c3aed, #a78bfa)',
+              transition: 'width 0.5s ease',
+            }}
+          />
+        </div>
+        <div className="text-center mt-2 text-sm text-gray-500 font-mono">{progress}%</div>
+      </div>
+
+      {/* Completed steps timeline */}
+      <div className="w-full max-w-lg space-y-1">
+        {completedSteps.map((stepKey, i) => {
+          const stepInfo = STEP_DISPLAY_MAP[stepKey] || { icon: '✅', label: stepKey, description: '' };
+          return (
+            <div
+              key={stepKey}
+              className="flex items-center gap-3 py-1.5 text-gray-500"
+              style={{ animation: `fadeIn 0.3s ease ${i * 0.1}s both` }}
+            >
+              <span className="text-sm">✅</span>
+              <span className="text-sm">{stepInfo.label}</span>
+            </div>
+          );
+        })}
+
+        {/* Current step — highlighted */}
+        <div className="flex items-center gap-3 py-1.5 font-bold">
+          <span className="text-sm" style={{ animation: 'spin 2s linear infinite' }}>⏳</span>
+          <span className="text-sm text-accent-purple-light">{currentStepInfo.label}...</span>
+        </div>
+      </div>
+
+      {/* Project name (subtle) */}
+      {job.projectName && (
+        <p className="mt-10 text-xs text-gray-700">{job.projectName}</p>
+      )}
+
+      {/* CSS animations */}
       <style>{`
-        @keyframes gradient-shift {
-          0% { background-position: 0% 50%; }
-          100% { background-position: 200% 50%; }
-        }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 0.5; transform: translateY(0); } }
       `}</style>
     </div>
   );

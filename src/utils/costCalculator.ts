@@ -44,6 +44,7 @@ export interface LiveCostSelections {
   aiDubbing: boolean;
   voiceClone: boolean;
   hasFiles: boolean;         // upload mode = transcription needed
+  blueprintBRollCount?: number; // actual B-Roll count from editing blueprint (single source of truth)
 }
 
 // === B-Roll clip count calculator ===
@@ -103,7 +104,7 @@ export function calculateLiveCost(s: LiveCostSelections): { items: CostItem[]; t
     const modelInfo = getModelById(s.model);
     const fallback = VIDEO_MODELS[0]; // veo-3.1-fast
     const model = modelInfo || fallback;
-    const clipCount = estimateBRollClips(dur);
+    const clipCount = s.blueprintBRollCount ?? estimateBRollClips(dur);
     const cost = clipCount * model.pricePerClip;
     add(
       `B-Roll (${model.name}) — ${clipCount} קליפים`,

@@ -4,6 +4,7 @@ import useJobStore from '../store/useJobStore';
 import type {
   EditStyle,
   VideoModel,
+  VideoType,
   PresetType,
   VoiceoverStyle,
   CaptionTemplate,
@@ -50,6 +51,7 @@ export default function EditorPage() {
   const [preset, setPreset] = useState<PresetType>('freeform');
   const [videoModel, setVideoModel] = useState<VideoModel>('veo-3.1-fast');
   const [editStyle, setEditStyle] = useState<EditStyle>('cinematic');
+  const [videoType, setVideoType] = useState<VideoType>('paid-ad');
   const [voiceoverStyle, setVoiceoverStyle] = useState<VoiceoverStyle>('narrator');
   const [captionTemplate, setCaptionTemplate] = useState<CaptionTemplate>('classic');
   const [targetLanguage, setTargetLanguage] = useState('en');
@@ -204,10 +206,29 @@ export default function EditorPage() {
     setOptionStates(newStates);
   }, [preset]);
 
+  // Auto-set videoType based on preset selection
+  const PRESET_TO_VIDEO_TYPE: Record<string, VideoType> = {
+    'tiktok': 'organic',
+    'instagram_ad': 'paid-ad',
+    'promo': 'paid-ad',
+    'product': 'product-demo',
+    'real_estate': 'real-estate-tour',
+    'testimonials': 'testimonial',
+    'freeform': 'paid-ad',
+    'multi_story': 'organic',
+    'from_document': 'explainer',
+    'dubbing': 'paid-ad',
+  };
+
   const handlePresetChange = useCallback((p: PresetType, text: string, autoConfig?: PresetAutoConfig) => {
     const prevOpts = { ...options };
     setPreset(p);
     if (text) setPrompt(text);
+
+    // Auto-set videoType from preset
+    if (PRESET_TO_VIDEO_TYPE[p]) {
+      setVideoType(PRESET_TO_VIDEO_TYPE[p]);
+    }
 
     // Apply auto-config from preset
     if (autoConfig) {
@@ -303,6 +324,7 @@ export default function EditorPage() {
     fd.append('preset', preset);
     fd.append('videoModel', videoModel);
     fd.append('editStyle', editStyle);
+    fd.append('videoType', videoType);
     fd.append('options', JSON.stringify(options));
     if (voiceoverStyle && isPrompt) fd.append('voiceoverStyle', voiceoverStyle);
     if (options.hebrewSubtitles) fd.append('captionTemplate', captionTemplate);
@@ -429,6 +451,35 @@ export default function EditorPage() {
 
         {/* Edit Style */}
         <EditStyleSelector selected={editStyle} onSelect={setEditStyle} />
+
+        {/* Video Type */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-gray-300">סוג סרטון:</label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {([
+              { value: 'paid-ad', label: 'פרסומת ממומנת', icon: '💰' },
+              { value: 'organic', label: 'תוכן אורגני', icon: '🌱' },
+              { value: 'explainer', label: 'הסבר/מדריך', icon: '📖' },
+              { value: 'testimonial', label: 'המלצה/עדות', icon: '⭐' },
+              { value: 'product-demo', label: 'דמו מוצר', icon: '📦' },
+              { value: 'real-estate-tour', label: 'סיור נדל"ן', icon: '🏠' },
+            ] as const).map(vt => (
+              <button
+                key={vt.value}
+                type="button"
+                onClick={() => setVideoType(vt.value)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs transition-colors ${
+                  videoType === vt.value
+                    ? 'border-accent-purple bg-accent-purple/10 text-white'
+                    : 'border-dark-border-light bg-dark-card text-gray-400 hover:border-gray-600'
+                }`}
+              >
+                <span>{vt.icon}</span>
+                <span>{vt.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Pro Options */}
         <ProOptions
