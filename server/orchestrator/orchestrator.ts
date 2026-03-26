@@ -907,6 +907,72 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // === LIP SYNC TRANSLATION (after main video is complete) ===
+    if (
+      job.plan.generate.aiDubbing &&
+      job.plan.generate.aiDubbingTargetLanguage &&
+      editResult?.finalVideoPath &&
+      fs.existsSync(editResult.finalVideoPath)
+    ) {
+      try {
+        updateJob(job.id, { currentStep: 'מתרגם סרטון עם סנכרון שפתיים...' });
+        const targetLang = job.plan.generate.aiDubbingTargetLanguage;
+        job.lipSyncPlan = {
+          needed: true,
+          useCase: 'translation-dubbing',
+          targetLanguages: [targetLang],
+          reason: `Translation requested to ${targetLang}`,
+        };
+        updateJob(job.id, { lipSyncPlan: job.lipSyncPlan } as any);
+        console.log(`[Pipeline] Lip sync translation plan: ${targetLang}`);
+      } catch (error: any) {
+        console.error('Lip sync plan failed:', error.message);
+        allWarnings.push('Lip sync plan failed: ' + error.message);
+      }
+    }
+
+    // === PLATFORM STRATEGY (generate platform-specific hooks/CTAs) ===
+    if (job.plan.export.formats.length > 1 && (analysisTranscript || transcript)) {
+      try {
+        updateJob(job.id, { currentStep: 'בונה אסטרטגיית פלטפורמות...' });
+        const { askClaude: askClaudeForStrategy } = await import('../services/claude.js');
+        const { PLATFORM_CONTENT_STRATEGY_PROMPT: strategyPrompt } = await import('../services/editingRules.js');
+
+        const platforms = job.plan.export.formats.map((f: string) =>
+          f === '9:16' ? 'tiktok,instagram-reels' : f === '1:1' ? 'linkedin' : 'youtube'
+        ).join(',').split(',');
+
+        const uniquePlatforms = [...new Set(platforms)];
+        const category = job.videoIntelligence?.concept?.category || 'talking-head';
+        const prompt = job.prompt;
+
+        const strategyResponse = await askClaudeForStrategy(
+          strategyPrompt,
+          `Generate platform-specific content strategy for this video:
+Category: ${category}
+Prompt: "${prompt}"
+Platforms: ${uniquePlatforms.join(', ')}
+
+For each platform, return a JSON object with: hookTone, hookExample (in Hebrew), ctaStyle, ctaText (in Hebrew), polishLevel, soundStrategy.
+
+Return ONLY valid JSON: { "tiktok": {...}, "instagram": {...}, ... }`
+        );
+
+        try {
+          const cleaned = strategyResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          const strategy = JSON.parse(cleaned);
+          job.platformStrategy = strategy;
+          updateJob(job.id, { platformStrategy: strategy } as any);
+          console.log(`[Pipeline] Platform strategy generated for ${Object.keys(strategy).length} platforms`);
+        } catch {
+          console.log('[Pipeline] Platform strategy parsing failed, skipping');
+        }
+      } catch (error: any) {
+        console.error('Platform strategy failed:', error.message);
+        allWarnings.push('Platform strategy failed: ' + error.message);
+      }
+    }
+
     // === POST-RENDER: QA + HOOKS + LOOP + A/B TESTING ===
     let finalVideoPath = editResult?.finalVideoPath || `output/${job.id}/final.mp4`;
 

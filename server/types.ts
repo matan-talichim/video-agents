@@ -84,6 +84,26 @@ export interface Job {
     duration: number;
     reason: string;
   }>;
+  lipSyncPlan?: {
+    needed: boolean;
+    useCase: string;
+    targetLanguages?: string[];
+    reason: string;
+  };
+  motionGraphicsPlan?: {
+    logoAnimation: { needed: boolean; method: string; style: string };
+    lowerThirds: { needed: boolean; method: string; style: string };
+    priceReveal?: { needed: boolean; method: string; style: string };
+    sectionTransitions?: { needed: boolean; method: string; style: string };
+  };
+  platformStrategy?: Record<string, {
+    hookTone: string;
+    hookExample: string;
+    ctaStyle: string;
+    ctaText: string;
+    polishLevel: string;
+    soundStrategy: string;
+  }>;
 }
 
 export interface FileInfo {

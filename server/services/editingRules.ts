@@ -726,6 +726,209 @@ Add to B-Roll generation:
 When calling KIE.ai or other video generation APIs, include the reference image if the API supports it (Kling Elements, Runway Character Lock, etc.).`;
 
 // ============================================================
+// CATEGORY 18: AI LIP SYNC INTELLIGENCE
+// ============================================================
+export const LIP_SYNC_PROMPT = `Use AI lip sync for dubbing, translation, and avatar-based content.
+
+AI LIP SYNC USE CASES:
+
+1. TRANSLATION DUBBING:
+   Take the original Hebrew video → translate audio to English/Arabic/Russian → AI lip syncs the speaker's mouth to the new language. Same face, same video, different language. Perfect for international marketing.
+
+   Workflow:
+   a. Extract audio from original video
+   b. Translate text (DeepL/Claude)
+   c. Generate new voice in target language (ElevenLabs with voice cloning)
+   d. Apply lip sync to original video with new audio (HeyGen API)
+
+2. VOICE REPLACEMENT:
+   Replace a bad audio recording with a professional AI voice while keeping the original video. The AI adjusts lip movements to match the new audio.
+
+   Workflow:
+   a. Extract transcript from original
+   b. Clean/improve the script text
+   c. Generate professional voiceover (ElevenLabs)
+   d. Apply lip sync to match new audio to original video
+
+3. AI AVATAR FROM PHOTO:
+   Generate a talking-head video from a single photo + audio. No filming needed. Perfect for the "Prompt-Only" mode.
+
+   Workflow:
+   a. User uploads a photo of the spokesperson
+   b. Generate script with Claude
+   c. Generate voice with ElevenLabs
+   d. Create talking video from photo + voice (HeyGen/Hedra API)
+
+4. PRESENTER CLONE:
+   After filming one video, clone the presenter's voice and face. Future videos can be generated without re-filming.
+
+   Workflow:
+   a. Extract 30-second voice sample → clone voice (ElevenLabs)
+   b. Extract clear face reference → store for future lip sync
+   c. Future videos: new script → cloned voice → lip sync on reference
+
+For each video, determine if lip sync would add value:
+{
+  "lipSyncPlan": {
+    "needed": false,
+    "useCase": "none",
+    "reason": "original audio and video are good quality, no translation needed"
+  }
+}
+
+OR for translation:
+{
+  "lipSyncPlan": {
+    "needed": true,
+    "useCase": "translation-dubbing",
+    "targetLanguages": ["en", "ar", "ru"],
+    "reason": "real estate ad targeting international buyers — need English and Arabic versions",
+    "estimatedCost": "$0.30 per language (ElevenLabs + HeyGen)"
+  }
+}`;
+
+// ============================================================
+// CATEGORY 19: AI MOTION GRAPHICS (NO AFTER EFFECTS)
+// ============================================================
+export const AI_MOTION_GRAPHICS_PROMPT = `Generate motion graphics with AI instead of complex After Effects work.
+
+AI MOTION GRAPHICS USE CASES:
+
+1. ANIMATED LOGO INTRO (2-3 seconds):
+   Instead of a static logo, generate an animated version:
+   Prompt: "3D logo animation, [brand name] text appearing with particles, dark background, luxury gold accent, smooth camera orbit, 2 seconds"
+   Use: Video intro/outro
+   Tool: Luma AI or Kling with logo image as reference
+
+2. ANIMATED LOWER THIRDS:
+   Instead of static name bars, generate animated ones:
+   Prompt: "Modern lower third animation, name plate sliding in from left, clean white with [brand color] accent, professional business style"
+   Use: Speaker identification, titles
+   Note: Can be done with Remotion instead of AI generation (cheaper + more consistent)
+
+3. ANIMATED TEXT REVEALS:
+   Key statistics or quotes appearing with cinematic animation:
+   Prompt: "Kinetic typography, number '₪1,890,000' scaling up with golden particles, dark background, luxury feel, 3 seconds"
+   Use: Price reveals, statistics, key quotes
+
+4. TRANSITION GRAPHICS:
+   Custom branded transitions between sections:
+   Prompt: "Smooth geometric transition wipe, [brand colors], modern clean design, 1 second"
+   Use: Section changes, topic transitions
+
+5. ANIMATED ICONS/INFOGRAPHICS:
+   Data visualization or feature icons with motion:
+   Prompt: "Animated icon of [concept], flat design, [brand color], bouncing entrance animation, white background, 2 seconds"
+   Use: Feature lists, benefit highlights
+
+COST-BENEFIT DECISION:
+- Simple text animations → use Remotion (free, consistent, fast)
+- Logo animations → use AI generation (more creative, premium feel)
+- Lower thirds → use Remotion (need to be consistent across videos)
+- Kinetic text → use Remotion with templates (cheaper at scale)
+- Transitions → AI generation for premium, Remotion for standard
+- Infographics → Remotion (need data accuracy, AI might hallucinate)
+
+For each video, decide which motion graphics are needed:
+{
+  "motionGraphicsPlan": {
+    "logoAnimation": { "needed": true, "method": "remotion", "style": "slide-in-with-bounce" },
+    "lowerThirds": { "needed": true, "method": "remotion", "style": "modern-minimal" },
+    "priceReveal": { "needed": true, "method": "remotion", "style": "scale-up-golden" },
+    "sectionTransitions": { "needed": true, "method": "remotion", "style": "geometric-wipe" },
+    "animatedIcons": { "needed": false }
+  }
+}`;
+
+// ============================================================
+// CATEGORY 20: PLATFORM-SPECIFIC CONTENT STRATEGY
+// ============================================================
+export const PLATFORM_CONTENT_STRATEGY_PROMPT = `Apply platform-specific content psychology (not just format/size).
+
+Based on Rourke Heath's insights and social media research:
+
+TIKTOK PSYCHOLOGY:
+- "TikTok is inherently an angry platform" — confrontational hooks work best
+- Hook style: challenge, controversy, "they don't want you to know"
+- Tone: raw, unfiltered, authentic, fast
+- Don't polish too much — over-produced feels fake on TikTok
+- Trending sounds MANDATORY — algorithm heavily favors them
+- Engagement bait in the CTA: "comment if you agree" / "tag someone who needs this"
+- Loop is CRITICAL — design the ending to seamlessly restart
+- Hashtags: 3-5 niche hashtags, not generic ones
+- Best duration: 15-21 seconds for maximum completion rate
+
+INSTAGRAM REELS PSYCHOLOGY:
+- "Instagram feels more welcoming" — inspirational/aspirational hooks work best
+- Hook style: visual beauty, surprising reveal, relatable moment
+- Tone: polished but authentic, warm, inviting
+- Brand consistency matters more here — aesthetic feeds win
+- Music: either trending OR premium/cinematic (both work differently)
+- CTA: "save for later" / "share with a friend who needs this" (save = algorithm gold)
+- Captions are more important than TikTok (professional audience watches muted)
+- Best duration: 15-30 seconds for Reels, 7-15 for Stories
+
+YOUTUBE SHORTS PSYCHOLOGY:
+- "YouTube is where people come to learn" — educational hooks work best
+- Hook style: "How to...", "The secret to...", teach something in the hook itself
+- Tone: authoritative, educational, valuable
+- More patience for longer content (up to 60 seconds still works)
+- Thumbnails matter even for Shorts (they appear in feeds)
+- CTA: "subscribe for more tips" / "watch the full tutorial" (link to long-form)
+- Completion rate is THE metric — 90-100% completion = algorithm boost
+- Best duration: 30-45 seconds for learning content
+
+LINKEDIN VIDEO:
+- Professional, thought-leadership tone
+- No trending sounds, no flashy effects
+- Captions MANDATORY (everyone watches at work, muted)
+- Hook: data, insight, professional opinion
+- CTA: "thoughts?" / "share your experience" / "link in comments"
+- Tone: authoritative but approachable
+- Best duration: 30-60 seconds
+
+For each video export, adjust:
+{
+  "platformStrategy": {
+    "tiktok": {
+      "hookTone": "confrontational",
+      "hookExample": "יזמי הנדל״ן לא רוצים שתראו את זה",
+      "ctaStyle": "engagement-bait",
+      "ctaText": "תגיעו מי שצריך לראות את זה 👇",
+      "polishLevel": "raw-authentic",
+      "soundStrategy": "trending-sound",
+      "hashtagStrategy": "3-5 niche"
+    },
+    "instagram": {
+      "hookTone": "aspirational",
+      "hookExample": "הדירה שתשנה לכם את החיים ✨",
+      "ctaStyle": "save-share",
+      "ctaText": "שמרו לאחר כך 🔖",
+      "polishLevel": "polished-warm",
+      "soundStrategy": "cinematic-or-trending",
+      "hashtagStrategy": "mix niche + broad"
+    },
+    "youtube": {
+      "hookTone": "educational",
+      "hookExample": "3 דברים שאתם חייבים לבדוק לפני שקונים דירה",
+      "ctaStyle": "subscribe",
+      "ctaText": "הירשמו לעוד טיפים 🔔",
+      "polishLevel": "professional",
+      "soundStrategy": "original-background",
+      "hashtagStrategy": "SEO-focused"
+    }
+  }
+}
+
+This means the SAME video gets DIFFERENT:
+- Hook text (confrontational vs aspirational vs educational)
+- CTA text and style
+- Polish level
+- Sound/music choice
+- Hashtag strategy
+All from the same base footage — only the wrapper changes per platform.`;
+
+// ============================================================
 // MASTER EDITING PROMPT (all rules combined)
 // ============================================================
 export const MASTER_EDITING_PROMPT = [
@@ -741,7 +944,10 @@ export const MASTER_EDITING_PROMPT = [
   CINEMATIC_PROMPTING_PROMPT, // Cinematic B-Roll prompting
   AI_TRANSITIONS_PROMPT,   // AI-powered transitions
   STYLE_TRANSFER_PROMPT,   // Visual style transfer
-  CHARACTER_CONSISTENCY_PROMPT // Character consistency
+  CHARACTER_CONSISTENCY_PROMPT, // Character consistency
+  LIP_SYNC_PROMPT,         // AI lip sync intelligence
+  AI_MOTION_GRAPHICS_PROMPT, // AI motion graphics
+  PLATFORM_CONTENT_STRATEGY_PROMPT // Platform content strategy
 ].join('\n\n');
 
 // ============================================================

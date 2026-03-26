@@ -88,6 +88,53 @@ Return ONLY the JSON array, no other text.`
     }
   }
 
+  // --- MOTION GRAPHICS PLAN ---
+  if (plan.edit.lowerThirds || plan.edit.kineticTypography || plan.edit.logoWatermark) {
+    try {
+      updateProgress(job, 'תכנון גרפיקה מונפשת...');
+      const category = job.videoIntelligence?.concept?.category || 'talking-head';
+      const brandColor = job.brandKit?.primaryColor || '#7c3aed';
+
+      const mgResponse = await askClaude(
+        'You plan motion graphics for video editing. Return ONLY valid JSON.',
+        `Plan motion graphics for a ${category} video.
+Brand color: ${brandColor}
+Has lower thirds: ${plan.edit.lowerThirds}
+Has kinetic text: ${plan.edit.kineticTypography}
+Has logo: ${plan.edit.logoWatermark}
+
+Decide which elements use Remotion (free, consistent) vs AI generation (premium, creative).
+Rules:
+- Simple text animations → Remotion
+- Logo animations → AI generation for premium feel, Remotion for standard
+- Lower thirds → always Remotion (consistency)
+- Kinetic text → Remotion with templates
+- Transitions → AI for premium, Remotion for standard
+
+Return JSON:
+{
+  "logoAnimation": { "needed": ${!!plan.edit.logoWatermark}, "method": "remotion|ai", "style": "..." },
+  "lowerThirds": { "needed": ${!!plan.edit.lowerThirds}, "method": "remotion", "style": "..." },
+  "priceReveal": { "needed": false, "method": "remotion", "style": "..." },
+  "sectionTransitions": { "needed": true, "method": "remotion", "style": "..." }
+}`
+      );
+
+      try {
+        const cleaned = mgResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        job.motionGraphicsPlan = JSON.parse(cleaned);
+        updateJob(job.id, { motionGraphicsPlan: job.motionGraphicsPlan } as any);
+        saveJSON(`${genDir}/motion_graphics_plan.json`, job.motionGraphicsPlan);
+        console.log(`[Generate] Motion graphics plan created`);
+      } catch {
+        console.log('[Generate] Motion graphics plan parsing failed, using defaults');
+      }
+    } catch (error: any) {
+      console.error('[Generate] Motion graphics planning failed:', error.message);
+      warnings.push(`Motion graphics planning failed: ${error.message}`);
+    }
+  }
+
   // --- B-ROLL FROM TRANSCRIPT ---
   if (plan.generate.brollFromTranscript && transcript) {
     updateProgress(job, 'תכנון B-Roll מתמלול...');
