@@ -8,4 +8,5 @@ temp/*
 !temp/.gitkeep
 .env
 *.log
+data/*.json
 tsconfig.tsbuildinfo

@@ -48,6 +48,7 @@ import { filterBRollQuality } from '../services/brollQualityFilter.js';
 import { planAutoReframe, applyAutoReframe } from '../services/autoReframe.js';
 import { rememberProject, getBrainContext } from '../services/editorBrain.js';
 import { getMasterPromptContext } from '../services/masterPromptOptimizer.js';
+import { assembleMasterBrainPrompt, countBrainRules } from '../services/masterBrain.js';
 import { planAmbientSound } from '../services/ambientSound.js';
 import { generateThumbnails } from '../services/thumbnailGenerator.js';
 import fs from 'fs';
@@ -790,10 +791,19 @@ export async function runPipeline(job: Job): Promise<void> {
           ? undefined
           : job.plan.export.targetDuration as number;
 
+        const platformGuessForAnalysis = job.plan.export?.formats?.includes('9:16') ? 'tiktok' : 'youtube';
         const contentAnalysis = await analyzeContent(
           job.files[0].path,
           analysisTranscript,
-          targetDur
+          targetDur,
+          {
+            videoCategory: job.videoIntelligence?.concept?.category || 'talking-head',
+            platform: platformGuessForAnalysis,
+            paceMode: job.paceMode || 'normal',
+            durationCategory: job.durationCategory || 'normal',
+            hasSpeech: job.footageDiagnosis?.hasSpeech !== false,
+            speakerCount: job.footageDiagnosis?.speakerCount || 1,
+          }
         );
 
         job.contentAnalysis = contentAnalysis;
@@ -1446,7 +1456,6 @@ export async function runPipeline(job: Job): Promise<void> {
       try {
         updateJob(job.id, { currentStep: 'בונה אסטרטגיית פלטפורמות...' });
         const { askClaude: askClaudeForStrategy } = await import('../services/claude.js');
-        const { PLATFORM_CONTENT_STRATEGY_PROMPT: strategyPrompt } = await import('../services/editingRules.js');
 
         const platforms = job.plan.export.formats.map((f: string) =>
           f === '9:16' ? 'tiktok,instagram-reels' : f === '1:1' ? 'linkedin' : 'youtube'
@@ -1455,9 +1464,19 @@ export async function runPipeline(job: Job): Promise<void> {
         const uniquePlatforms = [...new Set(platforms)];
         const category = job.videoIntelligence?.concept?.category || 'talking-head';
         const prompt = job.prompt;
+        const platformGuess = uniquePlatforms[0] || 'youtube';
+
+        const strategySystemPrompt = assembleMasterBrainPrompt(
+          category,
+          platformGuess,
+          job.paceMode || 'normal',
+          job.durationCategory || 'normal',
+          job.footageDiagnosis?.hasSpeech !== false,
+          job.footageDiagnosis?.speakerCount || 1
+        );
 
         const strategyResponse = await askClaudeForStrategy(
-          strategyPrompt,
+          strategySystemPrompt,
           `Generate platform-specific content strategy for this video:
 Category: ${category}
 Prompt: "${prompt}"
@@ -1494,8 +1513,18 @@ Return ONLY valid JSON: { "tiktok": {...}, "instagram": {...}, ... }`
         updateJob(job.id, { currentStep: 'מתכנן לוקליזציה...' });
         const { askClaude: askClaudeForLocale } = await import('../services/claude.js');
 
+        const localeCategory = job.videoIntelligence?.concept?.category || 'general';
+        const localeSystemPrompt = assembleMasterBrainPrompt(
+          localeCategory,
+          'multi-platform',
+          job.paceMode || 'normal',
+          job.durationCategory || 'normal',
+          job.footageDiagnosis?.hasSpeech !== false,
+          job.footageDiagnosis?.speakerCount || 1
+        );
+
         const localeResponse = await askClaudeForLocale(
-          'You plan ad localization for international markets. Return ONLY valid JSON.',
+          localeSystemPrompt + '\n\nYou plan ad localization for international markets. Return ONLY valid JSON.',
           `Plan localization for this video:
 Prompt: "${job.prompt}"
 Category: ${job.videoIntelligence?.concept?.category || 'general'}

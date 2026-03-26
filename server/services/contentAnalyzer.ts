@@ -1,9 +1,18 @@
 import fs from 'fs';
 import { askClaude, askClaudeVision } from './claude.js';
 import { runFFmpeg, extractFrame, getVideoDuration } from './ffmpeg.js';
-import { MASTER_EDITING_PROMPT } from './editingRules.js';
 import type { EditingBlueprint } from './editingRules.js';
+import { assembleMasterBrainPrompt } from './masterBrain.js';
 import type { TranscriptResult } from '../types.js';
+
+export interface AnalysisContext {
+  videoCategory?: string;
+  platform?: string;
+  paceMode?: string;
+  durationCategory?: string;
+  hasSpeech?: boolean;
+  speakerCount?: number;
+}
 
 export interface ContentAnalysis {
   // Who is speaking
@@ -204,7 +213,8 @@ export interface ContentAnalysis {
 export async function analyzeContent(
   videoPath: string,
   transcript: TranscriptResult,
-  targetDuration?: number
+  targetDuration?: number,
+  context?: AnalysisContext
 ): Promise<ContentAnalysis> {
   // Step 1: Extract key frames for visual analysis
   const duration = await getVideoDuration(videoPath);
@@ -279,11 +289,23 @@ export async function analyzeContent(
     }
   }
 
-  // Step 3: Deep content analysis with Claude
+  // Step 3: Deep content analysis with Claude — using MASTER BRAIN PROMPT
   try {
-    const contentResponse = await askClaude(
-      `You are a professional video editor analyzing a transcript to create the best possible edit.
-Your job is to:
+    // Assemble the full master brain prompt with ALL editing rules + learning context
+    const durationSeconds = await getVideoDuration(videoPath);
+    const durationCat = durationSeconds < 15 ? 'too-short' : durationSeconds > 300 ? 'very-long' : 'normal';
+    const masterSystemPrompt = assembleMasterBrainPrompt(
+      context?.videoCategory || 'talking-head',
+      context?.platform || 'youtube',
+      context?.paceMode || 'normal',
+      context?.durationCategory || durationCat,
+      context?.hasSpeech !== false,
+      context?.speakerCount || 1
+    );
+
+    const systemPrompt = masterSystemPrompt + `
+
+Additionally, you must also analyze the content structure:
 1. Identify who is the main presenter and when they speak
 2. Find the BEST moments worth keeping
 3. Find segments to CUT (off-topic, repetitive, low-energy, filler)
@@ -297,7 +319,10 @@ Your job is to:
 Be ruthless — a great 45-second video is better than a mediocre 90-second one.
 Cut aggressively: remove all dead air, tangents, repetitions, weak points.
 Keep only the gold — the moments that make viewers stop scrolling.
-Return ONLY valid JSON, no markdown code blocks.`,
+Return ONLY valid JSON, no markdown code blocks.`;
+
+    const contentResponse = await askClaude(
+      systemPrompt,
 
       `Here is the full transcript of a ${Math.round(duration)}-second video:
 
@@ -501,9 +526,7 @@ IMPORTANT:
 - For hard cuts, add "fakeZoom": true to simulate a camera angle change
 - For crossfades, include "duration" (0.5-1.0s)
 
-${MASTER_EDITING_PROMPT}
-
-Based on your content analysis, create a complete "editingBlueprint" following ALL the rules above.
+Based on ALL the editing rules in your system prompt, create a complete "editingBlueprint".
 The blueprint should contain: cuts, zooms, brollInsertions, musicSync, soundDesign, colorPlan, platformOptimization, speedRamps, patternInterrupts, emotionalArc.
 Include a murchAverageScore (average of all cut murch scores).
 Also include "musicSync", "soundDesign", "zooms", "colorPlan", and "platformOptimization" as top-level fields in the response.`

@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "remotion:preview": "npx remotion preview src/remotion/index.ts",
     "remotion:render": "npx remotion render src/remotion/index.ts MainComposition output/preview.mp4",
-    "remotion:render-vertical": "npx remotion render src/remotion/index.ts VerticalComposition output/preview_vertical.mp4"
+    "remotion:render-vertical": "npx remotion render src/remotion/index.ts VerticalComposition output/preview_vertical.mp4",
+    "diagnostic": "tsx server/tests/runDiagnostic.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

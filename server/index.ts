@@ -13,6 +13,9 @@ import visualDNARouter from './routes/visualDNA.js';
 import previewRouter from './routes/preview.js';
 import { startCleanupSchedule } from './services/cleanup.js';
 import { checkEnvironment } from './checkEnv.js';
+import { countBrainRules } from './services/masterBrain.js';
+import { getMasterPromptContext } from './services/masterPromptOptimizer.js';
+import { loadMemory } from './services/editorBrain.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -72,6 +75,40 @@ app.get('/api/system-test', async (_req, res) => {
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Full diagnostic endpoint — tests Brain, Claude API, FFmpeg, and all services
+app.get('/api/diagnostic', async (_req, res) => {
+  try {
+    const { runFullDiagnostic } = await import('./tests/fullDiagnostic.js');
+    const result = await runFullDiagnostic();
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Brain status endpoint — verify all editing rules reach Claude
+app.get('/api/brain-status', (_req, res) => {
+  const brainRules = countBrainRules();
+  const masterContext = getMasterPromptContext();
+  let memories: any[] = [];
+  try {
+    memories = loadMemory();
+  } catch {
+    // No memory file yet — that's fine
+  }
+
+  res.json({
+    ruleCategories: brainRules.categories,
+    totalRules: brainRules.totalPrompts,
+    totalKnowledgeChars: brainRules.totalCharacters,
+    estimatedTokens: Math.round(brainRules.totalCharacters / 4),
+    hasLearningData: !!masterContext,
+    projectMemories: memories.length,
+    missingRules: brainRules.missing,
+    status: brainRules.totalPrompts >= 10 ? 'healthy' : 'incomplete',
+  });
 });
 
 // 404 handler
@@ -137,6 +174,19 @@ app.listen(PORT, () => {
 
   // Run health check
   healthCheck();
+
+  // Verify Brain knowledge base at startup
+  try {
+    const brainCheck = countBrainRules();
+    if (brainCheck.totalPrompts < 10) {
+      console.warn(`⚠️ Brain only has ${brainCheck.totalPrompts} rule sets — expected 15+. Some prompts may be undefined.`);
+    }
+    if (brainCheck.missing.length > 0) {
+      console.warn(`⚠️ Missing brain rules: ${brainCheck.missing.join(', ')}`);
+    }
+  } catch (error: any) {
+    console.warn('Brain knowledge check failed (non-critical):', error.message);
+  }
 
   // Start hourly cleanup of old jobs and temp files
   startCleanupSchedule();
