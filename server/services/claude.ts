@@ -1,6 +1,29 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  defaultHeaders: {
+    'anthropic-beta': 'extended-cache-ttl-2025-04-11',
+  },
+});
+
+// Estimate cost accounting for prompt caching discounts
+function estimateCost(usage: any): number {
+  const inputPrice = 3.0 / 1_000_000;       // $3/M input tokens (Sonnet)
+  const outputPrice = 15.0 / 1_000_000;     // $15/M output tokens (Sonnet)
+  const cacheWritePrice = 6.0 / 1_000_000;  // $6/M for cache writes (extended TTL)
+  const cacheReadPrice = 0.30 / 1_000_000;  // $0.30/M for cache reads (90% off)
+
+  const cacheReadTokens = usage.cache_read_input_tokens || 0;
+  const cacheWriteTokens = usage.cache_creation_input_tokens || 0;
+  const regularInputTokens = (usage.input_tokens || 0) - cacheReadTokens;
+  const outputTokens = usage.output_tokens || 0;
+
+  return (regularInputTokens * inputPrice) +
+         (cacheWriteTokens * cacheWritePrice) +
+         (cacheReadTokens * cacheReadPrice) +
+         (outputTokens * outputPrice);
+}
 
 // Strip markdown code fences (```json ... ```) that Claude often wraps around JSON responses.
 // This prevents JSON.parse failures across the entire codebase.
@@ -26,20 +49,27 @@ export async function askClaude(systemPrompt: string, userMessage: string): Prom
       const response = await client.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 8192,
-        system: systemPrompt,
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: userMessage }],
       });
 
       const duration = Date.now() - startTime;
-      const inputTokens = response.usage?.input_tokens || 0;
-      const outputTokens = response.usage?.output_tokens || 0;
-      const estimatedCost = (inputTokens * 0.003 + outputTokens * 0.015) / 1000;
+      const usage = response.usage as any;
+      const inputTokens = usage?.input_tokens || 0;
+      const outputTokens = usage?.output_tokens || 0;
+      const cost = estimateCost(usage);
 
       console.log(
         `[Claude API] Response received — ${duration}ms — ` +
         `tokens: ${inputTokens} in / ${outputTokens} out — ` +
-        `estimated cost: $${estimatedCost.toFixed(4)}`
+        `estimated cost: $${cost.toFixed(4)}`
       );
+      if (usage?.cache_creation_input_tokens) {
+        console.log(`[Claude API] Cache WRITE: ${usage.cache_creation_input_tokens} tokens cached`);
+      }
+      if (usage?.cache_read_input_tokens) {
+        console.log(`[Claude API] Cache HIT: ${usage.cache_read_input_tokens} tokens from cache (90% discount)`);
+      }
 
       const text = response.content[0].type === 'text' ? response.content[0].text : '';
       return extractJSON(text);
@@ -72,20 +102,27 @@ export async function askClaudeVision(systemPrompt: string, content: any[]): Pro
       const response = await client.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 8192,
-        system: systemPrompt,
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content }],
       });
 
       const duration = Date.now() - startTime;
-      const inputTokens = response.usage?.input_tokens || 0;
-      const outputTokens = response.usage?.output_tokens || 0;
-      const estimatedCost = (inputTokens * 0.003 + outputTokens * 0.015) / 1000;
+      const usage = response.usage as any;
+      const inputTokens = usage?.input_tokens || 0;
+      const outputTokens = usage?.output_tokens || 0;
+      const cost = estimateCost(usage);
 
       console.log(
         `[Claude Vision] Response received — ${duration}ms — ` +
         `tokens: ${inputTokens} in / ${outputTokens} out — ` +
-        `estimated cost: $${estimatedCost.toFixed(4)}`
+        `estimated cost: $${cost.toFixed(4)}`
       );
+      if (usage?.cache_creation_input_tokens) {
+        console.log(`[Claude Vision] Cache WRITE: ${usage.cache_creation_input_tokens} tokens cached`);
+      }
+      if (usage?.cache_read_input_tokens) {
+        console.log(`[Claude Vision] Cache HIT: ${usage.cache_read_input_tokens} tokens from cache (90% discount)`);
+      }
 
       const text = response.content[0].type === 'text' ? response.content[0].text : '';
       return extractJSON(text);
