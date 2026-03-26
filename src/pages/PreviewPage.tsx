@@ -231,6 +231,9 @@ export default function PreviewPage() {
   const videoIntelligence = (job as any).videoIntelligence;
   const brainNotes: string[] = (job as any).brainNotes || [];
   const speakerVerification = (job as any).speakerVerification;
+  const stabilized = (job as any).stabilized;
+  const originalShakiness = (job as any).originalShakiness;
+  const freshEyesReview = (job as any).freshEyesReview;
 
   // Compute cost breakdown from job selections
   const previewCost = useMemo(() => {
@@ -382,6 +385,62 @@ export default function PreviewPage() {
                 <span>🎙️ קריינות: <strong>{preview.voiceoverStyle}</strong></span>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Video Stabilization Result */}
+        {stabilized && (
+          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
+            <h3 className="text-sm font-semibold text-gray-300 mb-2 flex items-center gap-2">
+              <span className="text-lg">📹</span>
+              ייצוב וידאו
+            </h3>
+            <p className="text-xs text-green-400">
+              הצילום היה רועד (רמה {originalShakiness?.toFixed(1) || '?'}) — יוצב אוטומטית ✅
+            </p>
+          </div>
+        )}
+
+        {/* Fresh Eyes Review */}
+        {freshEyesReview && (
+          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
+            <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+              <span className="text-lg">👀</span>
+              סקירת &quot;עיניים רעננות&quot;
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full mr-auto ${
+                freshEyesReview.overallConfidence >= 8
+                  ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                  : freshEyesReview.overallConfidence >= 5
+                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
+              }`}>
+                ביטחון: {freshEyesReview.overallConfidence}/10 {freshEyesReview.wouldApprove ? '✅' : '⚠️'}
+              </span>
+            </h3>
+            {freshEyesReview.improvements.length > 0 ? (
+              <div className="space-y-2">
+                {freshEyesReview.improvements.map((imp: any, i: number) => (
+                  <div key={i} className={`text-xs p-2 rounded-lg border ${
+                    imp.priority === 'critical'
+                      ? 'bg-red-500/5 border-red-500/20 text-red-300'
+                      : imp.priority === 'important'
+                        ? 'bg-amber-500/5 border-amber-500/20 text-amber-300'
+                        : 'bg-green-500/5 border-green-500/20 text-green-300'
+                  }`}>
+                    <span className="font-medium">
+                      {imp.priority === 'critical' ? '🔴' : imp.priority === 'important' ? '🟡' : '🟢'}
+                      {' '}{imp.area}:
+                    </span>
+                    {' '}{imp.issue}
+                    {imp.autoFixable && imp.priority === 'critical' && (
+                      <span className="text-green-400 mr-1"> — תוקן אוטומטית ✅</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-green-400">לא נמצאו בעיות — התוכנית נראית מצוינת!</p>
+            )}
           </div>
         )}
 
