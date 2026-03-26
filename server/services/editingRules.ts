@@ -603,6 +603,129 @@ Return each B-Roll prompt as:
 }`;
 
 // ============================================================
+// CATEGORY 15: AI TRANSITIONS (FIRST & LAST FRAME)
+// ============================================================
+export const AI_TRANSITIONS_PROMPT = `Use AI-powered transitions between clips for cinematic flow.
+
+FIRST & LAST FRAME TECHNIQUE (Kling 2.5+):
+Instead of hard cuts or crossfades between B-Roll clips, generate a smooth AI transition:
+1. Take the LAST frame of clip A
+2. Take the FIRST frame of clip B
+3. Send both to AI video generation: "Smooth cinematic transition from scene A to scene B"
+4. The AI generates a 2-3 second seamless morph between the two scenes
+
+WHEN TO USE AI TRANSITIONS:
+- Between two B-Roll clips that show different locations → AI creates smooth spatial transition
+- Between speaker and B-Roll → AI creates elegant reveal
+- Between "before" and "after" shots → AI creates transformation effect
+- Between different rooms in a property tour → AI creates walking-through feel
+
+WHEN NOT TO USE (stick to hard cuts or L-cuts):
+- Between consecutive speaker segments → too flashy, use fake zoom instead
+- More than 2 AI transitions per 30 seconds → overuse looks gimmicky
+- When pacing is fast (energy 8-10) → hard cuts are better for speed
+
+For each transition that would benefit from AI generation:
+{
+  "aiTransitions": [
+    {
+      "fromClipEnd": 15.0,
+      "toClipStart": 15.5,
+      "type": "spatial-morph",
+      "prompt": "Smooth cinematic transition from beach sunset scene to modern apartment interior, camera pushing forward through golden light into clean white space",
+      "duration": 2.0,
+      "reason": "location change — beach to apartment needs smooth bridge"
+    }
+  ]
+}
+
+MAX: 2-3 AI transitions per 60-second video. Each one should feel special.`;
+
+// ============================================================
+// CATEGORY 16: STYLE TRANSFER FOR BRAND CONSISTENCY
+// ============================================================
+export const STYLE_TRANSFER_PROMPT = `Apply visual style transfer to make all B-Roll match the brand aesthetic.
+
+THE PROBLEM:
+AI-generated B-Roll clips look different from each other — different color temperatures, contrast levels, and visual styles. This makes the final video look inconsistent.
+
+THE SOLUTION — STYLE TRANSFER:
+Define a "visual DNA" for the brand/video, then apply it to all AI-generated clips.
+
+VISUAL DNA DEFINITION:
+{
+  "visualDNA": {
+    "colorPalette": "warm-luxury",
+    "contrast": "medium-high",
+    "saturation": "slightly-boosted",
+    "filmGrain": "subtle",
+    "lightingStyle": "golden-hour-warm",
+    "overallFeel": "cinematic-premium",
+    "referenceStyle": "luxury real estate commercial",
+    "lutSuggestion": "orange-teal-cinematic"
+  }
+}
+
+APPLY VISUAL DNA TO B-ROLL PROMPTS:
+When generating B-Roll, append style instructions to every prompt:
+"...Style: warm luxury color palette, medium-high contrast, slightly boosted saturation, subtle film grain, golden hour warmth, cinematic premium feel. Match the visual language of luxury real estate commercials."
+
+APPLY VISUAL DNA TO COLOR GRADING:
+After B-Roll is generated, apply consistent color grading via FFmpeg:
+- Same LUT applied to ALL B-Roll clips
+- Color temperature matched to speaker footage
+- Contrast and saturation normalized across clips
+
+DETERMINE VISUAL DNA FROM:
+1. Brand kit colors → map to warm/cool/neutral palette
+2. Video category → real estate=warm-luxury, tech=cool-clean, food=warm-vibrant
+3. User preference → if specified in prompt
+4. First clip analysis → extract color profile from uploaded footage and match B-Roll to it
+
+For each video, define the visual DNA once, then reference it in every B-Roll prompt and color grade step.`;
+
+// ============================================================
+// CATEGORY 17: CHARACTER CONSISTENCY ACROSS SHOTS
+// ============================================================
+export const CHARACTER_CONSISTENCY_PROMPT = `Maintain character consistency when generating multiple AI video clips with people.
+
+THE PROBLEM:
+When generating multiple B-Roll clips with people, each clip shows DIFFERENT people. This is jarring and confusing.
+
+THE SOLUTION — REFERENCE IMAGES:
+1. If the video has a presenter/speaker → extract a clear face frame as reference
+2. When generating B-Roll that includes the same person → include the reference image
+3. Use Kling "Elements" or equivalent feature to lock character appearance
+
+REFERENCE IMAGE EXTRACTION:
+- Extract the clearest, best-lit frame of the speaker's face
+- Use this as the reference for any B-Roll that should show the same person
+- Store as: temp/{jobId}/character_reference.jpg
+
+WHEN TO USE CHARACTER CONSISTENCY:
+- "Speaker walks through apartment" → must be the SAME speaker
+- "Customer receives product" → should look like a consistent character
+- Multiple lifestyle B-Roll clips → same "model" across all clips
+- Testimonial + B-Roll of the customer → same person
+
+WHEN NOT NEEDED:
+- Generic B-Roll (landscapes, buildings, food) → no character needed
+- Stock-style footage → different people are fine
+- Crowds/groups → consistency not expected
+
+Add to B-Roll generation:
+{
+  "characterReference": {
+    "hasReference": true,
+    "referenceImagePath": "temp/{jobId}/character_reference.jpg",
+    "description": "Male, 40s, dark hair, blue shirt, Israeli appearance",
+    "useInClips": [0, 2, 4]
+  }
+}
+
+When calling KIE.ai or other video generation APIs, include the reference image if the API supports it (Kling Elements, Runway Character Lock, etc.).`;
+
+// ============================================================
 // MASTER EDITING PROMPT (all rules combined)
 // ============================================================
 export const MASTER_EDITING_PROMPT = [
@@ -615,7 +738,10 @@ export const MASTER_EDITING_PROMPT = [
   EMOTIONAL_ARC_PROMPT,    // Emotional arc rollercoaster
   STRATEGIC_SILENCE_PROMPT, // Strategic silence protection
   BROLL_PRECISION_PROMPT,  // B-Roll word-level precision
-  CINEMATIC_PROMPTING_PROMPT // Cinematic B-Roll prompting
+  CINEMATIC_PROMPTING_PROMPT, // Cinematic B-Roll prompting
+  AI_TRANSITIONS_PROMPT,   // AI-powered transitions
+  STYLE_TRANSFER_PROMPT,   // Visual style transfer
+  CHARACTER_CONSISTENCY_PROMPT // Character consistency
 ].join('\n\n');
 
 // ============================================================
@@ -705,6 +831,14 @@ export interface EditingBlueprint {
     energy: number;         // 1-10
     phase: string;
     editStyle: string;
+  }>;
+  aiTransitions?: Array<{
+    fromClipEnd: number;
+    toClipStart: number;
+    type: string;
+    prompt: string;
+    duration: number;
+    reason: string;
   }>;
   murchAverageScore: number;
 }

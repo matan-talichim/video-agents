@@ -17,6 +17,7 @@ import { importDocument, summarizeForVideo } from '../services/documentImport.js
 import { generateMultiPageStory } from '../templates/multiPageStories.js';
 import { applyBrandKitToPlan, getBrandPromptPrefix } from '../services/brandKit.js';
 import { analyzeContent } from '../services/contentAnalyzer.js';
+import { extractFrame } from '../services/ffmpeg.js';
 import { detectPresenter, filterTranscriptToPresenter } from '../services/presenterDetector.js';
 import { verifySpeakers } from '../services/speakerVerifier.js';
 import { analyzeVideoIntelligence, applyIntelligenceToPlan } from '../services/videoIntelligence.js';
@@ -486,6 +487,29 @@ export async function runPipeline(job: Job): Promise<void> {
 
         console.log(`[Pipeline] Filtered transcript: ${presenterTranscript.words.length} words (from ${transcript.words.length} original)`);
         console.log(`[Pipeline] Speaker verification confidence: ${Math.round(speakerVerification.confidence * 100)}%`);
+
+        // Extract character reference frame for AI character consistency
+        try {
+          const presenterSegments = presenterDetection.presenterSegments;
+          const bestFrameTime = presenterSegments.length > 0
+            ? (presenterSegments[0].start + presenterSegments[0].end) / 2
+            : 3.0;
+          const refPath = `temp/${job.id}/character_reference.jpg`;
+          fs.mkdirSync(`temp/${job.id}`, { recursive: true });
+          await extractFrame(job.files[0].path, bestFrameTime, refPath);
+
+          if (fs.existsSync(refPath)) {
+            job.characterReference = {
+              hasReference: true,
+              referenceImagePath: refPath,
+              description: presenterDetection.presenterDescription || '',
+            };
+            updateJob(job.id, { characterReference: job.characterReference } as any);
+            console.log(`[Pipeline] Character reference extracted at ${bestFrameTime.toFixed(1)}s`);
+          }
+        } catch (refError: any) {
+          console.log(`[Pipeline] Character reference extraction skipped: ${refError.message}`);
+        }
       } catch (error: any) {
         console.error('Presenter detection / speaker verification failed:', error.message);
         allWarnings.push('Speaker verification failed: ' + error.message);

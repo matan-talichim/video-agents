@@ -154,6 +154,10 @@ Return ONLY the JSON array, no other text.`
       cinematicPrompt?: { imagePrompt: string; videoPrompt: string; negativePrompt: string; basicConcept: string };
     }>;
 
+    // Determine which clips need character consistency
+    const characterRef = job.characterReference;
+    const clipsNeedingCharacter = characterRef?.useInClips || [];
+
     for (let i = 0; i < brollPlan.length; i++) {
       const clip = brollPlan[i];
       try {
@@ -161,16 +165,19 @@ Return ONLY the JSON array, no other text.`
         const outputPath = `${genDir}/broll_${i}.mp4`;
 
         // Use cinematic videoPrompt if available, fall back to original prompt
-        const videoPrompt = clip.cinematicPrompt?.videoPrompt || clip.prompt;
+        let videoPrompt = clip.cinematicPrompt?.videoPrompt || clip.prompt;
         const negativePrompt = clip.cinematicPrompt?.negativePrompt || 'no text, no watermark, no blurry, no distortion';
+
+        // Append visual DNA style instructions if available
+        if (job.visualDNA) {
+          videoPrompt += ` Style: ${job.visualDNA.palette} color palette, ${job.visualDNA.contrast} contrast.`;
+        }
 
         // If image-to-video workflow: generate image first, then animate
         if (clip.cinematicPrompt?.imagePrompt) {
           try {
             const imagePath = `${genDir}/broll_${i}_frame.jpg`;
             await kie.generateImage(clip.cinematicPrompt.imagePrompt, imagePath);
-            // Use first-last frame or motion control to animate the still
-            // Fall through to text-to-video if image generation succeeds but video from image isn't available
             console.log(`[Generate] B-Roll ${i}: Generated reference image for image-to-video workflow`);
           } catch (imgError: any) {
             console.log(`[Generate] B-Roll ${i}: Image generation skipped (${imgError.message}), using text-to-video`);
@@ -184,6 +191,26 @@ Return ONLY the JSON array, no other text.`
           outputPath,
           negativePrompt
         );
+
+        // Apply character consistency: if this clip needs the presenter and we have a reference,
+        // use animate-replace to swap in the consistent character
+        if (
+          characterRef?.hasReference &&
+          characterRef.referenceImagePath &&
+          fs.existsSync(characterRef.referenceImagePath) &&
+          (clipsNeedingCharacter.includes(i) || promptMentionsPerson(videoPrompt))
+        ) {
+          try {
+            const charOutputPath = `${genDir}/broll_${i}_char.mp4`;
+            await kie.animateReplace(outputPath, characterRef.referenceImagePath, charOutputPath);
+            if (fs.existsSync(charOutputPath)) {
+              fs.renameSync(charOutputPath, outputPath);
+              console.log(`[Generate] B-Roll ${i}: Applied character consistency from reference`);
+            }
+          } catch (charError: any) {
+            console.log(`[Generate] B-Roll ${i}: Character consistency skipped (${charError.message})`);
+          }
+        }
 
         result.brollClips.push({
           path: outputPath,
@@ -218,6 +245,61 @@ Return ONLY the JSON array, no other text.`
           }
         }
       }
+    }
+  }
+
+  // --- AI TRANSITIONS (between consecutive B-Roll clips) ---
+  if (result.brollClips.length >= 2) {
+    try {
+      updateProgress(job, 'תכנון מעברים AI...');
+      const sortedClips = [...result.brollClips].sort((a, b) => a.timestamp - b.timestamp);
+      const aiTransitions: Array<{
+        fromClipEnd: number; toClipStart: number; type: string;
+        prompt: string; duration: number; reason: string;
+      }> = [];
+
+      // Find consecutive B-Roll clips that are close together (within 10s)
+      for (let i = 0; i < sortedClips.length - 1 && aiTransitions.length < 3; i++) {
+        const clipA = sortedClips[i];
+        const clipB = sortedClips[i + 1];
+        const gap = clipB.timestamp - (clipA.timestamp + clipA.duration);
+
+        // Only create AI transitions for clips with a gap (speaker segment between them)
+        if (gap > 0 && gap < 10) {
+          const transitionResponse = await askClaude(
+            'You create smooth cinematic video transition prompts. Return ONLY valid JSON.',
+            `Create a smooth AI transition prompt between these two B-Roll clips:
+Clip A (ends at ${(clipA.timestamp + clipA.duration).toFixed(1)}s): "${clipA.prompt}"
+Clip B (starts at ${clipB.timestamp.toFixed(1)}s): "${clipB.prompt}"
+
+Return JSON: { "type": "spatial-morph", "prompt": "Smooth cinematic transition from [A description] to [B description], camera pushing forward...", "duration": 2.0, "reason": "..." }`
+          );
+          try {
+            const cleaned = transitionResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+            aiTransitions.push({
+              fromClipEnd: clipA.timestamp + clipA.duration,
+              toClipStart: clipB.timestamp,
+              type: parsed.type || 'spatial-morph',
+              prompt: parsed.prompt || '',
+              duration: parsed.duration || 2.0,
+              reason: parsed.reason || 'smooth transition between B-Roll clips',
+            });
+          } catch {
+            // Skip unparseable transition
+          }
+        }
+      }
+
+      if (aiTransitions.length > 0) {
+        job.aiTransitions = aiTransitions;
+        updateJob(job.id, { aiTransitions } as any);
+        saveJSON(`${genDir}/ai_transitions.json`, aiTransitions);
+        console.log(`[Generate] Planned ${aiTransitions.length} AI transitions between B-Roll clips`);
+      }
+    } catch (error: any) {
+      console.error('[Generate] AI transition planning failed:', error.message);
+      warnings.push(`AI transition planning failed: ${error.message}`);
     }
   }
 
@@ -660,6 +742,17 @@ ${transcript.fullText}`
   });
 
   return result;
+}
+
+// Check if a B-Roll prompt mentions a person (for character consistency)
+function promptMentionsPerson(prompt: string): boolean {
+  const personKeywords = [
+    'person', 'people', 'man', 'woman', 'speaker', 'presenter', 'customer',
+    'client', 'walking', 'sitting', 'talking', 'standing', 'smiling',
+    'אדם', 'אנשים', 'גבר', 'אישה', 'לקוח', 'מציג', 'הולך', 'יושב',
+  ];
+  const lower = prompt.toLowerCase();
+  return personKeywords.some(kw => lower.includes(kw));
 }
 
 // Check if any generate feature is enabled

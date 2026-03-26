@@ -65,6 +65,25 @@ export interface Job {
   loopPlan?: import('./services/loopOptimizer.js').LoopPlan;
   thumbnailPlan?: import('./services/thumbnailOptimizer.js').ThumbnailPlan;
   platformCuts?: import('./services/multiPlatformCutter.js').PlatformCut[];
+  characterReference?: {
+    hasReference: boolean;
+    referenceImagePath: string;
+    description: string;
+    useInClips?: number[];
+  };
+  visualDNA?: {
+    palette: string;
+    lut: string;
+    contrast: string;
+  };
+  aiTransitions?: Array<{
+    fromClipEnd: number;
+    toClipStart: number;
+    type: string;
+    prompt: string;
+    duration: number;
+    reason: string;
+  }>;
 }
 
 export interface FileInfo {
