@@ -12,6 +12,7 @@ import ContentIntelligencePanel from '../components/ContentIntelligencePanel';
 import BrainRecommendations from '../components/BrainRecommendations';
 import BrainNotes from '../components/BrainNotes';
 import SpeakerVerificationPanel from '../components/SpeakerVerificationPanel';
+import ContentSelectionPanel from '../components/ContentSelectionPanel';
 import { calculateLiveCost } from '../utils/costCalculator';
 import type { RecommendedConfig } from '../types';
 
@@ -234,6 +235,7 @@ export default function PreviewPage() {
   const stabilized = (job as any).stabilized;
   const originalShakiness = (job as any).originalShakiness;
   const freshEyesReview = (job as any).freshEyesReview;
+  const contentSelection = (job as any).contentSelection;
 
   // Compute cost breakdown from job selections
   const previewCost = useMemo(() => {
@@ -537,6 +539,11 @@ export default function PreviewPage() {
               זה לא הפרזנטור? בקשו שינוי בצ׳אט למטה
             </p>
           </div>
+        )}
+
+        {/* Content Selection Panel — 12-dimension scoring */}
+        {contentSelection && (
+          <ContentSelectionPanel selection={contentSelection} />
         )}
 
         {/* Content Analysis Section */}

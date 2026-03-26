@@ -205,3 +205,253 @@ Issues to flag: "filler-word", "repetition", "off-topic", "low-energy", "noise",
 
   return allScored;
 }
+
+export async function detectRepetitions(
+  segments: ScoredSegment[]
+): Promise<ScoredSegment[]> {
+
+  const response = await askClaude(
+    'You detect repeated content in video transcripts — where the speaker says the same idea multiple times (multiple takes).',
+    `Find groups of segments that express the SAME idea (even with different words):
+
+${segments.map((s, i) => `[${i}] (score: ${s.totalScore}) "${s.text}"`).join('\n')}
+
+For each group, identify the BEST version.
+Return JSON:
+{
+  "repetitionGroups": [
+    {
+      "segments": [2, 5, 8],
+      "bestIndex": 5,
+      "reason": "segment 5 has best delivery and is most concise"
+    }
+  ]
+}
+
+Only flag TRUE repetitions — same idea, different words. Don't flag similar but distinct points.`
+  );
+
+  try {
+    const result = JSON.parse(response);
+
+    for (const group of result.repetitionGroups) {
+      for (const idx of group.segments) {
+        if (idx === group.bestIndex) continue;
+        if (segments[idx]) {
+          segments[idx].scores.uniqueness = Math.min(segments[idx].scores.uniqueness, 3);
+          segments[idx].issues.push(`repetition — segment ${group.bestIndex} is better`);
+
+          // Recalculate score
+          const weights = { delivery: 12, content: 15, emotion: 15, conciseness: 8, uniqueness: 10, hookPotential: 8, quotability: 5, visualInterest: 5, audioQuality: 7, continuity: 5, relevance: 7, energy: 3 };
+          const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0);
+          const newScore = Object.entries(segments[idx].scores).reduce((sum, [key, val]) => sum + (val * (weights[key as keyof typeof weights] || 5)), 0) / totalWeight * 10;
+          segments[idx].totalScore = Math.round(newScore);
+          segments[idx].decision = newScore >= 75 ? 'must-keep' : newScore >= 60 ? 'keep' : newScore >= 45 ? 'maybe' : newScore >= 30 ? 'cut' : 'filler';
+          segments[idx].editNotes.canCombineWith = group.bestIndex;
+        }
+      }
+    }
+  } catch {}
+
+  return segments;
+}
+
+export async function findReconstructions(
+  segments: ScoredSegment[]
+): Promise<Array<{ finalText: string; fragments: Array<{ segmentIndex: number; start: number; end: number; text: string }>; reason: string }>> {
+
+  // Find segments marked as combinable
+  const combinableGroups = new Map<number, number[]>();
+  for (let i = 0; i < segments.length; i++) {
+    const combineWith = segments[i].editNotes.canCombineWith;
+    if (combineWith !== undefined && combineWith !== null) {
+      if (!combinableGroups.has(combineWith)) combinableGroups.set(combineWith, [combineWith]);
+      const group = combinableGroups.get(combineWith)!;
+      if (!group.includes(i)) group.push(i);
+    }
+  }
+
+  if (combinableGroups.size === 0) return [];
+
+  const response = await askClaude(
+    'You reconstruct the perfect sentence from multiple takes of the same content.',
+    `These groups contain multiple takes of the same content. Construct the BEST version by picking best FRAGMENTS from each take.
+
+${Array.from(combinableGroups.entries()).map(([bestIdx, indices]) =>
+  `GROUP (best: ${bestIdx}):\n${indices.map(i => `  [${i}] "${segments[i]?.text}" (delivery: ${segments[i]?.scores.delivery})`).join('\n')}`
+).join('\n\n')}
+
+For each group return:
+{
+  "finalText": "the reconstructed perfect sentence",
+  "fragments": [
+    { "segmentIndex": 2, "start": 10.5, "end": 12.3, "text": "best opening from take 2" },
+    { "segmentIndex": 5, "start": 25.1, "end": 27.8, "text": "best middle from take 5" }
+  ],
+  "reason": "took confident opening from take 2 and concise explanation from take 5"
+}
+
+Rules:
+- Must sound NATURAL when audio is spliced
+- Pick fragments at natural word boundaries (not mid-word)
+- Each fragment at least 1 second long
+- Maximum 3 fragments per reconstruction
+- Only reconstruct if result is SIGNIFICANTLY better than best single take`
+  );
+
+  try {
+    const result = JSON.parse(response);
+    return Array.isArray(result) ? result : [result];
+  } catch {
+    return [];
+  }
+}
+
+export async function determineOptimalOrder(
+  segments: ScoredSegment[],
+  targetDuration: number | undefined,
+  videoCategory: string
+): Promise<Array<{ segmentIndex: number; reason: string }>> {
+
+  // Get kept segments with original indices
+  const keptSegments = segments
+    .map((s, i) => ({ ...s, originalIndex: i }))
+    .filter(s => s.decision === 'must-keep' || s.decision === 'keep');
+
+  // If too much content for target duration, drop lowest-scored
+  if (targetDuration) {
+    const totalKept = keptSegments.reduce((sum, s) => sum + (s.end - s.start), 0);
+    if (totalKept > targetDuration * 1.2) {
+      keptSegments.sort((a, b) => b.totalScore - a.totalScore);
+      let duration = 0;
+      const fitting = [];
+      for (const seg of keptSegments) {
+        if (duration + (seg.end - seg.start) <= targetDuration * 1.1) {
+          fitting.push(seg);
+          duration += (seg.end - seg.start);
+        }
+      }
+      keptSegments.length = 0;
+      keptSegments.push(...fitting);
+    }
+  }
+
+  const response = await askClaude(
+    'You determine the optimal order for video segments to maximize engagement.',
+    `Determine the BEST order for these ${videoCategory} video segments:
+
+${keptSegments.map(s => `[${s.originalIndex}] (score: ${s.totalScore}, hook: ${s.scores.hookPotential}) "${s.text.slice(0, 80)}"`).join('\n')}
+
+Rules:
+1. HOOK FIRST: Highest hookPotential goes FIRST (even if chronologically from the middle)
+2. After hook, return to chronological order
+3. CTA/conclusion always LAST
+4. Group related topics together
+5. Build energy: strong start → build → peak → resolve with CTA
+
+Return JSON array:
+[{ "segmentIndex": 7, "reason": "strongest hook" }, { "segmentIndex": 0, "reason": "natural intro" }, ...]`
+  );
+
+  try {
+    return JSON.parse(response);
+  } catch {
+    return keptSegments.map(s => ({ segmentIndex: s.originalIndex, reason: 'chronological' }));
+  }
+}
+
+// The main entry point — runs all selection steps in order
+export async function selectBestContent(
+  transcript: TranscriptResult,
+  targetDuration: number | undefined,
+  videoCategory: string,
+  videoPurpose: string
+): Promise<ContentSelectionResult> {
+  console.log('[Content Selection] Starting 12-dimension scoring...');
+
+  // Step 1: Break into natural segments
+  const rawSegments = breakIntoSegments(transcript);
+  console.log(`[Content Selection] ${rawSegments.length} segments to evaluate`);
+
+  // Step 2: Score ALL segments
+  const scored = await scoreSegments(rawSegments, targetDuration, videoCategory, videoPurpose);
+
+  // Step 3: Detect repetitions
+  const withRepetitions = await detectRepetitions(scored);
+
+  // Step 4: Find reconstruction opportunities
+  const reconstructions = await findReconstructions(withRepetitions);
+
+  // Step 5: Determine optimal ordering
+  const ordering = await determineOptimalOrder(withRepetitions, targetDuration, videoCategory);
+
+  // Step 6: Build final result
+  return buildSelectionResult(withRepetitions, reconstructions, ordering, targetDuration);
+}
+
+function buildSelectionResult(
+  segments: ScoredSegment[],
+  reconstructions: any[],
+  ordering: any[],
+  targetDuration: number | undefined
+): ContentSelectionResult {
+
+  const kept = segments.filter(s => s.decision === 'must-keep' || s.decision === 'keep');
+  const totalDuration = segments.reduce((sum, s) => sum + (s.end - s.start), 0);
+  const keepDuration = kept.reduce((sum, s) => sum + (s.end - s.start), 0);
+
+  // Top 5 moments ranked by score
+  const topMoments = [...segments]
+    .sort((a, b) => b.totalScore - a.totalScore)
+    .slice(0, 5)
+    .map((seg, i) => ({
+      rank: i + 1,
+      segment: seg,
+      reason: getTopMomentReason(seg),
+      suggestedUse: (seg.scores.hookPotential >= 8 ? 'hook' : seg.scores.quotability >= 8 ? 'quote-card' : seg.scores.emotion >= 8 ? 'social-clip' : i === 0 ? 'hook' : 'highlight') as any,
+    }));
+
+  // B-Roll needed list
+  const brollNeeded = segments
+    .filter(s => s.editNotes.needsBRoll && (s.decision === 'must-keep' || s.decision === 'keep'))
+    .map(s => ({
+      start: s.start,
+      end: s.end,
+      reason: s.editNotes.brollReason || 'visual variety needed',
+      suggestedPrompt: `Professional cinematic footage related to: ${s.text.slice(0, 80)}`,
+    }));
+
+  return {
+    segments,
+    summary: {
+      totalFootageDuration: totalDuration,
+      keepDuration,
+      cutDuration: totalDuration - keepDuration,
+      cutPercentage: Math.round((1 - keepDuration / totalDuration) * 100),
+      averageScore: Math.round(kept.reduce((sum, s) => sum + s.totalScore, 0) / (kept.length || 1)),
+      lowestKeptScore: kept.length > 0 ? Math.min(...kept.map(s => s.totalScore)) : 0,
+      mustKeepCount: segments.filter(s => s.decision === 'must-keep').length,
+      keepCount: segments.filter(s => s.decision === 'keep').length,
+      maybeCount: segments.filter(s => s.decision === 'maybe').length,
+      cutCount: segments.filter(s => s.decision === 'cut').length,
+      fillerCount: segments.filter(s => s.decision === 'filler').length,
+    },
+    topMoments,
+    reconstructions,
+    suggestedOrder: ordering,
+    brollNeeded,
+  };
+}
+
+function getTopMomentReason(seg: ScoredSegment): string {
+  const topScore = Object.entries(seg.scores).sort((a, b) => b[1] - a[1])[0];
+  const reasons: Record<string, string> = {
+    delivery: 'ביצוע מעולה — הדובר משדר ביטחון ובהירות',
+    content: 'תוכן חשוב — מידע ייחודי וחשוב',
+    emotion: 'רגש חזק — רגע שמרגש ומחבר',
+    hookPotential: 'הוק פוטנציאלי — מושך תשומת לב מיידית',
+    quotability: 'ציטוט חזק — משפט שאנשים ישתפו',
+    energy: 'אנרגיה גבוהה — הדובר בשיא ההתלהבות',
+  };
+  return reasons[topScore[0]] || 'קטע איכותי';
+}

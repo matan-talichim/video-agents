@@ -50,9 +50,50 @@ export async function runEditAgent(
   let zoomPlan: any[] | null = null;
 
   // ========================================================
-  // STEP 0: SMART TRIM (cut to best segments only)
+  // STEP 0: CONTENT SELECTION (use scored segments)
   // ========================================================
-  if (job.contentAnalysis?.recommendedEdit?.segments) {
+  if (job.contentSelection?.suggestedOrder) {
+    try {
+      updateProgress(job, 'בונה timeline מהקטעים הנבחרים...');
+
+      const orderedSegments = job.contentSelection.suggestedOrder
+        .map(o => job.contentSelection!.segments[o.segmentIndex])
+        .filter(s => s);
+
+      // Build the video from ordered segments using FFmpeg
+      const segmentFiles: string[] = [];
+      for (let i = 0; i < orderedSegments.length; i++) {
+        const seg = orderedSegments[i];
+        const trimStart = seg.start + (seg.editNotes.trimStart || 0);
+        const trimEnd = seg.end - (seg.editNotes.trimEnd || 0);
+        const segPath = `${editDir}/selected_seg_${i}.mp4`;
+
+        await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -ss ${trimStart} -to ${trimEnd} -c copy -y "${segPath}"`);
+        segmentFiles.push(segPath);
+      }
+
+      // Concat selected segments
+      const listPath = `${editDir}/selected_list.txt`;
+      fs.writeFileSync(listPath, segmentFiles.map(s => `file '${s}'`).join('\n'));
+      const selectedOutput = `${editDir}/selected_assembled.mp4`;
+      await ffmpeg.runFFmpeg(`ffmpeg -f concat -safe 0 -i "${listPath}" -c copy -y "${selectedOutput}"`);
+      currentVideo = selectedOutput;
+
+      // Cleanup
+      for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch {} }
+      try { fs.unlinkSync(listPath); } catch {}
+
+      console.log(`[Edit] Assembled ${orderedSegments.length} selected segments`);
+    } catch (error: any) {
+      console.error('Content selection assembly failed:', error.message);
+      warnings.push('Content selection assembly failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
+  // STEP 0.5: SMART TRIM (fallback — cut to best segments)
+  // ========================================================
+  if (!job.contentSelection?.suggestedOrder && job.contentAnalysis?.recommendedEdit?.segments) {
     try {
       updateProgress(job, 'חיתוך חכם — שומר רק את הקטעים הטובים...');
 
