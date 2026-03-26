@@ -1,12 +1,17 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  defaultHeaders: {
+    'anthropic-beta': 'extended-cache-ttl-2025-04-11',
+  },
+});
 
 // Estimate cost accounting for prompt caching discounts
 function estimateCost(usage: any): number {
   const inputPrice = 3.0 / 1_000_000;       // $3/M input tokens (Sonnet)
   const outputPrice = 15.0 / 1_000_000;     // $15/M output tokens (Sonnet)
-  const cacheWritePrice = 3.75 / 1_000_000; // $3.75/M for cache writes
+  const cacheWritePrice = 6.0 / 1_000_000;  // $6/M for cache writes (extended TTL)
   const cacheReadPrice = 0.30 / 1_000_000;  // $0.30/M for cache reads (90% off)
 
   const cacheReadTokens = usage.cache_read_input_tokens || 0;
