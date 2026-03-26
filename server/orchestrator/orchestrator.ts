@@ -791,10 +791,19 @@ export async function runPipeline(job: Job): Promise<void> {
           ? undefined
           : job.plan.export.targetDuration as number;
 
+        const platformGuessForAnalysis = job.plan.export?.formats?.includes('9:16') ? 'tiktok' : 'youtube';
         const contentAnalysis = await analyzeContent(
           job.files[0].path,
           analysisTranscript,
-          targetDur
+          targetDur,
+          {
+            videoCategory: job.videoIntelligence?.concept?.category || 'talking-head',
+            platform: platformGuessForAnalysis,
+            paceMode: job.paceMode || 'normal',
+            durationCategory: job.durationCategory || 'normal',
+            hasSpeech: job.footageDiagnosis?.hasSpeech !== false,
+            speakerCount: job.footageDiagnosis?.speakerCount || 1,
+          }
         );
 
         job.contentAnalysis = contentAnalysis;
