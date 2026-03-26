@@ -2,6 +2,7 @@ import fs from 'fs';
 import { askClaude, askClaudeVision } from './claude.js';
 import { runFFmpeg, getVideoDuration } from './ffmpeg.js';
 import type { TranscriptResult, ExecutionPlan } from '../types.js';
+import { CTA_RULES_PROMPT, VIDEO_AD_TYPES_PROMPT } from './marketingIntelligence.js';
 
 export interface VideoIntelligence {
   // What is this video about?
@@ -121,6 +122,19 @@ export interface VideoIntelligence {
     warnings: string[];
   };
 
+  // Marketing intelligence (CTA + video ad type)
+  marketingStrategy?: {
+    videoAdType: string;
+    videoAdTypeHebrew: string;
+    suggestedStructure: string[];
+    ctaPlan: {
+      primaryCTA: { text: string; subtext: string; timestamp: string; style: string; position: string };
+      midrollCTA?: { text: string; timestamp: string; style: string; subtle: boolean };
+      ctaVariation?: { text: string; urgency: boolean };
+    };
+    textOverlaysByType: Array<{ timestamp: number; text: string; type: string }>;
+  };
+
   // Brain auto-selected optimal configuration
   recommendedConfig?: {
     model: string;
@@ -209,6 +223,8 @@ export async function analyzeVideoIntelligence(
       edgeCases,
       // Ensure recommendedConfig exists
       recommendedConfig: parsed.recommendedConfig || undefined,
+      // Ensure marketingStrategy exists
+      marketingStrategy: parsed.marketingStrategy || undefined,
       // Ensure all arrays exist
       keyPoints: parsed.keyPoints || [],
       textOverlayPlan: parsed.textOverlayPlan || [],
@@ -445,6 +461,34 @@ TYPE: VERY LONG (>5min → 60s) — Be RUTHLESS. Cut 90%+. Keep ONLY hook + top 
 
 All user-facing text MUST be in Hebrew. Technical field values stay in English.
 
+${CTA_RULES_PROMPT}
+
+${VIDEO_AD_TYPES_PROMPT}
+
+Based on the content analysis, determine:
+1. Which of the 20 video ad types best fits this content
+2. The optimal CTA strategy (primary + midroll + variation)
+3. Text overlay plan specific to the video type
+4. The right structure for this type
+
+Add to the response a "marketingStrategy" field:
+{
+  "marketingStrategy": {
+    "videoAdType": "real-estate-listing",
+    "videoAdTypeHebrew": "נכס למכירה",
+    "suggestedStructure": ["aerial-exterior", "entrance", "living", "kitchen", "features", "location", "cta"],
+    "ctaPlan": {
+      "primaryCTA": { "text": "קבעו סיור בדירה", "subtext": "שיחה של 5 דקות, ללא התחייבות", "timestamp": "last 4 seconds", "style": "pulse-button", "position": "center-bottom" },
+      "midrollCTA": { "text": "רוצים לראות את הדירה?", "timestamp": "60% of video", "style": "text-overlay", "subtle": true },
+      "ctaVariation": { "text": "רק 5 דירות נותרו!", "urgency": true }
+    },
+    "textOverlaysByType": [
+      { "timestamp": 5, "text": "סלון 45 מ״ר", "type": "room-label" },
+      { "timestamp": 15, "text": "₪1,890,000", "type": "price" }
+    ]
+  }
+}
+
 IMPORTANT: You must also output a "recommendedConfig" field with the OPTIMAL configuration for this video.
 You must choose the BEST option for each setting — not the cheapest, but the one that will produce the best video.
 
@@ -583,6 +627,19 @@ Return a complete VideoIntelligence JSON with ALL fields:
   "smartBRollPlan": [
     { "timestamp": 15, "duration": 4, "reason": "Hebrew reason", "prompt": "detailed generation prompt in English", "priority": "must-have|nice-to-have|optional", "alternative": "search keyword if generation fails" }
   ],
+  "marketingStrategy": {
+    "videoAdType": "one of the 20 types (kebab-case)",
+    "videoAdTypeHebrew": "Hebrew name of the type",
+    "suggestedStructure": ["array of structure steps for this type"],
+    "ctaPlan": {
+      "primaryCTA": { "text": "Hebrew CTA", "subtext": "Hebrew micro-text", "timestamp": "last N seconds", "style": "pulse-button|text-overlay|subtle-text", "position": "center-bottom|center-vertical" },
+      "midrollCTA": { "text": "Hebrew soft CTA", "timestamp": "60% of video", "style": "text-overlay", "subtle": true },
+      "ctaVariation": { "text": "Hebrew urgency CTA", "urgency": true }
+    },
+    "textOverlaysByType": [
+      { "timestamp": 5, "text": "Hebrew overlay text", "type": "room-label|price|feature|step-number|statistic|name-title|comparison" }
+    ]
+  },
   "recommendedConfig": {
     "model": "veo-3.1-fast|sora-2|kling-v2.5-turbo|wan-2.5|seedance-1.5-pro",
     "modelReason": "Hebrew reason for model choice",

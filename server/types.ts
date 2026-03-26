@@ -864,6 +864,19 @@ export interface VideoIntelligence {
 
   // Brain auto-selected optimal configuration
   recommendedConfig?: RecommendedConfig;
+
+  // Marketing intelligence (CTA + video ad type)
+  marketingStrategy?: {
+    videoAdType: string;
+    videoAdTypeHebrew: string;
+    suggestedStructure: string[];
+    ctaPlan: {
+      primaryCTA: { text: string; subtext: string; timestamp: string; style: string; position: string };
+      midrollCTA?: { text: string; timestamp: string; style: string; subtle: boolean };
+      ctaVariation?: { text: string; urgency: boolean };
+    };
+    textOverlaysByType: Array<{ timestamp: number; text: string; type: string }>;
+  };
 }
 
 export interface RecommendedConfig {
