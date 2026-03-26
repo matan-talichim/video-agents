@@ -32,6 +32,9 @@ import { planThumbnail, generateThumbnail } from '../services/thumbnailOptimizer
 import { planMultiPlatformCuts } from '../services/multiPlatformCutter.js';
 import { diagnoseFootage, autoFixFootage } from '../services/footageDoctor.js';
 import { getExportCommand, EXPORT_PRESETS } from '../services/smartExporter.js';
+import { planAutoVersions } from '../services/autoVersioning.js';
+import { checkBrandCompliance } from '../services/brandCompliance.js';
+import { checkTextReadability } from '../services/qualityCheck.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -606,6 +609,25 @@ export async function runPipeline(job: Job): Promise<void> {
         updateJob(job.id, { contentSelection } as any);
 
         console.log(`[Pipeline] Content selection: ${contentSelection.summary.keepDuration.toFixed(0)}s kept from ${contentSelection.summary.totalFootageDuration.toFixed(0)}s (${contentSelection.summary.cutPercentage}% cut)`);
+
+        // --- AUTO-VERSIONING (3 lengths from 1 video) ---
+        if (job.plan.export.platforms && job.plan.export.platforms.length > 0) {
+          try {
+            updateJob(job.id, { currentStep: 'מתכנן 3 גרסאות אורך...' });
+            const versionPlan = await planAutoVersions(
+              contentSelection.segments,
+              contentSelection.summary.keepDuration,
+              job.plan.export.platforms
+            );
+            job.versionPlan = versionPlan;
+            saveJSON(`temp/${job.id}/version_plan.json`, versionPlan);
+            updateJob(job.id, { versionPlan } as any);
+            console.log(`[Pipeline] Auto-versioning: ${versionPlan.versions.length} versions planned`);
+          } catch (error: any) {
+            console.error('Auto-versioning failed:', error.message);
+            allWarnings.push('Auto-versioning failed: ' + error.message);
+          }
+        }
       } catch (error: any) {
         console.error('Content selection failed:', error.message);
         allWarnings.push('Content selection failed: ' + error.message);
@@ -1086,6 +1108,45 @@ Return JSON:
       } catch (error: any) {
         console.error('QA check failed:', error.message);
         allWarnings.push('QA check failed: ' + error.message);
+      }
+
+      // --- BRAND COMPLIANCE CHECK ---
+      if (job.brandKit?.enabled) {
+        try {
+          updateJob(job.id, { currentStep: 'בודק תאימות מותג...' });
+          const brandResult = await checkBrandCompliance(finalVideoPath, exportDuration, job.brandKit);
+          job.brandCompliance = brandResult;
+          updateJob(job.id, { brandCompliance: brandResult } as any);
+          if (!brandResult.passed) {
+            allWarnings.push(...brandResult.issues.map(i => `מותג: ${i.issue}`));
+          }
+          console.log(`[Pipeline] Brand compliance: ${brandResult.score}/10 | Passed: ${brandResult.passed}`);
+        } catch (error: any) {
+          console.error('Brand compliance check failed:', error.message);
+          allWarnings.push('Brand compliance check failed: ' + error.message);
+        }
+      }
+
+      // --- TEXT READABILITY CHECK (mobile) ---
+      if (job.videoIntelligence?.textOverlayPlan && job.videoIntelligence.textOverlayPlan.length > 0) {
+        try {
+          updateJob(job.id, { currentStep: 'בודק קריאות טקסט במובייל...' });
+          const overlays = job.videoIntelligence.textOverlayPlan.map(t => ({
+            text: t.text,
+            timestamp: t.timestamp,
+            fontSize: t.style === 'large-center' ? 'large' : 'medium',
+            color: '#FFFFFF',
+          }));
+          const aspectRatio = job.plan.export.formats.includes('9:16') ? '9:16' : '16:9';
+          const readability = await checkTextReadability(finalVideoPath, overlays, aspectRatio);
+          job.textReadability = readability;
+          updateJob(job.id, { textReadability: readability } as any);
+          const readableCount = readability.filter(r => r.readable).length;
+          console.log(`[Pipeline] Text readability: ${readableCount}/${readability.length} texts readable on mobile`);
+        } catch (error: any) {
+          console.error('Text readability check failed:', error.message);
+          allWarnings.push('Text readability check failed: ' + error.message);
+        }
       }
     }
 

@@ -59,6 +59,9 @@ export interface Job {
   freshEyesReview?: import('./services/freshEyesReview.js').FreshEyesResult;
   contentSelection?: import('./services/contentSelector.js').ContentSelectionResult;
   qaResult?: import('./services/qualityCheck.js').QAResult;
+  versionPlan?: import('./services/autoVersioning.js').VersionPlan;
+  brandCompliance?: import('./services/brandCompliance.js').BrandComplianceResult;
+  textReadability?: Array<{ text: string; timestamp: number; readable: boolean; issue?: string }>;
   hookVariations?: import('./services/hookGenerator.js').HookVariation[];
   abTestResult?: import('./services/abTesting.js').ABTestResult;
   retentionPlan?: import('./services/retentionOptimizer.js').RetentionPlan;
