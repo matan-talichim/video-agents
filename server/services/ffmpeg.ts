@@ -150,6 +150,22 @@ export async function getVideoDuration(input: string): Promise<number> {
   return parseFloat(stdout.trim());
 }
 
+// Safe duration getter — returns 0 on failure instead of throwing
+export async function getVideoDurationSafe(input: string): Promise<number> {
+  try {
+    return await getVideoDuration(input);
+  } catch {
+    return 0;
+  }
+}
+
+// Validate that a timestamp is within video bounds before using it in FFmpeg commands.
+// Returns the clamped timestamp, or -1 if the video is too short to process.
+export function clampTimestamp(timestamp: number, videoDuration: number, minRemaining: number = 0.5): number {
+  if (videoDuration < minRemaining) return -1;
+  return Math.min(timestamp, Math.max(0, videoDuration - minRemaining));
+}
+
 // Get video info (resolution, fps, codec)
 export async function getVideoInfo(
   input: string
@@ -330,8 +346,13 @@ export function backgroundBlur(input: string, blurStrength: number, output: stri
 }
 
 // Smart zooms at keyframe moments
+// NOTE: zoompan re-encodes every frame. If timestamps exceed video duration, FFmpeg hits EOF before encoder starts.
+// Callers should validate timestamps against actual video duration before calling this.
 export function addZoom(input: string, startTime: number, endTime: number, zoomFactor: number, output: string): string {
-  return `ffmpeg -i "${input}" -vf "zoompan=z='if(between(t,${startTime},${endTime}),${zoomFactor},1)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=30" -c:a copy -y "${output}"`;
+  // Ensure non-negative and startTime < endTime
+  const safeStart = Math.max(0, startTime);
+  const safeEnd = Math.max(safeStart + 0.1, endTime);
+  return `ffmpeg -i "${input}" -vf "zoompan=z='if(between(t,${safeStart},${safeEnd}),${zoomFactor},1)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=30" -c:a copy -y "${output}"`;
 }
 
 // Ken Burns effect on still image
@@ -420,6 +441,7 @@ export function flashTransition(input: string, timestamp: number, output: string
 // === EXPORT ===
 
 // Export to different aspect ratios
+// Uses simple crop+scale approach compatible with all FFmpeg versions.
 export function exportFormat(input: string, format: string, output: string, faceX?: number): string {
   switch (format) {
     case '9:16': {
@@ -427,7 +449,8 @@ export function exportFormat(input: string, format: string, output: string, face
       return `ffmpeg -i "${input}" -vf "crop=ih*9/16:ih:${cropX}:0,scale=1080:1920" -c:a copy -y "${output}"`;
     }
     case '1:1': {
-      return `ffmpeg -i "${input}" -vf "crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2" -c:a copy -y "${output}"`;
+      // Use simple ih-based crop (works when ih <= iw, typical for 16:9 source)
+      return `ffmpeg -i "${input}" -vf "crop=ih:ih:(iw-ih)/2:0,scale=1080:1080" -c:a copy -y "${output}"`;
     }
     case '16:9':
     default:

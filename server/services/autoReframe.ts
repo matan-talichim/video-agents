@@ -2,7 +2,7 @@
 // Smart auto-reframe with speaker tracking for aspect ratio conversion.
 
 import { runFFmpeg } from './ffmpeg.js';
-import { askClaudeVision } from './claude.js';
+import { askClaudeVision, parseVisionJSON } from './claude.js';
 import fs from 'fs';
 
 export interface ReframePlan {
@@ -15,8 +15,10 @@ export async function planAutoReframe(
   duration: number,
   fromAspect: '16:9' | '4:3',
   toAspect: '9:16' | '1:1',
-  hasPresenter: boolean
+  hasPresenter: boolean,
+  jobId?: string
 ): Promise<ReframePlan> {
+  const tempPrefix = jobId ? `temp/${jobId}` : 'temp';
   if (!hasPresenter) {
     // No presenter -> center crop is fine
     return { keyframes: [{ timestamp: 0, cropX: 0, cropY: 0, cropW: 0, cropH: 0 }], method: 'center-static' };
@@ -30,7 +32,7 @@ export async function planAutoReframe(
 
   for (let i = 0; i < sampleCount; i++) {
     const timestamp = (duration / (sampleCount + 1)) * (i + 1);
-    const framePath = `temp/reframe_${i}.jpg`;
+    const framePath = `${tempPrefix}/reframe_${i}.jpg`;
     try {
       await runFFmpeg(`ffmpeg -i "${videoPath}" -ss ${timestamp} -vframes 1 -q:v 2 -y "${framePath}"`);
     } catch {
@@ -58,8 +60,7 @@ export async function planAutoReframe(
     try { fs.unlinkSync(framePath); } catch {}
 
     try {
-      const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      const parsed = JSON.parse(cleaned);
+      const parsed = parseVisionJSON(response, { faceX: 50 });
       const faceX = parsed.faceX || 50;
 
       // Convert face position to crop coordinates for 9:16 from 16:9

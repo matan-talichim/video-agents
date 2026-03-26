@@ -1,5 +1,5 @@
 import { runFFmpeg, extractFrame } from './ffmpeg.js';
-import { askClaudeVision } from './claude.js';
+import { askClaudeVision, parseVisionJSON } from './claude.js';
 import fs from 'fs';
 
 interface FacePosition {
@@ -20,7 +20,7 @@ export async function detectFacePosition(videoPath: string, timestamp: number): 
     const imageBase64 = fs.readFileSync(framePath).toString('base64');
 
     const response = await askClaudeVision(
-      'You detect face positions in video frames. Return the center X coordinate of the main speaker face as a percentage of frame width (0-100). 50 means centered.',
+      'You detect face positions in video frames. RESPOND ONLY WITH A JSON OBJECT. No text before or after. Do not start with "Looking at" or "I can see". Start your response with { and end with }.',
       [
         {
           type: 'image',
@@ -28,12 +28,12 @@ export async function detectFacePosition(videoPath: string, timestamp: number): 
         },
         {
           type: 'text',
-          text: 'Where is the center of the main speaker\'s face? Return JSON: { "face_center_x_percent": 50, "face_center_y_percent": 35, "face_detected": true }'
+          text: 'Where is the center of the main speaker\'s face? Return ONLY JSON, no other text: { "face_center_x_percent": 50, "face_center_y_percent": 35, "face_detected": true }'
         }
       ]
     );
 
-    const result = JSON.parse(response);
+    const result = parseVisionJSON(response, { face_center_x_percent: 50, face_center_y_percent: 40, face_detected: false });
     return {
       centerXPercent: result.face_center_x_percent || 50,
       centerYPercent: result.face_center_y_percent || 40,

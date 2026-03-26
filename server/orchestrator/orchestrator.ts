@@ -216,6 +216,8 @@ export async function startJob(job: Job): Promise<void> {
 }
 
 // Helper to update job step with user-friendly keys for cinematic processing page
+// IMPORTANT: Progress must ONLY go forward, never backward.
+// Completed steps must ONLY be added, never removed.
 function updateJobStep(job: Job, stepKey: string, progress: number) {
   const stepOrder = [
     'transcribing', 'analyzing', 'planning',
@@ -225,7 +227,7 @@ function updateJobStep(job: Job, stepKey: string, progress: number) {
     'quality-check', 'finalizing',
   ];
 
-  // Track completed steps
+  // Track completed steps — only ADD, never replace
   const completedPipelineSteps: string[] = (job as any).completedPipelineSteps || [];
   const currentIndex = stepOrder.indexOf(stepKey);
   for (let i = 0; i < currentIndex; i++) {
@@ -235,9 +237,13 @@ function updateJobStep(job: Job, stepKey: string, progress: number) {
   }
   (job as any).completedPipelineSteps = completedPipelineSteps;
 
+  // Progress must NEVER go backwards
+  const currentProgress = (job as any).progress || 0;
+  const safeProgress = Math.max(currentProgress, progress);
+
   updateJob(job.id, {
     currentStep: stepKey,
-    progress,
+    progress: safeProgress,
     completedPipelineSteps,
   } as any);
 }
@@ -717,7 +723,8 @@ export async function runPipeline(job: Job): Promise<void> {
           const expressionAnalysis = await analyzeExpressions(
             job.files[0].path,
             job.contentAnalysis?.presenter?.totalSpeakingTime || 60,
-            presenterSegs
+            presenterSegs,
+            job.id
           );
           job.expressionAnalysis = expressionAnalysis;
           saveJSON(`temp/${job.id}/expression_analysis.json`, expressionAnalysis);
@@ -1529,7 +1536,8 @@ export async function runPipeline(job: Job): Promise<void> {
           exportDuration,
           '16:9',
           '9:16',
-          hasPresenter
+          hasPresenter,
+          job.id
         );
         job.reframePlan = reframePlan;
         updateJob(job.id, { reframePlan } as any);
@@ -1810,7 +1818,7 @@ Return JSON:
     if (fs.existsSync(finalVideoPath)) {
       try {
         updateJob(job.id, { currentStep: 'בודק איכות סופית...' });
-        const qaResult = await runQualityCheck(finalVideoPath, exportDuration, job.plan);
+        const qaResult = await runQualityCheck(finalVideoPath, exportDuration, job.plan, job.id);
         job.qaResult = qaResult;
         updateJob(job.id, { qaResult } as any);
 
@@ -1827,7 +1835,7 @@ Return JSON:
       if (job.brandKit?.enabled) {
         try {
           updateJob(job.id, { currentStep: 'בודק תאימות מותג...' });
-          const brandResult = await checkBrandCompliance(finalVideoPath, exportDuration, job.brandKit);
+          const brandResult = await checkBrandCompliance(finalVideoPath, exportDuration, job.brandKit, job.id);
           job.brandCompliance = brandResult;
           updateJob(job.id, { brandCompliance: brandResult } as any);
           if (!brandResult.passed) {
@@ -1844,7 +1852,7 @@ Return JSON:
       try {
         updateJob(job.id, { currentStep: 'בודק תצוגה במכשירים שונים...' });
         const aspectRatio = job.plan.export.formats.includes('9:16') ? '9:16' : '16:9';
-        const devicePreview = await simulateDevicePreview(finalVideoPath, exportDuration, aspectRatio);
+        const devicePreview = await simulateDevicePreview(finalVideoPath, exportDuration, aspectRatio, job.id);
         job.devicePreview = devicePreview;
         updateJob(job.id, { devicePreview } as any);
 
@@ -1869,7 +1877,7 @@ Return JSON:
             color: '#FFFFFF',
           }));
           const aspectRatio = job.plan.export.formats.includes('9:16') ? '9:16' : '16:9';
-          const readability = await checkTextReadability(finalVideoPath, overlays, aspectRatio);
+          const readability = await checkTextReadability(finalVideoPath, overlays, aspectRatio, job.id);
           job.textReadability = readability;
           updateJob(job.id, { textReadability: readability } as any);
           const readableCount = readability.filter(r => r.readable).length;

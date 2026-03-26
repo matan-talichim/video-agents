@@ -138,6 +138,91 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
   'infinitalk':                 { pattern: 'market', modelId: 'infinitalk/from-audio' },
 };
 
+// --- Per-model allowed durations ---
+// Each model only accepts specific duration values. Sending an unsupported
+// duration causes a "duration is not within the range of allowed options" error.
+const MODEL_DURATIONS: Record<string, number[]> = {
+  // Google Veo — 8s clips only
+  'veo-3.1-fast': [8],
+  'veo-3.1-quality': [8],
+
+  // Kling
+  'kling-3.0': [5, 10],
+  'kling-2.6': [5, 10],
+  'kling-2.6-i2v': [5, 10],
+  'kling-2.5-turbo': [5, 10],
+  'kling-2.5-turbo-t2v': [5, 10],
+  'kling-v2.5-turbo': [5, 10],
+  'kling-2.1-master': [5, 10],
+  'kling-2.1-master-t2v': [5, 10],
+  'kling-2.1-pro': [5, 10],
+  'kling-2.1-standard': [5],
+  'kling-motion-control': [5, 10],
+  'kling-motion-control-v3': [5, 10],
+  'kling-avatar-standard': [5, 10],
+  'kling-avatar-pro': [5, 10],
+
+  // ByteDance / Seedance
+  'seedance-1.5-pro': [4, 5],
+  'bytedance-v1-pro-fast': [4],
+  'bytedance-v1-pro': [4, 5],
+  'bytedance-v1-pro-t2v': [4, 5],
+  'bytedance-v1-lite': [4],
+  'bytedance-v1-lite-t2v': [4],
+
+  // Sora 2
+  'sora-2': [10],
+  'sora-2-i2v': [10],
+  'sora-2-pro': [10, 15],
+  'sora-2-pro-i2v': [10, 15],
+
+  // WAN
+  'wan-2.6': [5, 10, 15],
+  'wan-2.6-i2v': [5, 10, 15],
+  'wan-2.6-v2v': [5, 10],
+  'wan-2.6-flash': [5],
+  'wan-2.6-flash-v2v': [5],
+  'wan-2.5': [5],
+  'wan-2.5-t2v': [5],
+
+  // Hailuo
+  'hailuo-2.3-pro': [4, 6],
+  'hailuo-2.3-standard': [4, 6],
+  'hailuo-02-t2v-pro': [4, 6],
+  'hailuo-02-i2v-pro': [4, 6],
+  'hailuo-02-t2v-standard': [4, 6],
+  'hailuo-02-i2v-standard': [4, 6],
+  'hailuo-standard': [4, 6],
+
+  // Runway
+  'runway-gen4': [5, 10],
+  'runway-gen4-10s': [10],
+  'runway-aleph': [5, 10],
+
+  // Grok Imagine
+  'grok-imagine': [4, 8],
+  'grok-imagine-i2v': [4, 8],
+};
+
+// Find the closest allowed duration for a given model
+function clampDuration(requested: number, model: string): number {
+  const allowed = MODEL_DURATIONS[model];
+  if (!allowed || allowed.length === 0) return requested; // unknown model, pass through
+  // Find closest allowed value
+  return allowed.reduce((closest, val) =>
+    Math.abs(val - requested) < Math.abs(closest - requested) ? val : closest
+  , allowed[0]);
+}
+
+// Calculate how many B-Roll clips are needed based on model clip duration
+export function calculateBRollCount(videoDuration: number, model: string, paceMode: string = 'normal'): number {
+  const allowed = MODEL_DURATIONS[model];
+  const clipDuration = allowed?.[0] || 5;
+  const targetCoverage = videoDuration * (paceMode === 'fast' ? 0.4 : 0.3);
+  const count = Math.ceil(targetCoverage / clipDuration);
+  return Math.max(1, Math.min(count, 8));
+}
+
 // --- Core API helpers ---
 
 async function kiePost(endpoint: string, body: any, retries: number = 3): Promise<any> {
@@ -420,9 +505,10 @@ async function generateAndDownload(
     }
 
     case 'runway': {
+      const runwayDuration = options.duration ? clampDuration(options.duration, model) : undefined;
       taskId = await createRunwayTask(prompt, modelId, {
         imageUrl: options.imageUrl || options.imageUrls?.[0],
-        duration: options.duration,
+        duration: runwayDuration,
         aspectRatio: options.aspectRatio,
       });
       resultUrl = await pollRunwayTask(taskId);
@@ -431,10 +517,15 @@ async function generateAndDownload(
 
     case 'market':
     default: {
+      const rawDuration = options.duration || 5;
+      const clampedDuration = clampDuration(rawDuration, model);
+      if (clampedDuration !== rawDuration) {
+        console.log(`[KIE] Duration clamped: ${rawDuration}s → ${clampedDuration}s for model "${model}"`);
+      }
       const input: Record<string, any> = {
         prompt,
         aspect_ratio: options.aspectRatio || '16:9',
-        duration: String(options.duration || 5),
+        duration: String(clampedDuration),
         ...options.extraInput,
       };
 

@@ -1,7 +1,7 @@
 // server/services/devicePreview.ts
 // Simulates how a video looks on different device sizes using Claude Vision.
 
-import { askClaudeVision } from './claude.js';
+import { askClaudeVision, parseVisionJSON } from './claude.js';
 import { runFFmpeg } from './ffmpeg.js';
 import fs from 'fs';
 
@@ -18,8 +18,10 @@ export interface DevicePreviewResult {
 export async function simulateDevicePreview(
   videoPath: string,
   duration: number,
-  aspectRatio: string
+  aspectRatio: string,
+  jobId?: string
 ): Promise<DevicePreviewResult> {
+  const tempPrefix = jobId ? `temp/${jobId}` : 'temp';
   console.log('[DevicePreview] Simulating multi-device preview...');
 
   // Define device viewports
@@ -31,7 +33,7 @@ export async function simulateDevicePreview(
 
   // Take a frame with text/subtitles (middle of video where text likely exists)
   const textTimestamp = duration * 0.4;
-  const framePath = `temp/device_preview_src.jpg`;
+  const framePath = `${tempPrefix}/device_preview_src.jpg`;
   try {
     await runFFmpeg(`ffmpeg -i "${videoPath}" -ss ${textTimestamp} -vframes 1 -q:v 2 -y "${framePath}"`);
   } catch (error: any) {
@@ -46,7 +48,7 @@ export async function simulateDevicePreview(
   const deviceFrames: Array<{ name: string; path: string; resolution: string }> = [];
   for (let i = 0; i < devices.length; i++) {
     const d = devices[i];
-    const devicePath = `temp/device_${i}.jpg`;
+    const devicePath = `${tempPrefix}/device_${i}.jpg`;
     try {
       await runFFmpeg(`ffmpeg -i "${framePath}" -vf "scale=${d.width}:${d.height}:flags=lanczos" -q:v 2 -y "${devicePath}"`);
       deviceFrames.push({ name: d.name, path: devicePath, resolution: `${d.width}x${d.height}` });
@@ -104,7 +106,11 @@ Return JSON:
       ]
     );
 
-    const result = JSON.parse(response);
+    const defaultResult = {
+      devices: deviceFrames.map(d => ({ name: d.name, resolution: d.resolution, issues: [], passed: true })),
+      overallPassed: true,
+    };
+    const result = parseVisionJSON(response, defaultResult);
     const passedCount = result.devices?.filter((d: any) => d.passed).length || 0;
     console.log(`[DevicePreview] ${passedCount}/${result.devices?.length || 0} devices passed`);
     return result;

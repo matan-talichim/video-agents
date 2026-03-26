@@ -1,7 +1,7 @@
 // server/services/brandCompliance.ts
 // Checks rendered video frames for brand guideline compliance using Claude Vision.
 
-import { askClaudeVision } from './claude.js';
+import { askClaudeVision, parseVisionJSON } from './claude.js';
 import { runFFmpeg } from './ffmpeg.js';
 import fs from 'fs';
 
@@ -19,7 +19,8 @@ export interface BrandComplianceResult {
 export async function checkBrandCompliance(
   videoPath: string,
   duration: number,
-  brandKit: any
+  brandKit: any,
+  jobId?: string
 ): Promise<BrandComplianceResult> {
   if (!brandKit) return { score: 10, issues: [], passed: true };
 
@@ -30,7 +31,7 @@ export async function checkBrandCompliance(
   const framePaths: string[] = [];
 
   for (let i = 0; i < frameTimes.length; i++) {
-    const path = `temp/brand_check_${i}.jpg`;
+    const path = `temp/${jobId || ''}/brand_check_${i}.jpg`.replace('//', '/');
     try {
       await runFFmpeg(`ffmpeg -i "${videoPath}" -ss ${frameTimes[i]} -vframes 1 -q:v 2 -y "${path}"`);
       framePaths.push(path);
@@ -55,7 +56,7 @@ export async function checkBrandCompliance(
 
   try {
     const response = await askClaudeVision(
-      'You check videos for brand compliance. Every branded video must follow brand guidelines.',
+      'You check videos for brand compliance. Every branded video must follow brand guidelines. RESPOND ONLY WITH A JSON OBJECT. No text before or after. Start your response with { and end with }.',
       [
         ...images,
         {
@@ -78,7 +79,7 @@ Return JSON:
       ]
     );
 
-    const result = JSON.parse(response);
+    const result = parseVisionJSON(response, { score: 7, issues: [], passed: true });
     console.log(`[BrandCompliance] Score: ${result.score}/10 | Issues: ${result.issues?.length || 0} | Passed: ${result.passed}`);
     return result;
   } catch (error: any) {

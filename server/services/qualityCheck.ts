@@ -1,4 +1,4 @@
-import { askClaudeVision } from './claude.js';
+import { askClaudeVision, parseVisionJSON } from './claude.js';
 import { runFFmpeg } from './ffmpeg.js';
 import fs from 'fs';
 
@@ -29,8 +29,10 @@ export interface AutoFix {
 export async function runQualityCheck(
   videoPath: string,
   duration: number,
-  plan: any
+  plan: any,
+  jobId?: string
 ): Promise<QAResult> {
+  const tempPrefix = jobId ? `temp/${jobId}` : 'temp';
   console.log('[QA] Running automated quality review...');
 
   const issues: QAIssue[] = [];
@@ -42,7 +44,7 @@ export async function runQualityCheck(
 
   for (let i = 0; i < frameCount; i++) {
     const timestamp = (duration / (frameCount + 1)) * (i + 1);
-    const framePath = `temp/qa_frame_${i}.jpg`;
+    const framePath = `${tempPrefix}/qa_frame_${i}.jpg`;
     try {
       await runFFmpeg(`ffmpeg -i "${videoPath}" -ss ${timestamp} -vframes 1 -q:v 2 -y "${framePath}"`);
       frames.push({ path: framePath, timestamp });
@@ -64,7 +66,7 @@ export async function runQualityCheck(
 
     try {
       const visualReview = await askClaudeVision(
-        `You are a video QA inspector. Review rendered frames for technical and creative issues BEFORE showing to client. Be strict.`,
+        `You are a video QA inspector. Review rendered frames for technical and creative issues BEFORE showing to client. Be strict. RESPOND ONLY WITH A JSON OBJECT. No text before or after. Start your response with { and end with }.`,
         [
           ...frameImages,
           {
@@ -93,7 +95,7 @@ Return JSON only:
         ]
       );
 
-      const result = JSON.parse(visualReview);
+      const result = parseVisionJSON(visualReview, { issues: [], overallVisualScore: 7 });
       for (const issue of result.issues || []) {
         issues.push({
           type: issue.type,
@@ -232,14 +234,16 @@ export interface TextReadabilityResult {
 export async function checkTextReadability(
   videoPath: string,
   textOverlays: Array<{ text: string; timestamp: number; fontSize: string; color: string }>,
-  aspectRatio: string
+  aspectRatio: string,
+  jobId?: string
 ): Promise<TextReadabilityResult[]> {
+  const tempPrefix = jobId ? `temp/${jobId}` : 'temp';
   console.log(`[TextReadability] Checking ${textOverlays.length} text overlays for mobile readability...`);
   const results: TextReadabilityResult[] = [];
 
   for (const overlay of textOverlays) {
-    const framePath = `temp/text_check_${overlay.timestamp}.jpg`;
-    const mobilePath = `temp/text_mobile_${overlay.timestamp}.jpg`;
+    const framePath = `${tempPrefix}/text_check_${overlay.timestamp}.jpg`;
+    const mobilePath = `${tempPrefix}/text_mobile_${overlay.timestamp}.jpg`;
 
     try {
       // Extract frame at text timestamp
@@ -259,22 +263,18 @@ export async function checkTextReadability(
       };
 
       const response = await askClaudeVision(
-        'You check if text in video frames is readable on a mobile phone screen.',
+        'You check if text in video frames is readable on a mobile phone screen. RESPOND ONLY WITH A JSON OBJECT. No text before or after. Start your response with { and end with }.',
         [
           image,
           {
             type: 'text',
-            text: `This frame is shown at PHONE SIZE (360px wide). Is the text "${overlay.text}" readable? Check: size (too small?), contrast (text vs background), position (covered by UI?). Return JSON: { "readable": true, "issue": "" }`,
+            text: `This frame is shown at PHONE SIZE (360px wide). Is the text "${overlay.text}" readable? Check: size (too small?), contrast (text vs background), position (covered by UI?). Return ONLY JSON, no other text: { "readable": true, "issue": "" }`,
           },
         ]
       );
 
-      try {
-        const result = JSON.parse(response);
-        results.push({ text: overlay.text, timestamp: overlay.timestamp, readable: result.readable, issue: result.issue || undefined });
-      } catch {
-        results.push({ text: overlay.text, timestamp: overlay.timestamp, readable: true });
-      }
+      const result = parseVisionJSON(response, { readable: true, issue: '' });
+      results.push({ text: overlay.text, timestamp: overlay.timestamp, readable: result.readable, issue: result.issue || undefined });
     } catch (error: any) {
       console.error(`[TextReadability] Check failed for text at ${overlay.timestamp}s:`, error.message);
       results.push({ text: overlay.text, timestamp: overlay.timestamp, readable: true });
