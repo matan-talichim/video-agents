@@ -687,6 +687,71 @@ export default function PreviewPage() {
           </div>
         )}
 
+        {/* Editing Blueprint Summary */}
+        {contentAnalysis?.editingBlueprint && (
+          <div className="bg-dark-card border border-accent-purple/30 rounded-xl p-4">
+            <h3 className="text-sm font-semibold text-accent-purple-light mb-3 flex items-center gap-2">
+              <span className="text-lg">🎬</span>
+              תוכנית עריכה מקצועית
+            </h3>
+            <div className="space-y-1.5 text-xs text-gray-300">
+              {contentAnalysis.editingBlueprint.cuts?.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-purple-400">•</span>
+                  <span>{contentAnalysis.editingBlueprint.cuts.length} חיתוכים</span>
+                  <span className="text-gray-500">
+                    ({(() => {
+                      const types = contentAnalysis.editingBlueprint.cuts.reduce((acc: Record<string, number>, c: any) => {
+                        acc[c.type] = (acc[c.type] || 0) + 1;
+                        return acc;
+                      }, {});
+                      return Object.entries(types).map(([t, n]) => `${n} ${t}`).join(', ');
+                    })()})
+                  </span>
+                </div>
+              )}
+              {contentAnalysis.editingBlueprint.zooms?.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-blue-400">•</span>
+                  <span>{contentAnalysis.editingBlueprint.zooms.length} זומים חכמים</span>
+                </div>
+              )}
+              {contentAnalysis.editingBlueprint.soundDesign?.sfx?.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-green-400">•</span>
+                  <span>{contentAnalysis.editingBlueprint.soundDesign.sfx.length} אפקטי סאונד</span>
+                  <span className="text-gray-500">
+                    ({[...new Set(contentAnalysis.editingBlueprint.soundDesign.sfx.map((s: any) => s.type))].join(', ')})
+                  </span>
+                </div>
+              )}
+              {contentAnalysis.editingBlueprint.colorPlan?.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-yellow-400">•</span>
+                  <span>תוכנית צבע: {contentAnalysis.editingBlueprint.colorPlan.map((c: any) => c.temperature).join(' → ')}</span>
+                </div>
+              )}
+              {contentAnalysis.editingBlueprint.platformOptimization && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-pink-400">•</span>
+                  <span>
+                    אופטימיזציה: {contentAnalysis.editingBlueprint.platformOptimization.platform}
+                    {contentAnalysis.editingBlueprint.platformOptimization.hookStrategy?.duration && (
+                      <span className="text-gray-500"> (הוק {contentAnalysis.editingBlueprint.platformOptimization.hookStrategy.duration} שניות)</span>
+                    )}
+                  </span>
+                </div>
+              )}
+              {contentAnalysis.editingBlueprint.murchAverageScore > 0 && (
+                <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-700/50">
+                  <span className="text-orange-400">★</span>
+                  <span>ציון Murch ממוצע: <span className="font-bold text-white">{contentAnalysis.editingBlueprint.murchAverageScore.toFixed(1)}/10</span></span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Chat input */}
         <PreviewChat
           onSend={handleChange}

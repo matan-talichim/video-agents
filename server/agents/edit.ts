@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import * as ffmpeg from '../services/ffmpeg.js';
 import * as subtitles from '../services/subtitles.js';
 import { askClaude } from '../services/claude.js';
@@ -106,6 +107,165 @@ export async function runEditAgent(
     // Store cut transitions on job for assembly
     if (analysis.cutTransitions) {
       job.cutTransitions = analysis.cutTransitions;
+    }
+
+    // Store music sync and sound design plans on job
+    if (analysis.musicSync) {
+      (job as any).musicSyncPlan = analysis.musicSync;
+    }
+    if (analysis.soundDesign) {
+      (job as any).soundDesignPlan = analysis.soundDesign;
+    }
+    if (analysis.zooms) {
+      (job as any).blueprintZooms = analysis.zooms;
+    }
+    if (analysis.colorPlan) {
+      (job as any).colorPlan = analysis.colorPlan;
+    }
+    if (analysis.platformOptimization) {
+      (job as any).platformOptimization = analysis.platformOptimization;
+    }
+  }
+
+  // === APPLY EDITING BLUEPRINT ===
+  const blueprint = analysis?.editingBlueprint || job.editingBlueprint;
+  if (blueprint) {
+    console.log(`[Edit] Applying editing blueprint: ${blueprint.cuts?.length || 0} cuts, ${blueprint.zooms?.length || 0} zooms, ${blueprint.soundDesign?.sfx?.length || 0} SFX`);
+    console.log(`[Edit] Murch average score: ${blueprint.murchAverageScore || 'N/A'}`);
+
+    // Store blueprint on job for downstream steps
+    job.editingBlueprint = blueprint;
+  }
+
+  // ========================================================
+  // STEP 0.7: SPEED RAMPING (alters timeline — must run early)
+  // ========================================================
+  if (blueprint?.speedRamps && blueprint.speedRamps.length > 0) {
+    try {
+      updateProgress(job, 'מוסיף speed ramping...');
+
+      const ramps = [...blueprint.speedRamps].sort((a: any, b: any) => a.start - b.start);
+      const totalDuration = await ffmpeg.getVideoDuration(currentVideo);
+
+      // Build segments: normal speed sections + ramped sections
+      const segments: Array<{ start: number; end: number; speed: number }> = [];
+      let lastEnd = 0;
+
+      for (const ramp of ramps) {
+        if (ramp.start > lastEnd) {
+          segments.push({ start: lastEnd, end: ramp.start, speed: 1.0 });
+        }
+        segments.push({ start: ramp.start, end: ramp.end, speed: ramp.speed });
+        lastEnd = ramp.end;
+      }
+      if (lastEnd < totalDuration) {
+        segments.push({ start: lastEnd, end: totalDuration, speed: 1.0 });
+      }
+
+      // Process each segment
+      const segmentFiles: string[] = [];
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        const segPath = `${editDir}/speed_seg_${i}.mp4`;
+
+        if (seg.speed === 1.0) {
+          await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -ss ${seg.start} -to ${seg.end} -c copy -y "${segPath}"`);
+        } else {
+          const pts = (1 / seg.speed).toFixed(4);
+          let atempoFilter: string;
+          if (seg.speed >= 0.5 && seg.speed <= 2.0) {
+            atempoFilter = `atempo=${seg.speed}`;
+          } else if (seg.speed > 2.0) {
+            atempoFilter = `atempo=2.0,atempo=${(seg.speed / 2.0).toFixed(4)}`;
+          } else {
+            atempoFilter = `atempo=${(seg.speed * 2).toFixed(4)},atempo=0.5`;
+          }
+          await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -ss ${seg.start} -to ${seg.end} -filter_complex "[0:v]setpts=${pts}*PTS[v];[0:a]${atempoFilter}[a]" -map "[v]" -map "[a]" -y "${segPath}"`);
+        }
+        segmentFiles.push(segPath);
+      }
+
+      // Concat all segments
+      const listPath = `${editDir}/speed_list.txt`;
+      fs.writeFileSync(listPath, segmentFiles.map(f => `file '${path.resolve(f)}'`).join('\n'));
+      const speedOutput = `${editDir}/speed_ramped.mp4`;
+      await ffmpeg.runFFmpeg(`ffmpeg -f concat -safe 0 -i "${listPath}" -c copy -y "${speedOutput}"`);
+      currentVideo = speedOutput;
+
+      // Cleanup
+      for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch {} }
+      try { fs.unlinkSync(listPath); } catch {}
+
+      console.log(`[Edit] Applied ${ramps.length} speed ramps`);
+    } catch (error: any) {
+      console.error('Speed ramping failed:', error.message);
+      warnings.push('Speed ramping failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
+  // STEP 0.8: PATTERN INTERRUPTS (plan into existing systems)
+  // ========================================================
+  if (blueprint?.patternInterrupts && blueprint.patternInterrupts.length > 0) {
+    try {
+      console.log(`[Edit] Planning ${blueprint.patternInterrupts.length} pattern interrupts`);
+
+      for (const interrupt of blueprint.patternInterrupts) {
+        switch (interrupt.type) {
+          case 'zoom-punch':
+            (job as any).zoomPlan = (job as any).zoomPlan || [];
+            (job as any).zoomPlan.push(
+              { timestamp: interrupt.at, zoomFrom: 1.0, zoomTo: interrupt.zoomLevel || 1.2, duration: 0.15, reason: `pattern interrupt: ${interrupt.reason}` },
+              { timestamp: interrupt.at + 0.25, zoomFrom: interrupt.zoomLevel || 1.2, zoomTo: 1.0, duration: 0.25, reason: 'zoom punch return' }
+            );
+            (job as any).sfxPlacements = (job as any).sfxPlacements || [];
+            (job as any).sfxPlacements.push({ type: 'whoosh', at: interrupt.at, volume: -15, reason: 'zoom punch SFX' });
+            break;
+
+          case 'text-pop':
+            (job as any).kineticTextPlan = (job as any).kineticTextPlan || [];
+            (job as any).kineticTextPlan.push({
+              text: interrupt.text || '',
+              startTime: interrupt.at,
+              endTime: interrupt.at + (interrupt.duration || 0.8),
+              animation: 'pop-scale',
+              fontSize: 'large',
+              color: '#FFFFFF',
+              type: 'pattern-interrupt',
+            });
+            break;
+
+          case 'sfx-hit':
+            (job as any).sfxPlacements = (job as any).sfxPlacements || [];
+            (job as any).sfxPlacements.push({ type: interrupt.sfxType || 'impact', at: interrupt.at, volume: -12, reason: `pattern interrupt: ${interrupt.reason}` });
+            break;
+
+          case 'shake':
+            (job as any).shakeEffects = (job as any).shakeEffects || [];
+            (job as any).shakeEffects.push({ at: interrupt.at, duration: interrupt.duration || 0.5, intensity: interrupt.intensity === 'strong' ? 5 : 2 });
+            break;
+
+          case 'color-flash':
+            (job as any).sfxPlacements = (job as any).sfxPlacements || [];
+            (job as any).sfxPlacements.push({ type: 'impact', at: interrupt.at, volume: -15, reason: `color flash: ${interrupt.reason}` });
+            break;
+
+          case 'speed-change':
+            // Handled by speed ramp system if blueprint includes it
+            break;
+
+          case 'music-change':
+            // Handled by music ducking system
+            break;
+
+          default:
+            console.log(`[Edit] Pattern interrupt type '${interrupt.type}' queued for Remotion render`);
+            break;
+        }
+      }
+    } catch (error: any) {
+      console.error('Pattern interrupts failed:', error.message);
+      warnings.push('Pattern interrupts failed: ' + error.message);
     }
   }
 
@@ -338,6 +498,31 @@ Rules:
   }
 
   // ========================================================
+  // STEP 6.5: BLUEPRINT COLOR PLAN (per-segment color grading)
+  // ========================================================
+  const colorPlan = (job as any).colorPlan;
+  if (colorPlan && colorPlan.length > 0 && !plan.edit.colorGrading) {
+    try {
+      updateProgress(job, 'מתאים צבעים...');
+
+      for (const colorSegment of colorPlan) {
+        if (colorSegment.lut && colorSegment.lut !== 'none') {
+          const lutPath = `server/assets/luts/${colorSegment.lut}.cube`;
+          if (fs.existsSync(lutPath)) {
+            const output = nextOutput();
+            await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -vf "lut3d='${lutPath}'" -c:a copy -y "${output}"`);
+            currentVideo = output;
+            break; // apply first matching LUT (full per-segment grading requires trim+concat)
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('Blueprint color plan failed:', error.message);
+      warnings.push('Blueprint color plan failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
   // STEP 7: SKIN TONE + LIGHTING
   // ========================================================
   if (plan.edit.skinToneCorrection) {
@@ -380,9 +565,81 @@ Rules:
   }
 
   // ========================================================
+  // STEP 8.5: FAKE CUT ZOOMS (simulate camera angle changes on hard cuts)
+  // ========================================================
+  if (analysis?.cutTransitions) {
+    try {
+      const fakeZoomCuts = analysis.cutTransitions.filter(
+        (cut: any) => cut.type === 'hard' && cut.fakeZoom
+      );
+      if (fakeZoomCuts.length > 0) {
+        updateProgress(job, 'זום מדומה לחיתוכים — סימולציית מצלמה...');
+        let cutIndex = 0;
+        for (const cut of fakeZoomCuts) {
+          try {
+            const isOdd = cutIndex % 2 === 0;
+            const output = nextOutput();
+            await ffmpeg.runFFmpeg(ffmpeg.addZoom(
+              currentVideo,
+              cut.at,
+              cut.at + 0.3,
+              isOdd ? 1.15 : 1.0,
+              output
+            ));
+            currentVideo = output;
+          } catch (zoomErr: any) {
+            console.error(`Fake zoom at ${cut.at}s failed:`, zoomErr.message);
+          }
+          cutIndex++;
+        }
+      }
+    } catch (error: any) {
+      console.error('Fake cut zooms failed:', error.message);
+      warnings.push('Fake cut zooms failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
+  // STEP 8.7: BLUEPRINT ZOOMS (from content analysis zoom plan)
+  // ========================================================
+  const blueprintZooms = (job as any).blueprintZooms;
+  if (blueprintZooms && blueprintZooms.length > 0) {
+    try {
+      updateProgress(job, 'מוסיף זומים חכמים...');
+
+      const sortedZooms = [...blueprintZooms].sort((a: any, b: any) => a.timestamp - b.timestamp);
+      zoomPlan = sortedZooms.map((z: any) => ({
+        start: z.timestamp,
+        end: z.timestamp + z.duration,
+        zoom_factor: z.zoomTo,
+        reason: z.reason,
+      }));
+
+      for (const zoom of sortedZooms) {
+        try {
+          const output = nextOutput();
+          await ffmpeg.runFFmpeg(ffmpeg.addZoom(
+            currentVideo,
+            zoom.timestamp,
+            zoom.timestamp + zoom.duration,
+            zoom.zoomTo,
+            output
+          ));
+          currentVideo = output;
+        } catch (zoomErr: any) {
+          console.error(`Blueprint zoom at ${zoom.timestamp}s failed:`, zoomErr.message);
+        }
+      }
+    } catch (error: any) {
+      console.error('Blueprint zooms failed:', error.message);
+      warnings.push('Blueprint zooms failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
   // STEP 9: SMART ZOOMS (snapped to beats if musicSync enabled)
   // ========================================================
-  if (plan.edit.smartZooms && transcript) {
+  if (plan.edit.smartZooms && transcript && !blueprintZooms?.length) {
     try {
       updateProgress(job, 'זומים חכמים...');
 
@@ -591,14 +848,48 @@ Rules:
   }
 
   // ========================================================
-  // STEP 16: MUSIC + AUTO-DUCKING
+  // STEP 15.5: VOICE PROCESSING (from sound design blueprint)
+  // ========================================================
+  const soundDesignPlan = (job as any).soundDesignPlan;
+  if (soundDesignPlan?.voiceProcessing) {
+    try {
+      const vp = soundDesignPlan.voiceProcessing;
+      const filters: string[] = [];
+      if (vp.highPass) filters.push(`highpass=f=${vp.highPass}`);
+      if (vp.compression) filters.push(`acompressor=ratio=3:threshold=-20dB`);
+      if (vp.normalize) filters.push(`loudnorm=I=${vp.normalize}`);
+
+      if (filters.length > 0) {
+        updateProgress(job, 'מעבד אודיו...');
+        const output = nextOutput();
+        await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -af "${filters.join(',')}" -c:v copy -y "${output}"`);
+        currentVideo = output;
+      }
+    } catch (error: any) {
+      console.error('Voice processing failed:', error.message);
+      warnings.push('Voice processing failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
+  // STEP 16: MUSIC + AUTO-DUCKING (enhanced with blueprint ducking)
   // ========================================================
   if (plan.edit.music && musicPath && fs.existsSync(musicPath)) {
     try {
       updateProgress(job, 'מוזיקה...');
       const output = nextOutput();
+      const musicSyncPlan = (job as any).musicSyncPlan;
 
-      if (plan.edit.autoDucking) {
+      if (musicSyncPlan?.ducking && musicSyncPlan.ducking.length > 0) {
+        // Use blueprint-driven ducking with per-segment volume control
+        const duckingFilter = musicSyncPlan.ducking
+          .map((d: any) => `volume=enable='between(t,${d.start},${d.end})':volume=${Math.pow(10, d.volume / 20).toFixed(3)}`)
+          .join(',');
+
+        await ffmpeg.runFFmpeg(
+          `ffmpeg -i "${currentVideo}" -i "${musicPath}" -filter_complex "[1:a]${duckingFilter}[music];[0:a][music]amix=inputs=2:duration=first" -map 0:v -c:v copy -y "${output}"`
+        );
+      } else if (plan.edit.autoDucking) {
         await ffmpeg.runFFmpeg(ffmpeg.mixMusicWithDucking(currentVideo, musicPath, output));
       } else {
         await ffmpeg.runFFmpeg(ffmpeg.mixMusicSimple(currentVideo, musicPath, 0.15, output));

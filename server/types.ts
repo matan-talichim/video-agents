@@ -45,8 +45,10 @@ export interface Job {
   transcript?: TranscriptResult;
   sourceDocumentContent?: string;
   contentAnalysis?: ContentAnalysis;
+  editingBlueprint?: import('./services/editingRules.js').EditingBlueprint;
   emotionalArc?: ContentAnalysis['emotionalArc'];
   cutTransitions?: ContentAnalysis['cutTransitions'];
+  shakeEffects?: Array<{ at: number; duration: number; intensity: number }>;
   presenterDetection?: PresenterDetection;
   speakerVerification?: VerifiedSpeakerMap;
   videoIntelligence?: VideoIntelligence;
@@ -626,8 +628,12 @@ export interface ContentAnalysis {
   }>;
   cutTransitions: Array<{
     at: number;
-    type: 'broll-bridge' | 'zoom' | 'crossfade' | 'flash';
-    duration: number;
+    type: 'hard' | 'lcutBroll' | 'crossfade' | 'smashCut' | 'cutaway' | 'montage' | 'broll-bridge' | 'zoom' | 'flash';
+    murchScore?: number;
+    audioOverlapAfter?: number;
+    fakeZoom?: boolean;
+    duration?: number;
+    reason?: string;
   }>;
   footageIssues: Array<{
     issue: string;
@@ -640,6 +646,39 @@ export interface ContentAnalysis {
     viralScore: number;
     reason: string;
   }>;
+  musicSync?: {
+    ducking: Array<{ start: number; end: number; volume: number; reason: string }>;
+    beatAlignedCuts: number[];
+  };
+  soundDesign?: {
+    roomToneSource?: { start: number; end: number };
+    voiceProcessing?: { highPass: number; compression: boolean; normalize: number };
+    sfx: Array<{ type: string; at: number; duration?: number; volume: number; reason: string }>;
+  };
+  zooms?: Array<{
+    timestamp: number;
+    zoomFrom: number;
+    zoomTo: number;
+    duration: number;
+    easing: string;
+    reason: string;
+  }>;
+  colorPlan?: Array<{
+    segment: { start: number; end: number };
+    temperature: string;
+    lut: string;
+    skinToneProtection: boolean;
+  }>;
+  platformOptimization?: {
+    platform: string;
+    hookStrategy: { type: string; text: string; duration: number };
+    safeZone: { top: number; bottom: number; right: number };
+    idealCutFrequency: number;
+    captionPosition: string;
+    loopable: boolean;
+    endStrategy: string;
+  };
+  editingBlueprint?: import('./services/editingRules.js').EditingBlueprint;
 }
 
 // --- Presenter Detection Types ---

@@ -1,6 +1,8 @@
 import fs from 'fs';
 import { askClaude, askClaudeVision } from './claude.js';
 import { runFFmpeg, extractFrame, getVideoDuration } from './ffmpeg.js';
+import { MASTER_EDITING_PROMPT } from './editingRules.js';
+import type { EditingBlueprint } from './editingRules.js';
 import type { TranscriptResult } from '../types.js';
 
 export interface ContentAnalysis {
@@ -93,8 +95,12 @@ export interface ContentAnalysis {
   // Cut transitions
   cutTransitions: Array<{
     at: number;
-    type: 'broll-bridge' | 'zoom' | 'crossfade' | 'flash';
-    duration: number;
+    type: 'hard' | 'lcutBroll' | 'crossfade' | 'smashCut' | 'cutaway' | 'montage' | 'broll-bridge' | 'zoom' | 'flash';
+    murchScore?: number;
+    audioOverlapAfter?: number;
+    fakeZoom?: boolean;
+    duration?: number;
+    reason?: string;
   }>;
 
   // Footage issues and solutions
@@ -111,6 +117,69 @@ export interface ContentAnalysis {
     viralScore: number;
     reason: string;
   }>;
+
+  // Music sync plan
+  musicSync?: {
+    ducking: Array<{
+      start: number;
+      end: number;
+      volume: number;
+      reason: string;
+    }>;
+    beatAlignedCuts: number[];
+  };
+
+  // Sound design plan
+  soundDesign?: {
+    roomToneSource?: { start: number; end: number };
+    voiceProcessing?: {
+      highPass: number;
+      compression: boolean;
+      normalize: number;
+    };
+    sfx: Array<{
+      type: 'whoosh' | 'ding' | 'rise' | 'impact' | 'click';
+      at: number;
+      duration?: number;
+      volume: number;
+      reason: string;
+    }>;
+  };
+
+  // Smart zoom plan
+  zooms?: Array<{
+    timestamp: number;
+    zoomFrom: number;
+    zoomTo: number;
+    duration: number;
+    easing: string;
+    reason: string;
+  }>;
+
+  // Color grading plan
+  colorPlan?: Array<{
+    segment: { start: number; end: number };
+    temperature: 'warm' | 'neutral' | 'cool';
+    saturation: 'low' | 'normal' | 'high';
+    contrast: 'low' | 'medium' | 'high';
+    lut: 'cinematic' | 'bright' | 'moody' | 'vintage' | 'none';
+    skinToneProtection: boolean;
+    matchPrevious: boolean;
+  }>;
+
+  // Platform optimization
+  platformOptimization?: {
+    platform: string;
+    hookStrategy: { type: string; text: string; duration: number };
+    safeZone: { top: number; bottom: number; right: number };
+    idealCutFrequency: number;
+    captionPosition: string;
+    loopable: boolean;
+    endStrategy: string;
+  };
+
+  // Complete editing blueprint
+  editingBlueprint?: EditingBlueprint;
 }
 
 export async function analyzeContent(
@@ -298,8 +367,24 @@ Analyze this content and return JSON with ALL of the following fields:
   "cutTransitions": [
     {
       "at": 12.0,
-      "type": "broll-bridge",
-      "duration": 0.5
+      "type": "lcutBroll",
+      "murchScore": 8,
+      "audioOverlapAfter": 1.0,
+      "reason": "speaker mentions visual — L-cut to B-Roll"
+    },
+    {
+      "at": 25.0,
+      "type": "hard",
+      "murchScore": 7,
+      "fakeZoom": true,
+      "reason": "sentence break — fake zoom to simulate camera change"
+    },
+    {
+      "at": 45.0,
+      "type": "crossfade",
+      "murchScore": 9,
+      "duration": 0.8,
+      "reason": "topic change — dissolve to mark new section"
     }
   ],
   "footageIssues": [
@@ -315,7 +400,57 @@ Analyze this content and return JSON with ALL of the following fields:
       "viralScore": 9,
       "reason": "Strong emotional statement that creates curiosity"
     }
-  ]
+  ],
+  "musicSync": {
+    "ducking": [
+      { "start": 0, "end": 3, "volume": -6, "reason": "intro — music prominent" },
+      { "start": 3, "end": 45, "volume": -20, "reason": "speaking — music low" },
+      { "start": 45, "end": 50, "volume": -6, "reason": "outro — music prominent" }
+    ],
+    "beatAlignedCuts": [3.2, 6.4, 9.6, 12.8]
+  },
+  "soundDesign": {
+    "roomToneSource": { "start": 5.2, "end": 7.5 },
+    "voiceProcessing": { "highPass": 80, "compression": true, "normalize": -14 },
+    "sfx": [
+      { "type": "whoosh", "at": 15.5, "volume": -15, "reason": "cut to B-Roll" },
+      { "type": "rise", "at": 28.0, "duration": 2.0, "volume": -12, "reason": "building to key point" },
+      { "type": "impact", "at": 30.0, "volume": -10, "reason": "main benefit reveal" }
+    ]
+  },
+  "zooms": [
+    { "timestamp": 15.5, "zoomFrom": 1.0, "zoomTo": 1.15, "duration": 1.5, "easing": "ease-in-out", "reason": "key statistic — emphasize" },
+    { "timestamp": 30.0, "zoomFrom": 1.15, "zoomTo": 1.0, "duration": 1.5, "easing": "ease-in-out", "reason": "new topic — zoom out for breathing room" }
+  ],
+  "colorPlan": [
+    {
+      "segment": { "start": 0, "end": 15 },
+      "temperature": "cool",
+      "saturation": "normal",
+      "contrast": "medium",
+      "lut": "cinematic",
+      "skinToneProtection": true,
+      "matchPrevious": false
+    },
+    {
+      "segment": { "start": 15, "end": 45 },
+      "temperature": "warm",
+      "saturation": "high",
+      "contrast": "medium",
+      "lut": "bright",
+      "skinToneProtection": true,
+      "matchPrevious": true
+    }
+  ],
+  "platformOptimization": {
+    "platform": "instagram-reels",
+    "hookStrategy": { "type": "text-hook", "text": "hook text here", "duration": 1.5 },
+    "safeZone": { "top": 15, "bottom": 15, "right": 15 },
+    "idealCutFrequency": 3,
+    "captionPosition": "center-vertical",
+    "loopable": true,
+    "endStrategy": "cta"
+  }
 }
 
 IMPORTANT:
@@ -328,7 +463,18 @@ IMPORTANT:
 - Provide exactly 3 hookOptions ranked by viralScore (highest first).
 - brollCoverMoments should cover weak visual moments (speaker looking away, bad framing, jump cuts).
 - emotionalArc should have 2-4 sections covering the full video.
-- cutTransitions should mark where hard cuts happen and suggest transition types.`
+- cutTransitions should mark where hard cuts happen and suggest transition types.
+- For cutTransitions, use this enhanced format: { "at": 5.2, "type": "lcutBroll", "murchScore": 8, "audioOverlapAfter": 1.0, "reason": "speaker mentions beach — L-cut to B-Roll" }
+- Valid cut types: "hard", "lcutBroll", "crossfade", "smashCut", "cutaway", "montage"
+- For hard cuts, add "fakeZoom": true to simulate a camera angle change
+- For crossfades, include "duration" (0.5-1.0s)
+
+${MASTER_EDITING_PROMPT}
+
+Based on your content analysis, create a complete "editingBlueprint" following ALL the rules above.
+The blueprint should contain: cuts, zooms, brollInsertions, musicSync, soundDesign, colorPlan, platformOptimization, speedRamps, patternInterrupts.
+Include a murchAverageScore (average of all cut murch scores).
+Also include "musicSync", "soundDesign", "zooms", "colorPlan", and "platformOptimization" as top-level fields in the response.`
     );
 
     const jsonStr = contentResponse
@@ -352,6 +498,12 @@ IMPORTANT:
       cutTransitions: analysis.cutTransitions || [],
       footageIssues: analysis.footageIssues || [],
       hookOptions: analysis.hookOptions || [],
+      musicSync: analysis.musicSync || undefined,
+      soundDesign: analysis.soundDesign || undefined,
+      zooms: analysis.zooms || undefined,
+      colorPlan: analysis.colorPlan || undefined,
+      platformOptimization: analysis.platformOptimization || undefined,
+      editingBlueprint: analysis.editingBlueprint || undefined,
     };
   } catch (error: any) {
     console.error('[ContentAnalyzer] Content analysis failed:', error.message);
