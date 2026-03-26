@@ -188,7 +188,7 @@ const useJobStore = create<JobStore>((set, get) => ({
   },
 
   requestPreviewChange: async (jobId: string, message: string): Promise<PreviewData | null> => {
-    set({ isLoading: true, error: null });
+    set({ isLoading: true });
     try {
       const res = await fetch(`/api/jobs/${jobId}/preview/change`, {
         method: 'POST',
@@ -199,9 +199,9 @@ const useJobStore = create<JobStore>((set, get) => ({
       const data = await res.json();
       set({ isLoading: false });
       return data.preview;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'שגיאה לא ידועה';
-      set({ error: msg, isLoading: false });
+    } catch {
+      // Don't set global error — preview change failure should not replace the page
+      set({ isLoading: false });
       return null;
     }
   },

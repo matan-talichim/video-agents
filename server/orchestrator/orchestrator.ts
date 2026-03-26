@@ -461,6 +461,12 @@ export async function runPipeline(job: Job): Promise<void> {
       transcript = ingestResult.transcript;
       allWarnings.push(...ingestResult.warnings);
 
+      // Save transcript to job so frontend can display it in preview
+      if (transcript) {
+        job.transcript = transcript;
+        updateJob(job.id, { transcript } as any);
+      }
+
       // Count completed ingest steps
       const ingestStepCount = steps.filter(s => s.stage === 'ingest').length;
       completedSteps += ingestStepCount;
