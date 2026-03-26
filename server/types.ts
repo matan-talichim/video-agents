@@ -54,6 +54,9 @@ export interface Job {
   presenterDetection?: PresenterDetection;
   speakerVerification?: VerifiedSpeakerMap;
   videoIntelligence?: VideoIntelligence;
+  stabilized?: boolean;
+  originalShakiness?: number;
+  freshEyesReview?: import('./services/freshEyesReview.js').FreshEyesResult;
 }
 
 export interface FileInfo {

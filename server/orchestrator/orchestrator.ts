@@ -20,6 +20,7 @@ import { analyzeContent } from '../services/contentAnalyzer.js';
 import { detectPresenter, filterTranscriptToPresenter } from '../services/presenterDetector.js';
 import { verifySpeakers } from '../services/speakerVerifier.js';
 import { analyzeVideoIntelligence, applyIntelligenceToPlan } from '../services/videoIntelligence.js';
+import { runFreshEyesReview, autoApplyFixes } from '../services/freshEyesReview.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -630,6 +631,46 @@ export async function runPipeline(job: Job): Promise<void> {
       console.log(`[Pipeline] Applying edit style: ${job.editStyle}`);
       job.plan = applyEditStyle(job.plan!, job.editStyle);
       updateJob(job.id, { plan: job.plan });
+    }
+
+    // --- FRESH EYES REVIEW (last check before rendering) ---
+    if (job.editingBlueprint) {
+      try {
+        updateJob(job.id, { currentStep: 'סקירת "עיניים רעננות" — בדיקה אחרונה...' });
+
+        const videoFile = job.files.find(f => f.type.startsWith('video'));
+        const videoDuration = job.contentAnalysis?.duration || 60;
+        const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
+
+        const freshReview = await runFreshEyesReview(
+          job.editingBlueprint,
+          job.contentAnalysis,
+          job.videoIntelligence?.marketingPlan,
+          job.emotionalArc,
+          videoDuration,
+          platformGuess
+        );
+
+        job.freshEyesReview = freshReview;
+        updateJob(job.id, { freshEyesReview: freshReview } as any);
+
+        // Auto-apply critical fixes
+        const fixCount = autoApplyFixes(job.editingBlueprint, freshReview.improvements);
+        if (fixCount > 0) {
+          console.log(`[Fresh Eyes] Auto-applied ${fixCount} critical fixes`);
+        }
+
+        // Log all findings
+        for (const imp of freshReview.improvements) {
+          const icon = imp.priority === 'critical' ? '[CRITICAL]' : imp.priority === 'important' ? '[IMPORTANT]' : '[NICE]';
+          console.log(`[Fresh Eyes] ${icon} ${imp.area}: ${imp.issue}`);
+        }
+
+        console.log(`[Fresh Eyes] Confidence: ${freshReview.overallConfidence}/10 | Would approve: ${freshReview.wouldApprove}`);
+      } catch (error: any) {
+        console.error('Fresh eyes review failed:', error.message);
+        allWarnings.push('Fresh eyes review failed: ' + error.message);
+      }
     }
 
     // --- REAL EDIT AGENT ---

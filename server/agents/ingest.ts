@@ -19,6 +19,7 @@ import {
   getVideoDuration,
   findAudioOffset,
 } from '../services/ffmpeg.js';
+import { detectAndStabilize } from '../services/videoStabilizer.js';
 import { updateJob } from '../store/jobStore.js';
 
 function saveJSON(filePath: string, data: any): void {
@@ -44,6 +45,30 @@ export async function runIngestAgent(
 
   const tempDir = path.join('temp', job.id);
   fs.mkdirSync(tempDir, { recursive: true });
+
+  // --- VIDEO STABILIZATION ---
+  const videoFile = job.files.find(f => f.type.startsWith('video'));
+  if (videoFile) {
+    try {
+      updateProgress(job, 'בודק יציבות צילום...');
+      const stabResult = await detectAndStabilize(videoFile.path, job.id);
+
+      if (stabResult.wasShaky) {
+        // Update the file path to use stabilized version for all subsequent steps
+        videoFile.path = stabResult.stabilizedPath;
+        job.stabilized = true;
+        job.originalShakiness = stabResult.shakiness;
+        updateJob(job.id, { stabilized: true, originalShakiness: stabResult.shakiness } as any);
+        console.log(`[Ingest] Shaky footage detected (${stabResult.shakiness.toFixed(1)}) — stabilized automatically`);
+      } else {
+        console.log('[Ingest] Footage is stable — no stabilization needed');
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('Video stabilization failed:', msg);
+      result.warnings.push(`ייצוב וידאו נכשל: ${msg}. דילוג.`);
+    }
+  }
 
   // --- TRANSCRIBE ---
   if (plan.ingest.transcribe) {
