@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { askClaude, askClaudeVision } from './claude.js';
 import { runFFmpeg, extractFrame, getVideoDuration } from './ffmpeg.js';
-import { EDITING_RULES_PART1 } from './editingRules.js';
+import { EDITING_RULES_PART1, EDITING_RULES_PART2 } from './editingRules.js';
 import type { TranscriptResult } from '../types.js';
 
 export interface ContentAnalysis {
@@ -116,6 +116,34 @@ export interface ContentAnalysis {
     viralScore: number;
     reason: string;
   }>;
+
+  // Music sync plan
+  musicSync?: {
+    ducking: Array<{
+      start: number;
+      end: number;
+      volume: number;
+      reason: string;
+    }>;
+    beatAlignedCuts: number[];
+  };
+
+  // Sound design plan
+  soundDesign?: {
+    roomToneSource?: { start: number; end: number };
+    voiceProcessing?: {
+      highPass: number;
+      compression: boolean;
+      normalize: number;
+    };
+    sfx: Array<{
+      type: 'whoosh' | 'ding' | 'rise' | 'impact' | 'click';
+      at: number;
+      duration?: number;
+      volume: number;
+      reason: string;
+    }>;
+  };
 }
 
 export async function analyzeContent(
@@ -336,7 +364,24 @@ Analyze this content and return JSON with ALL of the following fields:
       "viralScore": 9,
       "reason": "Strong emotional statement that creates curiosity"
     }
-  ]
+  ],
+  "musicSync": {
+    "ducking": [
+      { "start": 0, "end": 3, "volume": -6, "reason": "intro — music prominent" },
+      { "start": 3, "end": 45, "volume": -20, "reason": "speaking — music low" },
+      { "start": 45, "end": 50, "volume": -6, "reason": "outro — music prominent" }
+    ],
+    "beatAlignedCuts": [3.2, 6.4, 9.6, 12.8]
+  },
+  "soundDesign": {
+    "roomToneSource": { "start": 5.2, "end": 7.5 },
+    "voiceProcessing": { "highPass": 80, "compression": true, "normalize": -14 },
+    "sfx": [
+      { "type": "whoosh", "at": 15.5, "volume": -15, "reason": "cut to B-Roll" },
+      { "type": "rise", "at": 28.0, "duration": 2.0, "volume": -12, "reason": "building to key point" },
+      { "type": "impact", "at": 30.0, "volume": -10, "reason": "main benefit reveal" }
+    ]
+  }
 }
 
 IMPORTANT:
@@ -357,7 +402,10 @@ IMPORTANT:
 
 ${EDITING_RULES_PART1}
 
-Apply these rules when planning cuts in the editingBlueprint.`
+${EDITING_RULES_PART2}
+
+Apply these rules when planning cuts, music sync, and sound design in the editingBlueprint.
+Include "musicSync" and "soundDesign" objects in your response JSON.`
     );
 
     const jsonStr = contentResponse
@@ -381,6 +429,8 @@ Apply these rules when planning cuts in the editingBlueprint.`
       cutTransitions: analysis.cutTransitions || [],
       footageIssues: analysis.footageIssues || [],
       hookOptions: analysis.hookOptions || [],
+      musicSync: analysis.musicSync || undefined,
+      soundDesign: analysis.soundDesign || undefined,
     };
   } catch (error: any) {
     console.error('[ContentAnalyzer] Content analysis failed:', error.message);

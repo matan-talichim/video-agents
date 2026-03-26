@@ -107,6 +107,14 @@ export async function runEditAgent(
     if (analysis.cutTransitions) {
       job.cutTransitions = analysis.cutTransitions;
     }
+
+    // Store music sync and sound design plans on job
+    if (analysis.musicSync) {
+      (job as any).musicSyncPlan = analysis.musicSync;
+    }
+    if (analysis.soundDesign) {
+      (job as any).soundDesignPlan = analysis.soundDesign;
+    }
   }
 
   // ========================================================
@@ -626,14 +634,48 @@ Rules:
   }
 
   // ========================================================
-  // STEP 16: MUSIC + AUTO-DUCKING
+  // STEP 15.5: VOICE PROCESSING (from sound design blueprint)
+  // ========================================================
+  const soundDesignPlan = (job as any).soundDesignPlan;
+  if (soundDesignPlan?.voiceProcessing) {
+    try {
+      const vp = soundDesignPlan.voiceProcessing;
+      const filters: string[] = [];
+      if (vp.highPass) filters.push(`highpass=f=${vp.highPass}`);
+      if (vp.compression) filters.push(`acompressor=ratio=3:threshold=-20dB`);
+      if (vp.normalize) filters.push(`loudnorm=I=${vp.normalize}`);
+
+      if (filters.length > 0) {
+        updateProgress(job, 'מעבד אודיו...');
+        const output = nextOutput();
+        await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -af "${filters.join(',')}" -c:v copy -y "${output}"`);
+        currentVideo = output;
+      }
+    } catch (error: any) {
+      console.error('Voice processing failed:', error.message);
+      warnings.push('Voice processing failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
+  // STEP 16: MUSIC + AUTO-DUCKING (enhanced with blueprint ducking)
   // ========================================================
   if (plan.edit.music && musicPath && fs.existsSync(musicPath)) {
     try {
       updateProgress(job, 'מוזיקה...');
       const output = nextOutput();
+      const musicSyncPlan = (job as any).musicSyncPlan;
 
-      if (plan.edit.autoDucking) {
+      if (musicSyncPlan?.ducking && musicSyncPlan.ducking.length > 0) {
+        // Use blueprint-driven ducking with per-segment volume control
+        const duckingFilter = musicSyncPlan.ducking
+          .map((d: any) => `volume=enable='between(t,${d.start},${d.end})':volume=${Math.pow(10, d.volume / 20).toFixed(3)}`)
+          .join(',');
+
+        await ffmpeg.runFFmpeg(
+          `ffmpeg -i "${currentVideo}" -i "${musicPath}" -filter_complex "[1:a]${duckingFilter}[music];[0:a][music]amix=inputs=2:duration=first" -map 0:v -c:v copy -y "${output}"`
+        );
+      } else if (plan.edit.autoDucking) {
         await ffmpeg.runFFmpeg(ffmpeg.mixMusicWithDucking(currentVideo, musicPath, output));
       } else {
         await ffmpeg.runFFmpeg(ffmpeg.mixMusicSimple(currentVideo, musicPath, 0.15, output));

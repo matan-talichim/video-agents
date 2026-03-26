@@ -52,3 +52,87 @@ For each cut, specify: { "at": X, "type": "hard|lcutBroll|crossfade|smashCut|cut
 
 // Combined prompt for Part 1
 export const EDITING_RULES_PART1 = `${MURCH_RULES_PROMPT}\n\n${AUDIO_CUT_RULES_PROMPT}\n\n${CUT_TYPE_RULES_PROMPT}`;
+
+// ============================================================
+// CATEGORY 3: ADVANCED MUSIC SYNC
+// ============================================================
+export const MUSIC_SYNC_RULES_PROMPT = `Music must be PART of the edit, not just background noise:
+
+BEAT-ALIGNED CUTS:
+- Every major cut (scene change, B-Roll switch) should land on a music beat
+- Minor cuts (zooms, text) can fall on off-beats for variety
+
+ENERGY MATCHING:
+- Music build-up → gradually increase cut frequency
+- Music drops/choruses → fastest cuts, most dynamic B-Roll
+- Music quiet sections → longer shots, emotional moments
+- Music outros → slow dissolves, final CTA
+
+AUDIO DUCKING RULES:
+- Speaker talks: music at 12-15% volume
+- Speaker pauses (>1.5s): music rises to 35-40%
+- Between sections: music at 50-60%
+- Intro (before speaker): music at 70-80%
+- Outro (after speaker stops): music at 80-100%
+- All volume changes: 0.3-second fades (never instant)
+
+Return musicSync plan:
+{
+  "ducking": [
+    { "start": 0, "end": 3, "volume": -6, "reason": "intro — music prominent" },
+    { "start": 3, "end": 45, "volume": -20, "reason": "speaking — music low" },
+    { "start": 45, "end": 50, "volume": -6, "reason": "outro — music prominent" }
+  ],
+  "beatAlignedCuts": [3.2, 6.4, 9.6, 12.8]
+}`;
+
+// ============================================================
+// CATEGORY 7: SOUND DESIGN
+// ============================================================
+export const SOUND_DESIGN_RULES_PROMPT = `Professional sound design makes amateur footage feel Hollywood:
+
+ROOM TONE:
+- NEVER leave absolute silence (0 audio) in the video
+- Extract 2-3 seconds of "silence" from the recording = room tone
+- Layer room tone under all audio cuts to prevent jarring silence gaps
+
+AUDIO CROSSFADES:
+- Every audio cut must have a crossfade
+- Minimum: 50ms (prevents clicks/pops)
+- Standard: 100-200ms for speech
+- Long: 500ms-1s for music transitions
+- NEVER hard-cut audio — it creates clicks
+
+VOICE PROCESSING:
+- High-pass filter at 80Hz (removes rumble, AC noise)
+- Gentle compression (3:1 ratio) to even out loud/quiet
+- Normalize to -14 LUFS (social media standard)
+
+SFX PLACEMENT:
+- "whoosh" (0.2-0.4s): on cuts to B-Roll, on text sliding in
+- "ding" (0.1-0.3s): when keyword highlights appear in subtitles
+- "rise" (1-3s): building to the most important point
+- "impact" (0.2-0.5s): on hook moment, price reveals, dramatic statements
+- "click" (0.05-0.1s): on lower third appearances, CTA buttons
+- MAX density: 1 SFX per 4-5 seconds. More = annoying.
+
+SFX VOLUMES:
+- whoosh: -15dB
+- ding: -18dB
+- rise: -12dB
+- impact: -10dB
+- click: -20dB
+
+Return soundDesign plan:
+{
+  "roomToneSource": { "start": 5.2, "end": 7.5 },
+  "voiceProcessing": { "highPass": 80, "compression": true, "normalize": -14 },
+  "sfx": [
+    { "type": "whoosh", "at": 15.5, "volume": -15, "reason": "cut to B-Roll" },
+    { "type": "rise", "at": 28.0, "duration": 2.0, "volume": -12, "reason": "building to key point" },
+    { "type": "impact", "at": 30.0, "volume": -10, "reason": "main benefit reveal" }
+  ]
+}`;
+
+// Combined prompt for Part 2
+export const EDITING_RULES_PART2 = `${MUSIC_SYNC_RULES_PROMPT}\n\n${SOUND_DESIGN_RULES_PROMPT}`;
