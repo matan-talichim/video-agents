@@ -16,7 +16,7 @@ export type CaptionTemplate =
   | 'karaoke'
   | 'minimal';
 
-export type VideoModel = 'veo3.1' | 'sora2' | 'kling2.5' | 'wan2.5' | 'seedance1.5';
+export type VideoModel = string;
 
 export type PresetType =
   | 'instagram_ad'

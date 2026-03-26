@@ -1,9 +1,14 @@
+import { VIDEO_MODELS, getModelById } from '../data/videoModels';
+
 interface Props {
   blueprint: any;
+  selectedModel?: string;
 }
 
-export default function CostBreakdown({ blueprint }: Props) {
+export default function CostBreakdown({ blueprint, selectedModel }: Props) {
   const brollCount = blueprint?.brollInsertions?.length || 2;
+  const model = getModelById(selectedModel || 'veo-3.1-fast') || VIDEO_MODELS[0];
+  const brollCost = brollCount * model.pricePerClip;
 
   const costs = {
     // Core Pipeline
@@ -18,7 +23,7 @@ export default function CostBreakdown({ blueprint }: Props) {
 
     // B-Roll
     brollPrompts: 0.03,
-    brollGeneration: brollCount * 0.15,
+    brollGeneration: brollCost,
     brollQA: 0.02,
 
     // Music
@@ -93,7 +98,7 @@ export default function CostBreakdown({ blueprint }: Props) {
           cost={costs.patternInterrupts + costs.ambientSound + costs.marketingPlan + costs.hookGeneration}
         />
         <CostRow
-          label={`B-Roll (${brollCount} קליפים)`}
+          label={`B-Roll (${brollCount}× ${model.name})`}
           cost={costs.brollPrompts + costs.brollGeneration + costs.brollQA}
         />
         <CostRow
@@ -131,7 +136,7 @@ export default function CostBreakdown({ blueprint }: Props) {
 
         {/* Summary line */}
         <div className="text-[10px] text-gray-600 text-center mt-1">
-          ~{claudeCallCount} Claude calls + {brollCount} B-Roll clips + 1 music track
+          ~{claudeCallCount} Claude calls + {brollCount} B-Roll clips ({model.name}) + 1 music track
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 export type JobStatus = 'pending' | 'planning' | 'preview' | 'approved' | 'processing' | 'done' | 'error';
 export type JobMode = 'raw' | 'prompt-only';
-export type BRollModel = 'veo-3.1-fast' | 'sora-2' | 'kling-v2.5-turbo' | 'wan-2.5' | 'seedance-1.5-pro';
+export type BRollModel = string;
 export type PacingMode = 'fast' | 'normal' | 'calm';
 export type EditStyle = 'cinematic' | 'energetic' | 'minimal' | 'trendy';
 export type VoiceoverStyle = 'narrator' | 'educator' | 'persuader' | 'coach' | 'motivator';

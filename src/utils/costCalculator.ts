@@ -1,7 +1,8 @@
 // src/utils/costCalculator.ts — Frontend live cost calculator
-// Pricing constants duplicated from server/services/pricing.ts (plain numbers, no server deps)
+// Uses shared VIDEO_MODELS data for accurate pricing
 
 import type { CostItem, VideoModel } from '../types';
+import { VIDEO_MODELS, getModelById } from '../data/videoModels';
 
 // === Pricing Constants ===
 
@@ -12,16 +13,6 @@ const CLAUDE_PRICING = {
 
 const DEEPGRAM_PRICING = {
   preRecordedPerMinute: 0.0043,
-};
-
-// Model ID → pricing lookup
-// Frontend uses short IDs (veo3.1, sora2, etc.) — map to costs
-const MODEL_PRICING: Record<string, { label: string; perClip: number; perSecond: number }> = {
-  'veo3.1':      { label: 'Veo 3.1 Fast',      perClip: 0.40, perSecond: 0.05 },
-  'sora2':       { label: 'Sora 2',             perClip: 0.15, perSecond: 0.015 },
-  'kling2.5':    { label: 'Kling 2.1 Standard', perClip: 0.10, perSecond: 0.02 },
-  'wan2.5':      { label: 'WAN 2.5',            perClip: 0.15, perSecond: 0.03 },
-  'seedance1.5': { label: 'Seedance 1.5 Pro',   perClip: 0.20, perSecond: 0.04 },
 };
 
 const KIE_FEATURES = {
@@ -107,12 +98,19 @@ export function calculateLiveCost(s: LiveCostSelections): { items: CostItem[]; t
     add('Deepgram (תמלול)', cost, `${Math.ceil(durMinutes)} דקות`, false);
   }
 
-  // --- B-Roll ---
+  // --- B-Roll (uses selected model pricing) ---
   if (s.options.addBRoll) {
-    const modelInfo = MODEL_PRICING[s.model] || MODEL_PRICING['kling2.5'];
+    const modelInfo = getModelById(s.model);
+    const fallback = VIDEO_MODELS[0]; // veo-3.1-fast
+    const model = modelInfo || fallback;
     const clipCount = estimateBRollClips(dur);
-    const cost = clipCount * modelInfo.perClip;
-    add(`B-Roll (${modelInfo.label}) — ${clipCount} קליפים`, cost, `${clipCount} קליפים × $${modelInfo.perClip.toFixed(2)}`, false);
+    const cost = clipCount * model.pricePerClip;
+    add(
+      `B-Roll (${model.name}) — ${clipCount} קליפים`,
+      cost,
+      `${clipCount} קליפים × $${model.pricePerClip.toFixed(2)}`,
+      false,
+    );
   }
 
   // --- Stock footage (always available, free) ---

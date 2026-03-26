@@ -48,7 +48,7 @@ export default function EditorPage() {
   const [prompt, setPrompt] = useState('');
   const [projectName, setProjectName] = useState('');
   const [preset, setPreset] = useState<PresetType>('freeform');
-  const [videoModel, setVideoModel] = useState<VideoModel>('kling2.5');
+  const [videoModel, setVideoModel] = useState<VideoModel>('veo-3.1-fast');
   const [editStyle, setEditStyle] = useState<EditStyle>('cinematic');
   const [voiceoverStyle, setVoiceoverStyle] = useState<VoiceoverStyle>('narrator');
   const [captionTemplate, setCaptionTemplate] = useState<CaptionTemplate>('classic');
@@ -120,15 +120,8 @@ export default function EditorPage() {
       const config: RecommendedConfig = JSON.parse(stored);
       setBrainConfig(config);
 
-      // Map model name to VideoModel type
-      const modelMap: Record<string, VideoModel> = {
-        'veo-3.1-fast': 'veo3.1',
-        'sora-2': 'sora2',
-        'kling-v2.5-turbo': 'kling2.5',
-        'wan-2.5': 'wan2.5',
-        'seedance-1.5-pro': 'seedance1.5',
-      };
-      if (modelMap[config.model]) setVideoModel(modelMap[config.model]);
+      // Use model ID directly (now uses full IDs like 'veo-3.1-fast')
+      if (config.model) setVideoModel(config.model);
       setEditStyle(config.editStyle);
       setTargetDuration(config.suggestedDuration);
       if (config.subtitleStyle) setCaptionTemplate(config.subtitleStyle as CaptionTemplate);
@@ -177,14 +170,7 @@ export default function EditorPage() {
 
   const handleResetToBrain = useCallback(() => {
     if (!brainConfig) return;
-    const modelMap: Record<string, VideoModel> = {
-      'veo-3.1-fast': 'veo3.1',
-      'sora-2': 'sora2',
-      'kling-v2.5-turbo': 'kling2.5',
-      'wan-2.5': 'wan2.5',
-      'seedance-1.5-pro': 'seedance1.5',
-    };
-    if (modelMap[brainConfig.model]) setVideoModel(modelMap[brainConfig.model]);
+    if (brainConfig.model) setVideoModel(brainConfig.model);
     setEditStyle(brainConfig.editStyle);
     setTargetDuration(brainConfig.suggestedDuration);
     if (brainConfig.subtitleStyle) setCaptionTemplate(brainConfig.subtitleStyle as CaptionTemplate);
