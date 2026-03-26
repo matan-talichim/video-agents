@@ -146,6 +146,7 @@ export interface Job {
   ambientSoundPlan?: import('./services/ambientSound.js').AmbientSoundPlan;
   thumbnails?: import('./services/thumbnailGenerator.js').ThumbnailResult;
   totalCost?: number;
+  auditReport?: import('./services/pipelineAudit.js').AuditReport;
   approvedFinal?: boolean;
   approvedAt?: string;
   revisionPlan?: any;

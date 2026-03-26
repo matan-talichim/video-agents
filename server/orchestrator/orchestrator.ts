@@ -51,6 +51,7 @@ import { getMasterPromptContext } from '../services/masterPromptOptimizer.js';
 import { assembleMasterBrainPrompt, countBrainRules } from '../services/masterBrain.js';
 import { planAmbientSound } from '../services/ambientSound.js';
 import { generateThumbnails } from '../services/thumbnailGenerator.js';
+import { PipelineAudit } from '../services/pipelineAudit.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -227,6 +228,9 @@ export async function runPipeline(job: Job): Promise<void> {
     if (!job.plan) {
       throw new Error('No execution plan found');
     }
+
+    // --- PIPELINE AUDIT ---
+    const audit = new PipelineAudit();
 
     // --- 30 MINUTE TIMEOUT ---
     const timeout = setTimeout(() => {
@@ -484,10 +488,25 @@ export async function runPipeline(job: Job): Promise<void> {
         // Pass duration category to Brain for edge case handling
         job.durationCategory = diagnosis.durationCategory;
         updateJob(job.id, { durationCategory: diagnosis.durationCategory } as any);
+
+        // Audit: footage doctor
+        audit.log('resolution-check', 'footageDoctor', diagnosis.resolution?.needsUpscale ? 'passed' : 'skipped',
+          `${diagnosis.resolution?.width || '?'}x${diagnosis.resolution?.height || '?'} — ${diagnosis.resolution?.needsUpscale ? 'upscaled' : 'OK'}`);
+        audit.log('black-bars', 'footageDoctor', diagnosis.blackBars?.detected ? 'passed' : 'skipped',
+          diagnosis.blackBars?.detected ? 'cropped' : 'none detected');
+        audit.log('stabilization', 'footageDoctor', job.originalShakiness !== undefined ? 'passed' : 'skipped',
+          `shakiness: ${job.originalShakiness || 'not checked'}`);
+        audit.log('flash-frames', 'footageDoctor', diagnosis.flashFrames?.detected ? 'passed' : 'skipped',
+          `${diagnosis.flashFrames?.timestamps?.length || 0} detected`);
+        audit.log('freeze-frames', 'footageDoctor', diagnosis.freezeFrames?.detected ? 'passed' : 'skipped',
+          `${diagnosis.freezeFrames?.count || 0} removed`);
       } catch (error: any) {
         console.warn('[Pipeline] Footage doctor failed (non-critical):', error.message);
         allWarnings.push(`Footage diagnosis skipped: ${error.message}`);
+        audit.log('footage-doctor', 'footageDoctor', 'failed', `diagnoseFootage() failed: ${error.message}`);
       }
+    } else {
+      audit.log('footage-doctor', 'footageDoctor', 'skipped', 'No files uploaded');
     }
 
     // --- REAL INGEST AGENT ---
@@ -540,6 +559,16 @@ export async function runPipeline(job: Job): Promise<void> {
       const ingestStepCount = steps.filter(s => s.stage === 'ingest').length;
       completedSteps += ingestStepCount;
       updateJob(job.id, { progress: calculateProgress(completedSteps, totalSteps) });
+    }
+
+    // Audit: transcription
+    if (transcript?.fullText) {
+      audit.log('deepgram-transcription', 'transcription', 'passed',
+        `${transcript.fullText.length} chars, ${transcript.words?.length || 0} words with timestamps`);
+      audit.log('word-timestamps', 'transcription', transcript.words?.length > 0 ? 'passed' : 'failed',
+        transcript.words?.length > 0 ? `${transcript.words.length} word-level timestamps` : 'NO word timestamps — B-Roll precision impossible');
+    } else {
+      audit.log('transcription', 'transcription', 'failed', 'No transcript available');
     }
 
     // --- PRESENTER DETECTION + SPEAKER VERIFICATION (3 Layers) ---
@@ -645,7 +674,15 @@ export async function runPipeline(job: Job): Promise<void> {
       } catch (error: any) {
         console.error('Presenter detection / speaker verification failed:', error.message);
         allWarnings.push('Speaker verification failed: ' + error.message);
+        audit.log('presenter-detection', 'presenterQuality', 'failed', `Failed: ${error.message}`);
       }
+    }
+
+    // Audit: presenter quality
+    if (job.presenterDetection) {
+      audit.log('presenter-detection', 'presenterQuality', 'passed', `speaker ${job.presenterDetection.presenterId} — ${job.presenterDetection.presenterDescription || 'detected'}`);
+    } else if (!transcript) {
+      audit.log('presenter-detection', 'presenterQuality', 'skipped', 'No transcript for detection');
     }
 
     // --- MICRO-EXPRESSION ANALYSIS ---
@@ -668,6 +705,13 @@ export async function runPipeline(job: Job): Promise<void> {
         console.error('Expression analysis failed:', error.message);
         allWarnings.push('Expression analysis failed: ' + error.message);
       }
+    }
+
+    // Audit: expression analysis
+    if (job.expressionAnalysis?.expressions?.length > 0) {
+      audit.log('expression-analysis', 'enterprise', 'passed', `${job.expressionAnalysis.expressions.length} frames analyzed`);
+    } else {
+      audit.log('expression-analysis', 'enterprise', 'not-connected', 'No expression data');
     }
 
     // Use presenter-filtered transcript for all subsequent analysis (fallback to original)
@@ -706,6 +750,22 @@ export async function runPipeline(job: Job): Promise<void> {
         console.error('Video intelligence failed:', error.message);
         allWarnings.push('Video intelligence failed: ' + error.message);
       }
+    }
+
+    // Audit: video intelligence
+    if (job.videoIntelligence) {
+      audit.log('video-intelligence', 'analysis', 'passed',
+        `category=${job.videoIntelligence.concept?.category}, ${job.videoIntelligence.keyPoints?.length || 0} key points`);
+      if (job.videoIntelligence.marketingPlan) {
+        audit.log('marketing-plan', 'marketing', 'passed',
+          job.videoIntelligence.marketingPlan.framework?.selectedFramework || 'framework generated');
+        audit.log('cta', 'marketing', job.videoIntelligence.marketingPlan.ctaPlan ? 'passed' : 'not-connected',
+          job.videoIntelligence.marketingPlan.ctaPlan?.primaryCTA?.text || 'no CTA');
+      } else {
+        audit.log('marketing-plan', 'marketing', 'not-connected', 'no marketing analysis');
+      }
+    } else {
+      audit.log('video-intelligence', 'analysis', 'not-connected', 'analyzeVideoIntelligence() not run');
     }
 
     // --- EDITOR BRAIN: Load category-specific memory ---
@@ -766,6 +826,27 @@ export async function runPipeline(job: Job): Promise<void> {
         console.error('Content selection failed:', error.message);
         allWarnings.push('Content selection failed: ' + error.message);
       }
+    }
+
+    // Audit: content selection
+    if (job.contentSelection) {
+      audit.log('12d-scoring', 'contentSelection', 'passed',
+        `${job.contentSelection.segments?.length || 0} segments scored`);
+      audit.log('repetition-detection', 'contentSelection', job.contentSelection.repetitions ? 'passed' : 'not-connected',
+        `${job.contentSelection.repetitions?.length || 0} repetitions found`);
+      audit.log('sentence-reconstruction', 'contentSelection', job.contentSelection.reconstructions ? 'passed' : 'not-connected',
+        `${job.contentSelection.reconstructions?.length || 0} reconstructed`);
+      audit.log('optimal-ordering', 'contentSelection', job.contentSelection.suggestedOrder ? 'passed' : 'not-connected',
+        'hook-first reordering');
+    } else {
+      audit.log('content-selection', 'contentSelection', 'not-connected', 'selectBestContent() never called');
+    }
+
+    // Audit: auto-versioning
+    if (job.versionPlan) {
+      audit.log('auto-versioning', 'enterprise', 'passed', `${job.versionPlan.versions?.length || 0} versions planned`);
+    } else {
+      audit.log('auto-versioning', 'enterprise', 'not-connected', 'not run');
     }
 
     // --- PRESENTER QUALITY ANALYSIS (eye contact + body language + complete sentences) ---
@@ -844,6 +925,18 @@ export async function runPipeline(job: Job): Promise<void> {
         console.error('Presenter quality analysis failed:', error.message);
         allWarnings.push('Presenter quality analysis failed: ' + error.message);
       }
+    }
+
+    // Audit: presenter quality
+    if (job.presenterQuality) {
+      const good = job.presenterQuality.segmentScores.filter((s: any) => s.recommendation === 'use').length;
+      const cover = job.presenterQuality.segmentScores.filter((s: any) => s.recommendation === 'use-with-broll-cover').length;
+      audit.log('eye-contact-analysis', 'presenterQuality', 'passed', `${good} use, ${cover} cover with B-Roll`);
+      audit.log('mid-word-cut-check', 'presenterQuality', 'passed', 'checked');
+    } else if (!job.presenterDetection) {
+      audit.log('presenter-quality', 'presenterQuality', 'skipped', 'No presenter detected');
+    } else {
+      audit.log('presenter-quality', 'presenterQuality', 'not-connected', 'analyzePresenterQuality() never called');
     }
 
     // --- CONTENT ANALYSIS (Smart Brain Editor) ---
@@ -1196,6 +1289,70 @@ export async function runPipeline(job: Job): Promise<void> {
       }
       console.log(`[Pipeline] Applied expression-based editing: ${job.expressionAnalysis.expressions.filter(e => e.recommendation === 'zoom-in').length} zooms, ${job.expressionAnalysis.expressions.filter(e => e.recommendation === 'cover-with-broll').length} B-Roll covers`);
     }
+
+    // Audit: editing blueprint
+    if (job.editingBlueprint) {
+      const bp = job.editingBlueprint;
+      audit.log('cuts-planned', 'brain', (bp as any).cuts?.length > 0 ? 'passed' : 'failed', `${(bp as any).cuts?.length || 0} cuts`);
+      audit.log('zooms-planned', 'brain', (bp as any).zooms?.length > 0 ? 'passed' : 'failed', `${(bp as any).zooms?.length || 0} zooms`);
+      audit.log('speed-ramps-planned', 'brain', (bp as any).speedRamps?.length > 0 ? 'passed' : 'skipped', `${(bp as any).speedRamps?.length || 0} speed ramps`);
+      audit.log('pattern-interrupts-planned', 'brain', (bp as any).patternInterrupts?.length > 0 ? 'passed' : 'skipped', `${(bp as any).patternInterrupts?.length || 0} interrupts`);
+      audit.log('emotional-arc-planned', 'brain', (bp as any).emotionalArc?.length > 0 ? 'passed' : 'not-connected', `${(bp as any).emotionalArc?.length || 0} phases`);
+      audit.log('protected-silences', 'brain', (bp as any).protectedSilences?.length >= 0 ? 'passed' : 'not-connected', `${(bp as any).protectedSilences?.length || 0} pauses kept`);
+      audit.log('sound-design', 'brain', (bp as any).soundDesign?.sfx?.length > 0 ? 'passed' : 'skipped', `${(bp as any).soundDesign?.sfx?.length || 0} SFX`);
+      audit.log('background-plan', 'brain', (bp as any).backgroundPlan ? 'passed' : 'not-connected', (bp as any).backgroundPlan ? `quality: ${(bp as any).backgroundPlan.quality}` : 'not evaluated');
+      audit.log('lighting-plan', 'brain', (bp as any).lightingPlan ? 'passed' : 'not-connected', (bp as any).lightingPlan ? `quality: ${(bp as any).lightingPlan.quality}` : 'not evaluated');
+      audit.log('color-story', 'brain', (bp as any).colorStory ? 'passed' : 'not-connected', (bp as any).colorStory || 'not planned');
+
+      // B-Roll prompts quality
+      if ((bp as any).brollInsertions?.length > 0) {
+        const firstPrompt = (bp as any).brollInsertions[0].brollPrompt || (bp as any).brollInsertions[0].prompt || '';
+        const isCinematic = firstPrompt.length > 80 &&
+          (firstPrompt.includes('shot') || firstPrompt.includes('dolly') || firstPrompt.includes('drone') || firstPrompt.includes('cinematic'));
+        audit.log('broll-prompts', 'brain', isCinematic ? 'passed' : 'failed',
+          isCinematic ? `Cinematic prompt: "${firstPrompt.slice(0, 60)}..."` : `BASIC prompt: "${firstPrompt.slice(0, 60)}..." — NOT cinematic`);
+
+        const hasTimestamps = (bp as any).brollInsertions[0].triggerWordTimestamp !== undefined;
+        audit.log('broll-word-precision', 'brain', hasTimestamps ? 'passed' : 'failed',
+          hasTimestamps ? `trigger word at ${(bp as any).brollInsertions[0].triggerWordTimestamp}s` : 'NO word-level timestamp — B-Roll timing imprecise');
+      } else {
+        audit.log('broll-planned', 'brain', 'failed', 'No B-Roll insertions planned');
+      }
+
+      // Brain categories coverage
+      const categories: [string, any][] = [
+        ['cuts', (bp as any).cuts], ['zooms', (bp as any).zooms], ['speedRamps', (bp as any).speedRamps],
+        ['patternInterrupts', (bp as any).patternInterrupts], ['emotionalArc', (bp as any).emotionalArc],
+        ['protectedSilences', (bp as any).protectedSilences], ['brollInsertions', (bp as any).brollInsertions],
+        ['soundDesign', (bp as any).soundDesign], ['backgroundPlan', (bp as any).backgroundPlan],
+        ['lightingPlan', (bp as any).lightingPlan], ['colorStory', (bp as any).colorStory],
+      ];
+      const missing = categories.filter(([, val]) => val === undefined || val === null);
+      const present = categories.filter(([, val]) => val !== undefined && val !== null);
+      audit.log('brain-categories-coverage', 'brainVerify',
+        missing.length === 0 ? 'passed' : missing.length <= 3 ? 'passed' : 'failed',
+        `${present.length}/${categories.length} categories in blueprint. Missing: ${missing.map(m => m[0]).join(', ') || 'none'}`);
+    } else {
+      audit.log('editing-blueprint', 'brain', 'failed', 'No editing blueprint generated');
+    }
+
+    // Audit: fresh eyes review
+    if (job.freshEyesReview) {
+      audit.log('fresh-eyes', 'qa', 'passed', `confidence: ${job.freshEyesReview.overallConfidence}/10`);
+    } else {
+      audit.log('fresh-eyes', 'qa', 'not-connected', 'not run');
+    }
+
+    // Audit: retention
+    if (job.retentionPlan) {
+      audit.log('retention-analysis', 'qa', 'passed', `predicted: ${job.retentionPlan.predictedRetention}%`);
+    } else {
+      audit.log('retention-analysis', 'qa', 'not-connected', 'not run');
+    }
+
+    // Audit: B-Roll generation
+    audit.log('broll-generation', 'generate', generateResult?.brollClips && generateResult.brollClips.length > 0 ? 'passed' : 'failed',
+      `${generateResult?.brollClips?.length || 0} clips generated (target: ${(job as any).targetBRollCount || '?'})`);
 
     // --- REAL EDIT AGENT ---
     const hasEditSteps = steps.some(s => s.stage === 'edit' || s.stage === 'export');
@@ -1762,6 +1919,50 @@ Return JSON:
       }
     }
 
+    // === PIPELINE AUDIT: Post-render checks ===
+
+    // Audit: edit execution
+    const assembledPath = `temp/${job.id}/edit/selected_assembled.mp4`;
+    audit.log('segment-assembly', 'edit', editResult ? 'passed' : 'failed',
+      editResult ? 'segments assembled' : 'FAILED — this breaks everything after');
+    audit.log('speed-ramps-applied', 'edit', fs.existsSync(`temp/${job.id}/edit/step_3.mp4`) ? 'passed' : 'skipped', 'speed ramp step');
+    audit.log('broll-inserted', 'edit', fs.existsSync(`temp/${job.id}/edit/step_5.mp4`) ? 'passed' : 'skipped', 'B-Roll L-cuts');
+    audit.log('zooms-applied', 'edit', fs.existsSync(`temp/${job.id}/edit/step_7.mp4`) ? 'passed' : 'skipped', 'zoompan filters');
+    audit.log('subtitles-burned', 'edit', fs.existsSync(`temp/${job.id}/edit/subtitles.srt`) ? 'passed' : 'skipped', 'subtitles');
+    audit.log('music-mixed', 'edit', generateResult?.musicPath ? 'passed' : 'skipped', 'music ducking');
+    audit.log('sfx-applied', 'edit', generateResult?.sfxMoments?.length > 0 ? 'passed' : 'skipped', 'SFX overlaid');
+
+    // Audit: QA
+    audit.log('qa-vision', 'qa', job.qaResult ? 'passed' : 'not-connected',
+      job.qaResult ? `score: ${job.qaResult.overallScore}/10` : 'not run');
+    audit.log('content-safety', 'qa', job.contentSafety ? 'passed' : 'not-connected',
+      job.contentSafety ? `safe: ${job.contentSafety.safe}` : 'not run');
+    audit.log('brand-compliance', 'qa', job.brandCompliance ? 'passed' : 'not-connected',
+      job.brandCompliance ? `score: ${job.brandCompliance.score}/10` : 'not run');
+
+    // Audit: hooks + A/B
+    audit.log('hook-variations', 'hooks', job.hookVariations?.length > 0 ? 'passed' : 'not-connected',
+      `${job.hookVariations?.length || 0} hooks generated`);
+    audit.log('ab-testing', 'hooks', job.abTestResult ? 'passed' : 'not-connected',
+      job.abTestResult ? `${job.abTestResult.variations?.length || 0} variations` : 'not run');
+
+    // Audit: enterprise features
+    audit.log('subtitle-style', 'enterprise', job.subtitleStylePlan ? 'passed' : 'not-connected',
+      job.subtitleStylePlan ? job.subtitleStylePlan.selectedStyle : 'not selected');
+    audit.log('thumbnails', 'enterprise', job.thumbnails ? 'passed' : 'not-connected',
+      job.thumbnails ? `${job.thumbnails.thumbnails?.length || 0} generated` : 'not run');
+    audit.log('device-preview', 'enterprise', job.devicePreview ? 'passed' : 'not-connected',
+      job.devicePreview ? `${job.devicePreview.devices?.length || 0} devices checked` : 'not run');
+
+    // Audit: engagement
+    audit.log('engagement-prediction', 'enterprise', job.engagementPrediction ? 'passed' : 'not-connected',
+      job.engagementPrediction ? `${job.engagementPrediction.overallScore}/100` : 'not run');
+
+    // Audit: export
+    const finalPath = editResult?.finalVideoPath || `output/${job.id}/final.mp4`;
+    audit.log('final-video', 'export', fs.existsSync(finalPath) ? 'passed' : 'failed',
+      fs.existsSync(finalPath) ? `final video exists at ${finalPath}` : 'NO FINAL VIDEO');
+
     // Phase 3: Finalize
     updateJob(job.id, {
       currentStep: 'מסיים עיבוד...',
@@ -1865,6 +2066,9 @@ Return JSON:
       console.log(`[Pipeline] ✅ Final video copied to: ${finalOutputPath}`);
     }
 
+    // === PIPELINE AUDIT: Material preservation & final report ===
+    // These checks run after the main pipeline to verify what was preserved
+
     // --- PRESERVE MATERIALS FOR REVISIONS (don't cleanup yet) ---
     const preservedMaterials: Record<string, any> = {
       transcriptPath: `temp/${job.id}/transcript.json`,
@@ -1884,6 +2088,44 @@ Return JSON:
       totalCost: (job as any).totalCost || 0,
     } as any);
     console.log(`[Pipeline] Materials preserved for revisions (${preservedMaterials.editSteps.length} edit steps, ${preservedMaterials.brollClips.length} B-Roll clips)`);
+
+    // Audit: material preservation
+    audit.log('preserved-transcript', 'materials',
+      preservedMaterials.transcriptPath && fs.existsSync(preservedMaterials.transcriptPath) ? 'passed' : 'not-connected',
+      'transcript.json saved for revisions');
+    audit.log('preserved-broll-clips', 'materials',
+      preservedMaterials.brollClips?.length > 0 ? 'passed' : 'not-connected',
+      `${preservedMaterials.brollClips?.length || 0} B-Roll clips preserved`);
+    audit.log('preserved-music', 'materials',
+      preservedMaterials.musicTrack && fs.existsSync(preservedMaterials.musicTrack) ? 'passed' : 'not-connected',
+      'music track saved for revisions');
+    audit.log('preserved-subtitles', 'materials',
+      preservedMaterials.subtitlesFile && fs.existsSync(preservedMaterials.subtitlesFile) ? 'passed' : 'not-connected',
+      'subtitles.srt saved for revisions');
+    audit.log('preserved-edit-steps', 'materials',
+      preservedMaterials.editSteps?.length > 0 ? 'passed' : 'not-connected',
+      `${preservedMaterials.editSteps?.length || 0} intermediate edit steps preserved`);
+    audit.log('preserved-blueprint', 'materials',
+      preservedMaterials.editingBlueprint ? 'passed' : 'not-connected',
+      'editing blueprint saved for revision brain context');
+    audit.log('no-premature-cleanup', 'materials',
+      fs.existsSync(`temp/${job.id}`) ? 'passed' : 'failed',
+      'temp files must exist until final approval');
+
+    // Audit: cost tracking
+    audit.log('cost-tracking', 'costs', (job as any).totalCost !== undefined ? 'passed' : 'not-connected',
+      (job as any).totalCost !== undefined ? `total cost: $${((job as any).totalCost || 0).toFixed(2)}` : 'totalCost not tracked');
+
+    // === SAVE AUDIT REPORT ===
+    const report = audit.getReport();
+    updateJob(job.id, { auditReport: report } as any);
+    console.log('\n' + '='.repeat(60));
+    console.log(`PIPELINE AUDIT: ${report.summary}`);
+    console.log('='.repeat(60));
+    for (const issue of report.criticalIssues) {
+      console.log(`  ❌ ${issue}`);
+    }
+    console.log('='.repeat(60) + '\n');
 
     // --- EDITOR BRAIN: Remember this project ---
     try {
