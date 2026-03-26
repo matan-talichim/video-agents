@@ -2,7 +2,7 @@ import fs from 'fs';
 import { askClaude, askClaudeVision } from './claude.js';
 import { runFFmpeg, getVideoDuration } from './ffmpeg.js';
 import type { TranscriptResult, ExecutionPlan } from '../types.js';
-import { CTA_RULES_PROMPT, VIDEO_AD_TYPES_PROMPT, CONVERSION_RULES_PROMPT, SOCIAL_PROOF_PROMPT, INDUSTRY_RULES_PROMPT } from './marketingIntelligence.js';
+import { CTA_RULES_PROMPT, VIDEO_AD_TYPES_PROMPT, CONVERSION_RULES_PROMPT, SOCIAL_PROOF_PROMPT, INDUSTRY_RULES_PROMPT, MARKETING_FRAMEWORKS_PROMPT, VIDEO_COPYWRITING_PROMPT, COLOR_PSYCHOLOGY_PROMPT, SOUND_PSYCHOLOGY_PROMPT } from './marketingIntelligence.js';
 
 export interface VideoIntelligence {
   // What is this video about?
@@ -167,6 +167,44 @@ export interface VideoIntelligence {
     visual: string;
   }>;
 
+  // Marketing frameworks + copywriting + color/sound psychology
+  marketingPlan?: {
+    framework: {
+      selectedFramework: string;
+      frameworkReason: string;
+      frameworkMapping: Array<{ stage: string; start: number; end: number; content: string }>;
+    };
+    copywriting: {
+      textOverlays: Array<{
+        type: string;
+        text: string;
+        timestamp: number;
+        duration: number;
+        fontSize: string;
+        animation: string;
+        position: string;
+        color: string;
+        originalPrice?: string;
+        salePrice?: string;
+      }>;
+    };
+    colorStrategy: {
+      primaryCTAColor: string;
+      primaryCTAReason: string;
+      textHighlightColor: string;
+      priceColor: string;
+      urgencyColor: string;
+      backgroundOverlay: string;
+    };
+    soundStrategy: {
+      musicKey: string;
+      bpmRange: string;
+      genre: string;
+      reason: string;
+      sfxPlan: Array<{ type: string; usage: string }>;
+    };
+  };
+
   // Brain auto-selected optimal configuration
   recommendedConfig?: {
     model: string;
@@ -260,6 +298,7 @@ export async function analyzeVideoIntelligence(
       conversionStrategy: parsed.conversionStrategy || undefined,
       industryStrategy: parsed.industryStrategy || undefined,
       socialProofPlan: parsed.socialProofPlan || undefined,
+      marketingPlan: parsed.marketingPlan || undefined,
       // Ensure all arrays exist
       keyPoints: parsed.keyPoints || [],
       textOverlayPlan: parsed.textOverlayPlan || [],
@@ -506,6 +545,14 @@ ${SOCIAL_PROOF_PROMPT}
 
 ${INDUSTRY_RULES_PROMPT}
 
+${MARKETING_FRAMEWORKS_PROMPT}
+
+${VIDEO_COPYWRITING_PROMPT}
+
+${COLOR_PSYCHOLOGY_PROMPT}
+
+${SOUND_PSYCHOLOGY_PROMPT}
+
 Based on the content analysis, determine:
 1. Which of the 20 video ad types best fits this content
 2. The optimal CTA strategy (primary + midroll + variation)
@@ -514,6 +561,10 @@ Based on the content analysis, determine:
 5. Funnel stage and psychological triggers for conversion
 6. Social proof elements to integrate
 7. Industry-specific rules to apply
+8. Best marketing framework (AIDA/PAS/BAB/HOOK-VALUE-CTA/STAR-STORY-SOLUTION) and map video segments to framework stages
+9. Marketing copywriting plan — all text overlays with type, animation, position, color
+10. Color psychology strategy — CTA colors, highlight colors, price colors based on industry and purpose
+11. Sound psychology strategy — music key, BPM, genre, and sound effects plan
 
 Add to the response these marketing fields:
 {
@@ -551,7 +602,38 @@ Add to the response these marketing fields:
   },
   "socialProofPlan": [
     { "type": "numbers|testimonial|logos|results", "text": "Hebrew social proof text", "timestamp": 15, "visual": "counter-animation|lower-third|logo-bar|before-after" }
-  ]
+  ],
+  "marketingPlan": {
+    "framework": {
+      "selectedFramework": "AIDA|PAS|BAB|HOOK-VALUE-CTA|STAR-STORY-SOLUTION",
+      "frameworkReason": "Hebrew reason for choosing this framework",
+      "frameworkMapping": [
+        { "stage": "framework stage name", "start": 0, "end": 3, "content": "what happens in this stage" }
+      ]
+    },
+    "copywriting": {
+      "textOverlays": [
+        { "type": "headline|sub-headline|bullet-points|price|statistic|urgency|doubt-remover|label|quote-card|social-proof-counter", "text": "Hebrew text", "timestamp": 0, "duration": 3, "fontSize": "xl|lg|md|sm", "animation": "scale-up|bounce|fade-in|slide-up|slide-right|pulse|typewriter|strikethrough-then-scale|pop-in|counter", "position": "center|top|bottom|lower-third|corner|near-item", "color": "white|red|green|brand", "originalPrice": "optional for price type", "salePrice": "optional for price type" }
+      ]
+    },
+    "colorStrategy": {
+      "primaryCTAColor": "#hex color",
+      "primaryCTAReason": "Hebrew reason for CTA color",
+      "textHighlightColor": "#hex color",
+      "priceColor": "#hex color",
+      "urgencyColor": "#hex color",
+      "backgroundOverlay": "rgba(0,0,0,0.6)"
+    },
+    "soundStrategy": {
+      "musicKey": "major|minor|suspended",
+      "bpmRange": "60-80|80-100|100-120|120-140|140+",
+      "genre": "piano-acoustic|electronic-synth|orchestral-cinematic|lofi-chill|corporate-minimal|hiphop-trap",
+      "reason": "Hebrew reason for sound choices",
+      "sfxPlan": [
+        { "type": "whoosh|ding|cash-register|heartbeat|crowd-cheering|click|rise", "usage": "when to use this effect" }
+      ]
+    }
+  }
 }
 
 IMPORTANT: You must also output a "recommendedConfig" field with the OPTIMAL configuration for this video.

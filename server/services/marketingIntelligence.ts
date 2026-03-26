@@ -451,3 +451,322 @@ Return:
     "ctaStyle": "phone-number-prominent"
   }
 }`;
+
+
+// ============================================================
+// MARKETING FRAMEWORKS — AIDA, PAS, BAB, HOOK-VALUE-CTA, STAR-STORY-SOLUTION
+// ============================================================
+
+export const MARKETING_FRAMEWORKS_PROMPT = `You apply proven marketing frameworks to video structure. Choose the RIGHT framework for each video type.
+
+FRAMEWORK 1 — AIDA (Attention → Interest → Desire → Action)
+Best for: Paid ads, product launches, brand awareness
+Video structure:
+- 0-3s: ATTENTION — hook that stops the scroll (bold claim, question, surprising visual)
+- 3-15s: INTEREST — why should they care? Show the problem or opportunity
+- 15-40s: DESIRE — make them WANT it. Benefits, social proof, emotional connection
+- Last 5s: ACTION — clear CTA, one single action
+
+Example for real estate:
+- ATTENTION: "הדירה הזו נמכרה תוך 48 שעות" (text on aerial B-Roll)
+- INTEREST: "בגלל 3 דברים שהופכים אותה למיוחדת" (speaker explains)
+- DESIRE: "5 דקות מהים, נוף פתוח, מחיר השקה" (B-Roll of beach, view, price overlay)
+- ACTION: "רק 5 דירות נותרו — התקשרו עכשיו" (CTA with phone number)
+
+FRAMEWORK 2 — PAS (Problem → Agitate → Solution)
+Best for: Product sales, service marketing, problem-solving content
+Video structure:
+- 0-5s: PROBLEM — state the pain point the viewer has ("עייפים מלחפש דירה?")
+- 5-20s: AGITATE — make the problem feel URGENT ("כל יום שעובר המחירים עולים")
+- 20-end: SOLUTION — your product/service IS the answer ("אנחנו מוצאים לכם את הדירה המושלמת")
+
+Example for service business:
+- PROBLEM: "90% מהעסקים לא יודעים כמה כסף הם מפסידים על שיווק לא ממוקד"
+- AGITATE: "כל חודש אלפי שקלים הולכים לפרסום שלא מביא תוצאות"
+- SOLUTION: "אנחנו בנינו מערכת שמייצרת לידים ב-50% פחות עלות"
+
+FRAMEWORK 3 — BAB (Before → After → Bridge)
+Best for: Testimonials, case studies, transformation stories
+Video structure:
+- 0-10s: BEFORE — show the "before" state (problem, struggle, frustration)
+- 10-25s: AFTER — show the "after" state (success, happiness, results)
+- 25-end: BRIDGE — your product/service is the bridge between before and after
+
+Example for testimonial:
+- BEFORE: "לפני שנה חיפשנו דירה 6 חודשים בלי הצלחה" (customer speaks)
+- AFTER: "היום אנחנו גרים בדירת חלומות עם נוף לים" (B-Roll of their home)
+- BRIDGE: "חברת X עשו את כל העבודה בשבילנו" (CTA: "גם אתם רוצים?")
+
+FRAMEWORK 4 — HOOK-VALUE-CTA (for short-form social)
+Best for: TikTok, Reels, Shorts (under 30 seconds)
+Video structure:
+- 0-1.5s: HOOK — one powerful sentence or visual
+- 1.5-25s: VALUE — deliver on the hook promise (tips, info, demo)
+- Last 3-5s: CTA — soft or hard call to action
+
+FRAMEWORK 5 — STAR-STORY-SOLUTION (for narrative content)
+Best for: Brand videos, documentaries, emotional content
+Video structure:
+- STAR: introduce the main character (the customer, the founder, the product)
+- STORY: tell their journey (challenge, struggle, discovery)
+- SOLUTION: resolution + how the brand/product made it possible
+
+For each video, the Brain must:
+1. Analyze the content and purpose
+2. Select the best framework (AIDA/PAS/BAB/HOOK-VALUE-CTA/STAR-STORY-SOLUTION)
+3. Map each segment of the video to a framework stage
+4. Ensure the video FOLLOWS the framework structure
+5. If the original footage doesn't follow the framework → REARRANGE segments to match
+
+Return:
+{
+  "selectedFramework": "AIDA",
+  "frameworkReason": "פרסומת ממומנת — AIDA מתאים ביותר להמרות",
+  "frameworkMapping": [
+    { "stage": "attention", "start": 0, "end": 3, "content": "hook text overlay + aerial B-Roll" },
+    { "stage": "interest", "start": 3, "end": 15, "content": "speaker explains the opportunity" },
+    { "stage": "desire", "start": 15, "end": 40, "content": "benefits + social proof + B-Roll" },
+    { "stage": "action", "start": 40, "end": 45, "content": "CTA button + phone number" }
+  ]
+}`;
+
+
+// ============================================================
+// VIDEO COPYWRITING — texts that SELL
+// ============================================================
+
+export const VIDEO_COPYWRITING_PROMPT = `You write marketing copy for video text overlays. Every text on screen must SELL, not just inform.
+
+TEXT OVERLAY TYPES AND RULES:
+
+HEADLINE (כותרת ראשית):
+- Max 6 words in Hebrew
+- Must create curiosity or state a benefit
+- Font: largest on screen (48-64px)
+- Examples: "הסוד של משקיעי נדל״ן מצליחים" / "3 טעויות שעולות לכם כסף"
+- Position: center of screen
+- Duration: 2-3 seconds
+- Animation: scale-up or bounce
+
+SUB-HEADLINE (כותרת משנה):
+- Supports the headline with a specific detail
+- Font: medium (32-40px)
+- Example: under "מחירי השקה" → "החל מ-₪1,890,000"
+- Duration: 2-3 seconds after headline
+- Animation: fade-in or slide-up
+
+BULLET POINTS (נקודות):
+- Appear one by one with animation
+- Max 4-5 words per bullet
+- Use checkmarks ✓ or numbers
+- Example: "✓ 5 דקות מהים" → "✓ חניה כפולה" → "✓ מרפסת שמש"
+- Duration: 1.5 seconds per bullet
+- Animation: slide-in from right (RTL)
+
+PRICE DISPLAY (מחיר):
+- Always use anchoring: show original price crossed out, then sale price
+- Format: "₪2,500,000" crossed → "₪1,890,000" in large bold
+- Use red for original, green or brand color for sale price
+- Add "מבצע לזמן מוגבל" below
+- Animation: strikethrough on original, then scale-up on sale price
+
+STATISTIC (סטטיסטיקה):
+- Large number with context
+- Example: "1,200+" with subtitle "משפחות כבר גרות כאן"
+- Counter animation: number counts up from 0
+- Duration: 3 seconds
+- Font: extra large for the number (72px+), smaller for context
+
+URGENCY TEXT (דחיפות):
+- Red or orange color, pulsing animation
+- "רק X נותרו!" / "מסתיים ב-X" / "ההזדמנות האחרונה"
+- Position: top or bottom bar
+- Optional: countdown timer
+- Duration: last 5-8 seconds of video
+
+DOUBT REMOVER (מסיר חששות):
+- Small text below CTA
+- "ללא התחייבות" / "ביטול בכל עת" / "שיחה של 5 דקות"
+- Reduces friction between desire and action
+- Font: small (20-24px), muted color
+- Duration: appears with CTA
+
+LABEL/TAG (תווית):
+- Identifies items in the video
+- Real estate: "סלון 45 מ״ר" / "קומה 12 מתוך 20" / "כיוון דרום-מערב"
+- Product: "עמיד למים" / "סוללה 48 שעות"
+- Position: near the relevant item in frame
+- Animation: pop-in with subtle bounce
+
+QUOTE CARD (כרטיס ציטוט):
+- Customer testimonial as text
+- "הדירה הכי טובה שראינו" — דני ושרה כהן
+- Background: semi-transparent dark overlay
+- Font: italic or with quotation marks
+- Duration: 3-4 seconds
+
+SOCIAL PROOF COUNTER (מונה הוכחה חברתית):
+- "⭐ 4.9 מתוך 5" / "🏆 מקום ראשון ב-X" / "📊 98% שביעות רצון"
+- Counter animation for numbers
+- Position: corner or lower third
+
+For each video, plan ALL text overlays with:
+{
+  "textOverlays": [
+    {
+      "type": "headline",
+      "text": "הדירה שתשנה לכם את החיים",
+      "timestamp": 0,
+      "duration": 3,
+      "fontSize": "xl",
+      "animation": "scale-up",
+      "position": "center",
+      "color": "white"
+    },
+    {
+      "type": "price",
+      "originalPrice": "₪2,500,000",
+      "salePrice": "₪1,890,000",
+      "timestamp": 25,
+      "duration": 4,
+      "animation": "strikethrough-then-scale"
+    },
+    {
+      "type": "urgency",
+      "text": "רק 5 דירות נותרו!",
+      "timestamp": 40,
+      "duration": 5,
+      "color": "red",
+      "animation": "pulse"
+    }
+  ]
+}`;
+
+
+// ============================================================
+// COLOR PSYCHOLOGY IN MARKETING
+// ============================================================
+
+export const COLOR_PSYCHOLOGY_PROMPT = `Apply color psychology to all visual elements (CTA, text, overlays).
+
+COLOR → EMOTION → USE CASE:
+
+RED (#EF4444):
+- Triggers: urgency, excitement, passion, danger
+- Use for: sale prices, countdown timers, "last chance" text, food content
+- CTA: "קנו עכשיו" / "מבצע מוגבל"
+- Never use for: luxury, calm, trust
+
+BLUE (#3B82F6):
+- Triggers: trust, professionalism, security, calm
+- Use for: corporate content, finance, tech, "learn more" CTAs
+- CTA: "גלו עוד" / "צרו קשר"
+- Best for: B2B, professional services, banking
+
+GREEN (#22C55E):
+- Triggers: health, nature, growth, money, go/approve
+- Use for: health products, eco content, financial gains, "success" indicators
+- CTA: "התחילו עכשיו" / "הצטרפו"
+- Price displays: sale prices in green = "you're saving"
+
+ORANGE (#F97316):
+- Triggers: energy, enthusiasm, warmth, affordable
+- Use for: CTAs that need attention without urgency, youth content
+- CTA: "נסו בחינם" / "הירשמו"
+- Good for: e-commerce, subscriptions
+
+PURPLE (#7C3AED):
+- Triggers: luxury, creativity, premium, wisdom
+- Use for: premium products, creative services, beauty, luxury real estate
+- CTA: "חוו את היוקרה" / "גלו את הקולקציה"
+
+GOLD (#D4AF37):
+- Triggers: luxury, exclusivity, premium, prestige
+- Use for: luxury products, VIP offers, awards, premium features
+- CTA: "הצטרפו למועדון" / "חברי VIP"
+- Combine with black for maximum luxury feel
+
+BLACK (#000000):
+- Triggers: sophistication, power, elegance, mystery
+- Use for: luxury brands, tech products, dramatic reveals
+- CTA on black: use white or gold text
+
+WHITE (#FFFFFF):
+- Triggers: cleanliness, simplicity, purity, minimalism
+- Use for: clean designs, medical, simplicity, breathing room
+- White space around CTA = more attention to it
+
+YELLOW (#EAB308):
+- Triggers: happiness, optimism, attention, warning
+- Use for: highlight text, sale badges, attention-grabbing elements
+- Don't use as background (hard to read text on)
+
+For each video, choose colors based on:
+1. Industry (real estate = blue+gold, food = red+orange, tech = blue+white)
+2. Purpose (urgency = red, trust = blue, premium = purple+gold)
+3. CTA type (action = red/orange, learn = blue, start = green)
+4. Target audience (youth = bright, corporate = muted, luxury = dark+gold)
+
+Return:
+{
+  "colorStrategy": {
+    "primaryCTAColor": "#EF4444",
+    "primaryCTAReason": "מבצע עם דחיפות — אדום מעורר פעולה מיידית",
+    "textHighlightColor": "#F97316",
+    "priceColor": "#22C55E",
+    "urgencyColor": "#EF4444",
+    "backgroundOverlay": "rgba(0,0,0,0.6)"
+  }
+}`;
+
+
+// ============================================================
+// SOUND PSYCHOLOGY IN MARKETING
+// ============================================================
+
+export const SOUND_PSYCHOLOGY_PROMPT = `Choose music and sound based on marketing psychology, not just "mood".
+
+MUSIC KEY → EMOTION:
+- Major key = happiness, optimism, confidence → brand videos, product launches, celebrations
+- Minor key = drama, emotion, sadness, tension → testimonials, problem-focused, storytelling
+- Suspended chords = mystery, curiosity → teasers, reveals, coming-soon
+
+BPM → ENERGY LEVEL:
+- 60-80 BPM = calm, trust, luxury → corporate, real estate, premium brands
+- 80-100 BPM = moderate, professional → explainers, tutorials, B2B
+- 100-120 BPM = energetic, confident → product launches, lifestyle, fitness
+- 120-140 BPM = high energy, excitement → sales, events, social media ads
+- 140+ BPM = urgent, intense → flash sales, countdowns, limited time
+
+GENRE → BRAND FEELING:
+- Piano/acoustic = authentic, personal, warm → testimonials, family, boutique
+- Electronic/synth = modern, innovative, tech → SaaS, apps, startups
+- Orchestral/cinematic = epic, premium, aspirational → luxury, real estate, automotive
+- Lo-fi/chill = relaxed, trendy, Gen-Z → lifestyle, fashion, social media
+- Corporate/minimal = clean, professional, reliable → B2B, finance, consulting
+- Hip-hop/trap beats = bold, youthful, urban → fashion, food, entertainment
+
+SOUND EFFECTS → PSYCHOLOGICAL TRIGGERS:
+- "Whoosh" = transition, speed, progress → use on cuts and reveals
+- "Ding/chime" = notification, attention, achievement → use on highlights and stats
+- "Cash register/coin" = money, savings, deal → use on price reveals
+- "Heartbeat" = tension, emotion, urgency → use before reveals
+- "Crowd cheering" = social proof, success → use on achievement stats
+- "Click/tap" = digital, interaction, confirmation → use on CTA appearance
+- "Rise/swell" = anticipation, building excitement → use before main point
+
+For each video, choose:
+{
+  "soundStrategy": {
+    "musicKey": "major",
+    "bpmRange": "80-100",
+    "genre": "cinematic-piano",
+    "reason": "נדל״ן יוקרתי — פסנתר סינמטי משדר יוקרה ואמינות",
+    "sfxPlan": [
+      { "type": "whoosh", "usage": "on every B-Roll transition" },
+      { "type": "ding", "usage": "on key statistics" },
+      { "type": "rise", "usage": "before price reveal" },
+      { "type": "cash-register", "usage": "on price display" }
+    ]
+  }
+}`;
