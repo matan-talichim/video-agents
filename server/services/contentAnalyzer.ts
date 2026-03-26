@@ -472,7 +472,7 @@ IMPORTANT:
 ${MASTER_EDITING_PROMPT}
 
 Based on your content analysis, create a complete "editingBlueprint" following ALL the rules above.
-The blueprint should contain: cuts, zooms, brollInsertions, musicSync, soundDesign, colorPlan, platformOptimization.
+The blueprint should contain: cuts, zooms, brollInsertions, musicSync, soundDesign, colorPlan, platformOptimization, speedRamps, patternInterrupts.
 Include a murchAverageScore (average of all cut murch scores).
 Also include "musicSync", "soundDesign", "zooms", "colorPlan", and "platformOptimization" as top-level fields in the response.`
     );

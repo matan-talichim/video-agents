@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import * as ffmpeg from '../services/ffmpeg.js';
 import * as subtitles from '../services/subtitles.js';
 import { askClaude } from '../services/claude.js';
@@ -134,6 +135,138 @@ export async function runEditAgent(
 
     // Store blueprint on job for downstream steps
     job.editingBlueprint = blueprint;
+  }
+
+  // ========================================================
+  // STEP 0.7: SPEED RAMPING (alters timeline — must run early)
+  // ========================================================
+  if (blueprint?.speedRamps && blueprint.speedRamps.length > 0) {
+    try {
+      updateProgress(job, 'מוסיף speed ramping...');
+
+      const ramps = [...blueprint.speedRamps].sort((a: any, b: any) => a.start - b.start);
+      const totalDuration = await ffmpeg.getVideoDuration(currentVideo);
+
+      // Build segments: normal speed sections + ramped sections
+      const segments: Array<{ start: number; end: number; speed: number }> = [];
+      let lastEnd = 0;
+
+      for (const ramp of ramps) {
+        if (ramp.start > lastEnd) {
+          segments.push({ start: lastEnd, end: ramp.start, speed: 1.0 });
+        }
+        segments.push({ start: ramp.start, end: ramp.end, speed: ramp.speed });
+        lastEnd = ramp.end;
+      }
+      if (lastEnd < totalDuration) {
+        segments.push({ start: lastEnd, end: totalDuration, speed: 1.0 });
+      }
+
+      // Process each segment
+      const segmentFiles: string[] = [];
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        const segPath = `${editDir}/speed_seg_${i}.mp4`;
+
+        if (seg.speed === 1.0) {
+          await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -ss ${seg.start} -to ${seg.end} -c copy -y "${segPath}"`);
+        } else {
+          const pts = (1 / seg.speed).toFixed(4);
+          let atempoFilter: string;
+          if (seg.speed >= 0.5 && seg.speed <= 2.0) {
+            atempoFilter = `atempo=${seg.speed}`;
+          } else if (seg.speed > 2.0) {
+            atempoFilter = `atempo=2.0,atempo=${(seg.speed / 2.0).toFixed(4)}`;
+          } else {
+            atempoFilter = `atempo=${(seg.speed * 2).toFixed(4)},atempo=0.5`;
+          }
+          await ffmpeg.runFFmpeg(`ffmpeg -i "${currentVideo}" -ss ${seg.start} -to ${seg.end} -filter_complex "[0:v]setpts=${pts}*PTS[v];[0:a]${atempoFilter}[a]" -map "[v]" -map "[a]" -y "${segPath}"`);
+        }
+        segmentFiles.push(segPath);
+      }
+
+      // Concat all segments
+      const listPath = `${editDir}/speed_list.txt`;
+      fs.writeFileSync(listPath, segmentFiles.map(f => `file '${path.resolve(f)}'`).join('\n'));
+      const speedOutput = `${editDir}/speed_ramped.mp4`;
+      await ffmpeg.runFFmpeg(`ffmpeg -f concat -safe 0 -i "${listPath}" -c copy -y "${speedOutput}"`);
+      currentVideo = speedOutput;
+
+      // Cleanup
+      for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch {} }
+      try { fs.unlinkSync(listPath); } catch {}
+
+      console.log(`[Edit] Applied ${ramps.length} speed ramps`);
+    } catch (error: any) {
+      console.error('Speed ramping failed:', error.message);
+      warnings.push('Speed ramping failed: ' + error.message);
+    }
+  }
+
+  // ========================================================
+  // STEP 0.8: PATTERN INTERRUPTS (plan into existing systems)
+  // ========================================================
+  if (blueprint?.patternInterrupts && blueprint.patternInterrupts.length > 0) {
+    try {
+      console.log(`[Edit] Planning ${blueprint.patternInterrupts.length} pattern interrupts`);
+
+      for (const interrupt of blueprint.patternInterrupts) {
+        switch (interrupt.type) {
+          case 'zoom-punch':
+            (job as any).zoomPlan = (job as any).zoomPlan || [];
+            (job as any).zoomPlan.push(
+              { timestamp: interrupt.at, zoomFrom: 1.0, zoomTo: interrupt.zoomLevel || 1.2, duration: 0.15, reason: `pattern interrupt: ${interrupt.reason}` },
+              { timestamp: interrupt.at + 0.25, zoomFrom: interrupt.zoomLevel || 1.2, zoomTo: 1.0, duration: 0.25, reason: 'zoom punch return' }
+            );
+            (job as any).sfxPlacements = (job as any).sfxPlacements || [];
+            (job as any).sfxPlacements.push({ type: 'whoosh', at: interrupt.at, volume: -15, reason: 'zoom punch SFX' });
+            break;
+
+          case 'text-pop':
+            (job as any).kineticTextPlan = (job as any).kineticTextPlan || [];
+            (job as any).kineticTextPlan.push({
+              text: interrupt.text || '',
+              startTime: interrupt.at,
+              endTime: interrupt.at + (interrupt.duration || 0.8),
+              animation: 'pop-scale',
+              fontSize: 'large',
+              color: '#FFFFFF',
+              type: 'pattern-interrupt',
+            });
+            break;
+
+          case 'sfx-hit':
+            (job as any).sfxPlacements = (job as any).sfxPlacements || [];
+            (job as any).sfxPlacements.push({ type: interrupt.sfxType || 'impact', at: interrupt.at, volume: -12, reason: `pattern interrupt: ${interrupt.reason}` });
+            break;
+
+          case 'shake':
+            (job as any).shakeEffects = (job as any).shakeEffects || [];
+            (job as any).shakeEffects.push({ at: interrupt.at, duration: interrupt.duration || 0.5, intensity: interrupt.intensity === 'strong' ? 5 : 2 });
+            break;
+
+          case 'color-flash':
+            (job as any).sfxPlacements = (job as any).sfxPlacements || [];
+            (job as any).sfxPlacements.push({ type: 'impact', at: interrupt.at, volume: -15, reason: `color flash: ${interrupt.reason}` });
+            break;
+
+          case 'speed-change':
+            // Handled by speed ramp system if blueprint includes it
+            break;
+
+          case 'music-change':
+            // Handled by music ducking system
+            break;
+
+          default:
+            console.log(`[Edit] Pattern interrupt type '${interrupt.type}' queued for Remotion render`);
+            break;
+        }
+      }
+    } catch (error: any) {
+      console.error('Pattern interrupts failed:', error.message);
+      warnings.push('Pattern interrupts failed: ' + error.message);
+    }
   }
 
   // ========================================================

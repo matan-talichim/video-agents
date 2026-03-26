@@ -48,6 +48,7 @@ export interface Job {
   editingBlueprint?: import('./services/editingRules.js').EditingBlueprint;
   emotionalArc?: ContentAnalysis['emotionalArc'];
   cutTransitions?: ContentAnalysis['cutTransitions'];
+  shakeEffects?: Array<{ at: number; duration: number; intensity: number }>;
   presenterDetection?: PresenterDetection;
   speakerVerification?: VerifiedSpeakerMap;
   videoIntelligence?: VideoIntelligence;

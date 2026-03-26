@@ -273,13 +273,88 @@ Return platformOptimization:
 }`;
 
 // ============================================================
+// CATEGORY 9: SPEED RAMPING
+// ============================================================
+export const SPEED_RAMP_PROMPT = `Plan speed ramps for dramatic effect:
+
+WHEN TO SLOW DOWN (50-75% speed):
+- Speaker says something emotional or important → slow down that 1-2 seconds
+- Dramatic reveal moment → slow to emphasize
+- A gesture or movement that deserves attention
+- Right before a cut to B-Roll → slight slow-mo creates elegance
+- Duration: 0.5-2 seconds of slow motion max
+
+WHEN TO SPEED UP (150-300% speed):
+- Dead space between sentences (instead of cutting, speed up)
+- Walking/moving between locations → speed up transition
+- Repetitive actions that need to be shown but are boring at normal speed
+- Setup moments before the interesting part
+- Duration: 1-5 seconds of fast motion
+
+SPEED RAMP TRANSITIONS:
+- Never jump instantly from 100% to 50% — use a 0.3s ramp (gradual curve)
+- Pattern: normal → slight slow → normal → fast → normal (creates rhythm)
+- Sync speed changes to music beats: slow on downbeat, speed up on upbeat
+
+For each speed ramp, return:
+{
+  "speedRamps": [
+    { "start": 15.0, "end": 16.5, "speed": 0.6, "reason": "key emotional statement — slow for impact" },
+    { "start": 22.0, "end": 24.0, "speed": 2.0, "reason": "dead air between points — speed through" },
+    { "start": 30.0, "end": 31.0, "speed": 0.5, "reason": "dramatic pause before reveal" }
+  ]
+}
+
+MAX speed ramps per video: 3-5 for 30s video, 5-8 for 60s video. More = gimmicky.`;
+
+// ============================================================
+// CATEGORY 10: PATTERN INTERRUPTS
+// ============================================================
+export const PATTERN_INTERRUPT_PROMPT = `Plan pattern interrupts every 12-18 seconds to reset viewer attention.
+
+A pattern interrupt is an UNEXPECTED visual or audio change that resets the viewer's attention clock. Without interrupts, viewers enter "autopilot" and stop paying attention.
+
+PATTERN INTERRUPT TYPES (use variety — never repeat the same type twice in a row):
+
+1. ZOOM PUNCH — sudden quick zoom to 120% for 0.5s then back (with whoosh SFX)
+2. TEXT POP — bold kinetic text with key word appears and disappears (0.8s)
+3. B-ROLL FLASH — 1.5-second B-Roll cutaway then back to speaker
+4. COLOR FLASH — brief flash to white for 2 frames then back (like camera flash)
+5. SHAKE — subtle camera shake effect for 0.5s (simulates emphasis)
+6. SFX HIT — audio impact/ding without visual change (resets attention via audio)
+7. SPEED CHANGE — brief 0.5s slow-mo then back to normal
+8. GRAPHIC OVERLAY — emoji, arrow, or highlight circle appears briefly (1s)
+9. MUSIC CHANGE — brief volume boost or instrument change in background
+10. SCALE BOUNCE — element on screen briefly scales up 110% then back (like a heartbeat)
+
+RULES:
+- First interrupt at 8-12 seconds (after hook settles)
+- Then every 12-18 seconds throughout the video
+- Never same type twice in a row
+- Intensity matches content energy (subtle for calm, bold for energetic)
+- Each interrupt must be MOTIVATED — connected to what speaker is saying
+- Max 2 strong interrupts in a row, then 1 subtle one (breathing room)
+- Don't interrupt during B-Roll sections (they ARE the visual change)
+
+For the plan, return:
+{
+  "patternInterrupts": [
+    { "at": 10, "type": "text-pop", "text": "5 דקות", "duration": 0.8, "intensity": "medium", "reason": "speaker says key number" },
+    { "at": 22, "type": "zoom-punch", "zoomLevel": 1.2, "duration": 0.5, "intensity": "strong", "reason": "emotional statement" },
+    { "at": 35, "type": "sfx-hit", "sfxType": "ding", "duration": 0.3, "intensity": "subtle", "reason": "attention reset before CTA buildup" }
+  ]
+}`;
+
+// ============================================================
 // MASTER EDITING PROMPT (all rules combined)
 // ============================================================
 export const MASTER_EDITING_PROMPT = [
-  EDITING_RULES_PART1,  // Murch + J-Cut/L-Cut + Cut Types
-  EDITING_RULES_PART2,  // Music Sync + Sound Design
-  EDITING_RULES_PART3,  // Zoom + Color
-  PLATFORM_RULES_PROMPT // Platform optimization
+  EDITING_RULES_PART1,     // Murch + J-Cut/L-Cut + Cut Types
+  EDITING_RULES_PART2,     // Music Sync + Sound Design
+  EDITING_RULES_PART3,     // Zoom + Color
+  PLATFORM_RULES_PROMPT,   // Platform optimization
+  SPEED_RAMP_PROMPT,       // Speed ramping
+  PATTERN_INTERRUPT_PROMPT // Pattern interrupts
 ].join('\n\n');
 
 // ============================================================
@@ -334,5 +409,21 @@ export interface EditingBlueprint {
     loopable: boolean;
     endStrategy: string;
   };
+  speedRamps?: Array<{
+    start: number;
+    end: number;
+    speed: number;    // 0.5 = half speed, 2.0 = double speed
+    reason: string;
+  }>;
+  patternInterrupts?: Array<{
+    at: number;
+    type: 'zoom-punch' | 'text-pop' | 'broll-flash' | 'color-flash' | 'shake' | 'sfx-hit' | 'speed-change' | 'graphic-overlay' | 'music-change' | 'scale-bounce';
+    duration: number;
+    intensity: 'subtle' | 'medium' | 'strong';
+    reason: string;
+    text?: string;
+    zoomLevel?: number;
+    sfxType?: string;
+  }>;
   murchAverageScore: number;
 }
