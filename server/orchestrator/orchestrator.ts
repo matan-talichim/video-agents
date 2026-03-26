@@ -440,12 +440,9 @@ export async function runPipeline(job: Job): Promise<void> {
         });
       }
 
-      // Clean up temp files
-      try {
-        cleanupJobTemp(job.id);
-      } catch (error: any) {
-        console.error('Cleanup failed:', error.message);
-      }
+      // Preserve materials for revisions (don't cleanup yet)
+      updateJob(job.id, { approvedFinal: false } as any);
+      console.log(`[Pipeline] Prompt-only pipeline done. Temp files preserved for revisions.`);
 
       clearTimeout(timeout);
       return;
@@ -1858,6 +1855,36 @@ Return JSON:
       warnings: allWarnings.length > 0 ? allWarnings : undefined,
     });
 
+    // --- ENSURE FINAL VIDEO IS SAVED TO OUTPUT ---
+    const outputDir = `output/${job.id}`;
+    if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+
+    const finalOutputPath = `${outputDir}/final.mp4`;
+    if (!fs.existsSync(finalOutputPath) && mainVideoPath && fs.existsSync(mainVideoPath) && mainVideoPath !== finalOutputPath) {
+      fs.copyFileSync(mainVideoPath, finalOutputPath);
+      console.log(`[Pipeline] ✅ Final video copied to: ${finalOutputPath}`);
+    }
+
+    // --- PRESERVE MATERIALS FOR REVISIONS (don't cleanup yet) ---
+    const preservedMaterials: Record<string, any> = {
+      transcriptPath: `temp/${job.id}/transcript.json`,
+      segmentsDir: `temp/${job.id}/segments/`,
+      brollClips: (generateResult?.brollClips || []).map((b: any) => b.path).filter((p: string) => p && fs.existsSync(p)),
+      musicTrack: generateResult?.musicPath || `temp/${job.id}/music.mp3`,
+      editSteps: Array.from({ length: 25 }, (_, i) => `temp/${job.id}/edit/step_${i + 1}.mp4`).filter(p => fs.existsSync(p)),
+      subtitlesFile: `temp/${job.id}/edit/subtitles.srt`,
+      selectedSegmentsFile: `temp/${job.id}/edit/selected_assembled.mp4`,
+      editingBlueprint: job.editingBlueprint,
+      contentSelection: job.contentSelection,
+      transcript: job.transcript,
+    };
+    updateJob(job.id, {
+      preservedMaterials,
+      approvedFinal: false,
+      totalCost: (job as any).totalCost || 0,
+    } as any);
+    console.log(`[Pipeline] Materials preserved for revisions (${preservedMaterials.editSteps.length} edit steps, ${preservedMaterials.brollClips.length} B-Roll clips)`);
+
     // --- EDITOR BRAIN: Remember this project ---
     try {
       rememberProject(job);
@@ -1865,12 +1892,9 @@ Return JSON:
       console.warn('[Pipeline] Brain memory save failed (non-critical):', error.message);
     }
 
-    // Clean up temp files
-    try {
-      cleanupJobTemp(job.id);
-    } catch (error: any) {
-      console.error('Cleanup failed:', error.message);
-    }
+    // DO NOT cleanup temp files — keep for revisions until user approves final
+    // Cleanup will happen when user clicks "approve final" via POST /api/jobs/:id/approve-final
+    console.log(`[Pipeline] Temp files preserved at temp/${job.id}/ — waiting for user approval before cleanup`);
 
     } finally {
       clearTimeout(timeout);

@@ -145,6 +145,25 @@ export interface Job {
   reframePlan?: import('./services/autoReframe.js').ReframePlan;
   ambientSoundPlan?: import('./services/ambientSound.js').AmbientSoundPlan;
   thumbnails?: import('./services/thumbnailGenerator.js').ThumbnailResult;
+  totalCost?: number;
+  approvedFinal?: boolean;
+  approvedAt?: string;
+  revisionPlan?: any;
+  revisionStatus?: string;
+  revisionItems?: any[];
+  revisionCount?: number;
+  preservedMaterials?: {
+    transcriptPath?: string;
+    segmentsDir?: string;
+    brollClips?: string[];
+    musicTrack?: string;
+    editSteps?: string[];
+    subtitlesFile?: string;
+    selectedSegmentsFile?: string;
+    editingBlueprint?: any;
+    contentSelection?: any;
+    transcript?: any;
+  };
 }
 
 export interface FileInfo {
