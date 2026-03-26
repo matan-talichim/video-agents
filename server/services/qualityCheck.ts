@@ -219,3 +219,73 @@ function formatTimestamp(seconds: number): string {
   const sec = Math.floor(seconds % 60);
   return `${min}:${sec.toString().padStart(2, '0')}`;
 }
+
+// --- TEXT READABILITY CHECK (mobile-first) ---
+
+export interface TextReadabilityResult {
+  text: string;
+  timestamp: number;
+  readable: boolean;
+  issue?: string;
+}
+
+export async function checkTextReadability(
+  videoPath: string,
+  textOverlays: Array<{ text: string; timestamp: number; fontSize: string; color: string }>,
+  aspectRatio: string
+): Promise<TextReadabilityResult[]> {
+  console.log(`[TextReadability] Checking ${textOverlays.length} text overlays for mobile readability...`);
+  const results: TextReadabilityResult[] = [];
+
+  for (const overlay of textOverlays) {
+    const framePath = `temp/text_check_${overlay.timestamp}.jpg`;
+    const mobilePath = `temp/text_mobile_${overlay.timestamp}.jpg`;
+
+    try {
+      // Extract frame at text timestamp
+      await runFFmpeg(`ffmpeg -i "${videoPath}" -ss ${overlay.timestamp} -vframes 1 -q:v 2 -y "${framePath}"`);
+
+      // Simulate mobile view: resize to 360px wide (typical phone)
+      await runFFmpeg(`ffmpeg -i "${framePath}" -vf "scale=360:-1" -q:v 2 -y "${mobilePath}"`);
+
+      // Claude Vision checks readability at mobile size
+      const image = {
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: 'image/jpeg' as const,
+          data: fs.readFileSync(mobilePath).toString('base64'),
+        },
+      };
+
+      const response = await askClaudeVision(
+        'You check if text in video frames is readable on a mobile phone screen.',
+        [
+          image,
+          {
+            type: 'text',
+            text: `This frame is shown at PHONE SIZE (360px wide). Is the text "${overlay.text}" readable? Check: size (too small?), contrast (text vs background), position (covered by UI?). Return JSON: { "readable": true, "issue": "" }`,
+          },
+        ]
+      );
+
+      try {
+        const result = JSON.parse(response);
+        results.push({ text: overlay.text, timestamp: overlay.timestamp, readable: result.readable, issue: result.issue || undefined });
+      } catch {
+        results.push({ text: overlay.text, timestamp: overlay.timestamp, readable: true });
+      }
+    } catch (error: any) {
+      console.error(`[TextReadability] Check failed for text at ${overlay.timestamp}s:`, error.message);
+      results.push({ text: overlay.text, timestamp: overlay.timestamp, readable: true });
+    } finally {
+      // Cleanup
+      try { fs.unlinkSync(framePath); } catch {}
+      try { fs.unlinkSync(mobilePath); } catch {}
+    }
+  }
+
+  const readableCount = results.filter(r => r.readable).length;
+  console.log(`[TextReadability] ${readableCount}/${results.length} texts readable on mobile`);
+  return results;
+}

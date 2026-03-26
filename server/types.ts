@@ -59,6 +59,15 @@ export interface Job {
   freshEyesReview?: import('./services/freshEyesReview.js').FreshEyesResult;
   contentSelection?: import('./services/contentSelector.js').ContentSelectionResult;
   qaResult?: import('./services/qualityCheck.js').QAResult;
+  versionPlan?: import('./services/autoVersioning.js').VersionPlan;
+  brandCompliance?: import('./services/brandCompliance.js').BrandComplianceResult;
+  textReadability?: Array<{ text: string; timestamp: number; readable: boolean; issue?: string }>;
+  introOutroPlan?: import('./services/brandedIntroOutro.js').IntroOutroPlan;
+  expressionAnalysis?: import('./services/expressionAnalyzer.js').ExpressionAnalysis;
+  engagementPrediction?: import('./services/engagementPredictor.js').EngagementPrediction;
+  subtitleStylePlan?: import('./services/subtitleStyler.js').SubtitleStylePlan;
+  devicePreview?: import('./services/devicePreview.js').DevicePreviewResult;
+  contentSafety?: import('./services/contentSafety.js').ContentSafetyResult;
   hookVariations?: import('./services/hookGenerator.js').HookVariation[];
   abTestResult?: import('./services/abTesting.js').ABTestResult;
   retentionPlan?: import('./services/retentionOptimizer.js').RetentionPlan;

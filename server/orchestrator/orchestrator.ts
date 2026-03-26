@@ -32,6 +32,15 @@ import { planThumbnail, generateThumbnail } from '../services/thumbnailOptimizer
 import { planMultiPlatformCuts } from '../services/multiPlatformCutter.js';
 import { diagnoseFootage, autoFixFootage } from '../services/footageDoctor.js';
 import { getExportCommand, EXPORT_PRESETS } from '../services/smartExporter.js';
+import { planAutoVersions } from '../services/autoVersioning.js';
+import { checkBrandCompliance } from '../services/brandCompliance.js';
+import { checkTextReadability } from '../services/qualityCheck.js';
+import { planIntroOutro, generateIntro, generateOutro, attachIntroOutro } from '../services/brandedIntroOutro.js';
+import { analyzeExpressions } from '../services/expressionAnalyzer.js';
+import { predictEngagement } from '../services/engagementPredictor.js';
+import { selectSubtitleStyle } from '../services/subtitleStyler.js';
+import { simulateDevicePreview } from '../services/devicePreview.js';
+import { checkContentSafety } from '../services/contentSafety.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -546,6 +555,28 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // --- MICRO-EXPRESSION ANALYSIS ---
+    if (job.presenterDetection && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מנתח הבעות פנים...' });
+        const presenterSegs = job.presenterDetection.presenterSegments;
+        if (presenterSegs.length > 0) {
+          const expressionAnalysis = await analyzeExpressions(
+            job.files[0].path,
+            job.contentAnalysis?.presenter?.totalSpeakingTime || 60,
+            presenterSegs
+          );
+          job.expressionAnalysis = expressionAnalysis;
+          saveJSON(`temp/${job.id}/expression_analysis.json`, expressionAnalysis);
+          updateJob(job.id, { expressionAnalysis } as any);
+          console.log(`[Pipeline] Expression analysis: ${expressionAnalysis.expressions.length} frames analyzed`);
+        }
+      } catch (error: any) {
+        console.error('Expression analysis failed:', error.message);
+        allWarnings.push('Expression analysis failed: ' + error.message);
+      }
+    }
+
     // Use presenter-filtered transcript for all subsequent analysis (fallback to original)
     const analysisTranscript = presenterTranscript || transcript;
 
@@ -606,6 +637,25 @@ export async function runPipeline(job: Job): Promise<void> {
         updateJob(job.id, { contentSelection } as any);
 
         console.log(`[Pipeline] Content selection: ${contentSelection.summary.keepDuration.toFixed(0)}s kept from ${contentSelection.summary.totalFootageDuration.toFixed(0)}s (${contentSelection.summary.cutPercentage}% cut)`);
+
+        // --- AUTO-VERSIONING (3 lengths from 1 video) ---
+        if (job.plan.export.platforms && job.plan.export.platforms.length > 0) {
+          try {
+            updateJob(job.id, { currentStep: 'מתכנן 3 גרסאות אורך...' });
+            const versionPlan = await planAutoVersions(
+              contentSelection.segments,
+              contentSelection.summary.keepDuration,
+              job.plan.export.platforms
+            );
+            job.versionPlan = versionPlan;
+            saveJSON(`temp/${job.id}/version_plan.json`, versionPlan);
+            updateJob(job.id, { versionPlan } as any);
+            console.log(`[Pipeline] Auto-versioning: ${versionPlan.versions.length} versions planned`);
+          } catch (error: any) {
+            console.error('Auto-versioning failed:', error.message);
+            allWarnings.push('Auto-versioning failed: ' + error.message);
+          }
+        }
       } catch (error: any) {
         console.error('Content selection failed:', error.message);
         allWarnings.push('Content selection failed: ' + error.message);
@@ -716,6 +766,31 @@ export async function runPipeline(job: Job): Promise<void> {
       });
     }
 
+    // --- SUBTITLE STYLE INTELLIGENCE (before rendering) ---
+    if (job.plan.edit.subtitles) {
+      try {
+        updateJob(job.id, { currentStep: 'בוחר סגנון כתוביות...' });
+        const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
+        const videoCategory = job.videoIntelligence?.concept?.category || 'talking-head';
+        const emotionalTone = job.emotionalArc?.[0]?.phase || 'neutral';
+        const hasPresenter = !!job.presenterDetection;
+
+        const subtitleStylePlan = await selectSubtitleStyle(
+          videoCategory,
+          platformGuess,
+          emotionalTone,
+          hasPresenter,
+          job.brandKit
+        );
+        job.subtitleStylePlan = subtitleStylePlan;
+        updateJob(job.id, { subtitleStylePlan } as any);
+        console.log(`[Pipeline] Subtitle style: ${subtitleStylePlan.selectedStyle} — ${subtitleStylePlan.reason}`);
+      } catch (error: any) {
+        console.error('Subtitle style selection failed:', error.message);
+        allWarnings.push('Subtitle style selection failed: ' + error.message);
+      }
+    }
+
     // --- APPLY EDIT STYLE (if user selected one) ---
     if (job.editStyle && EDIT_STYLES[job.editStyle]) {
       console.log(`[Pipeline] Applying edit style: ${job.editStyle}`);
@@ -812,6 +887,33 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // --- EXPRESSION-BASED EDITING ENHANCEMENTS ---
+    if (job.expressionAnalysis && job.editingBlueprint) {
+      for (const expr of job.expressionAnalysis.expressions) {
+        if (expr.recommendation === 'zoom-in' && job.editingBlueprint.zooms) {
+          job.editingBlueprint.zooms.push({
+            timestamp: expr.timestamp,
+            zoomFrom: 1.0,
+            zoomTo: 1.15,
+            duration: 1.5,
+            easing: 'ease-out',
+            reason: `expression: ${expr.expression}`,
+          });
+        }
+        if (expr.recommendation === 'cover-with-broll' && job.editingBlueprint.brollInsertions) {
+          job.editingBlueprint.brollInsertions.push({
+            at: expr.timestamp,
+            duration: 3,
+            audioOverlap: 1,
+            cutType: 'lcut',
+            prompt: 'contextual B-Roll',
+            speakerAudioContinues: true,
+          });
+        }
+      }
+      console.log(`[Pipeline] Applied expression-based editing: ${job.expressionAnalysis.expressions.filter(e => e.recommendation === 'zoom-in').length} zooms, ${job.expressionAnalysis.expressions.filter(e => e.recommendation === 'cover-with-broll').length} B-Roll covers`);
+    }
+
     // --- REAL EDIT AGENT ---
     const hasEditSteps = steps.some(s => s.stage === 'edit' || s.stage === 'export');
 
@@ -868,6 +970,42 @@ export async function runPipeline(job: Job): Promise<void> {
       await delay(randomBetween(500, 1000));
     }
 
+    // --- CONTENT SAFETY CHECK (before export — last chance to catch issues) ---
+    if (analysisTranscript || transcript) {
+      try {
+        updateJob(job.id, { currentStep: 'בודק בטיחות תוכן...' });
+        const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
+        const transcriptText = (analysisTranscript || transcript)?.fullText || '';
+        const musicSource = job.generateResult?.musicPath ? 'suno-ai' : 'none';
+        const industry = job.videoIntelligence?.concept?.industry || 'general';
+
+        const contentSafety = await checkContentSafety(
+          transcriptText,
+          job.videoIntelligence?.marketingPlan,
+          musicSource,
+          platformGuess,
+          industry
+        );
+        job.contentSafety = contentSafety;
+        updateJob(job.id, { contentSafety } as any);
+
+        if (!contentSafety.safe) {
+          allWarnings.push('נמצאו בעיות בטיחות בתוכן — עיין בפרטים');
+        }
+        for (const flag of contentSafety.flags) {
+          if (flag.severity === 'block') {
+            allWarnings.push(`חסימה: ${flag.description}`);
+          } else if (flag.severity === 'warning') {
+            allWarnings.push(`אזהרה: ${flag.description}`);
+          }
+        }
+        console.log(`[Pipeline] Content safety: ${contentSafety.score}/10 | Safe: ${contentSafety.safe} | Flags: ${contentSafety.flags.length}`);
+      } catch (error: any) {
+        console.error('Content safety check failed:', error.message);
+        allWarnings.push('Content safety check failed: ' + error.message);
+      }
+    }
+
     // --- EXPORT AGENT ---
     let exportDuration = editResult?.duration || randomBetween(30, 180);
     let exportExports: Array<{ format: string; url: string }> = [];
@@ -908,6 +1046,50 @@ export async function runPipeline(job: Job): Promise<void> {
             allWarnings.push(`Smart export ${platform} failed: ${error.message}`);
           }
         }
+      }
+    }
+
+    // === BRANDED INTRO/OUTRO ===
+    if (editResult?.finalVideoPath && job.brandKit?.enabled && fs.existsSync(editResult.finalVideoPath)) {
+      try {
+        updateJob(job.id, { currentStep: 'יוצר פתיחה וסיום ממותגים...' });
+        const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
+        const introOutroPlan = planIntroOutro(job.brandKit, job.videoIntelligence?.marketingStrategy?.ctaPlan, platformGuess);
+        job.introOutroPlan = introOutroPlan;
+        updateJob(job.id, { introOutroPlan } as any);
+
+        const resolution = job.plan.export?.formats?.includes('9:16') ? '1080:1920' : '1920:1080';
+        fs.mkdirSync(`temp/${job.id}`, { recursive: true });
+
+        const introPath = await generateIntro(
+          job.brandKit,
+          introOutroPlan.intro,
+          `temp/${job.id}/intro.mp4`,
+          resolution
+        );
+
+        const ctaText = job.videoIntelligence?.marketingStrategy?.ctaPlan?.primaryCTA?.text || '';
+        const outroPath = await generateOutro(
+          job.brandKit,
+          introOutroPlan.outro,
+          ctaText,
+          {},
+          `temp/${job.id}/outro.mp4`,
+          resolution
+        );
+
+        if (introPath || outroPath) {
+          const withIntroOutro = `output/${job.id}/final_branded.mp4`;
+          fs.mkdirSync(`output/${job.id}`, { recursive: true });
+          const result = await attachIntroOutro(editResult.finalVideoPath, introPath, outroPath, withIntroOutro);
+          if (result !== editResult.finalVideoPath) {
+            editResult.finalVideoPath = result;
+            console.log(`[Pipeline] Branded intro/outro attached (intro: ${!!introPath}, outro: ${!!outroPath})`);
+          }
+        }
+      } catch (error: any) {
+        console.error('Branded intro/outro failed:', error.message);
+        allWarnings.push('Branded intro/outro failed: ' + error.message);
       }
     }
 
@@ -1087,6 +1269,63 @@ Return JSON:
         console.error('QA check failed:', error.message);
         allWarnings.push('QA check failed: ' + error.message);
       }
+
+      // --- BRAND COMPLIANCE CHECK ---
+      if (job.brandKit?.enabled) {
+        try {
+          updateJob(job.id, { currentStep: 'בודק תאימות מותג...' });
+          const brandResult = await checkBrandCompliance(finalVideoPath, exportDuration, job.brandKit);
+          job.brandCompliance = brandResult;
+          updateJob(job.id, { brandCompliance: brandResult } as any);
+          if (!brandResult.passed) {
+            allWarnings.push(...brandResult.issues.map(i => `מותג: ${i.issue}`));
+          }
+          console.log(`[Pipeline] Brand compliance: ${brandResult.score}/10 | Passed: ${brandResult.passed}`);
+        } catch (error: any) {
+          console.error('Brand compliance check failed:', error.message);
+          allWarnings.push('Brand compliance check failed: ' + error.message);
+        }
+      }
+
+      // --- MULTI-DEVICE PREVIEW SIMULATION ---
+      try {
+        updateJob(job.id, { currentStep: 'בודק תצוגה במכשירים שונים...' });
+        const aspectRatio = job.plan.export.formats.includes('9:16') ? '9:16' : '16:9';
+        const devicePreview = await simulateDevicePreview(finalVideoPath, exportDuration, aspectRatio);
+        job.devicePreview = devicePreview;
+        updateJob(job.id, { devicePreview } as any);
+
+        if (!devicePreview.overallPassed) {
+          const failedDevices = devicePreview.devices.filter(d => !d.passed).map(d => d.name);
+          allWarnings.push(`תצוגה לא תקינה במכשירים: ${failedDevices.join(', ')}`);
+        }
+        console.log(`[Pipeline] Device preview: ${devicePreview.devices.filter(d => d.passed).length}/${devicePreview.devices.length} devices passed`);
+      } catch (error: any) {
+        console.error('Device preview simulation failed:', error.message);
+        allWarnings.push('Device preview simulation failed: ' + error.message);
+      }
+
+      // --- TEXT READABILITY CHECK (mobile) ---
+      if (job.videoIntelligence?.textOverlayPlan && job.videoIntelligence.textOverlayPlan.length > 0) {
+        try {
+          updateJob(job.id, { currentStep: 'בודק קריאות טקסט במובייל...' });
+          const overlays = job.videoIntelligence.textOverlayPlan.map(t => ({
+            text: t.text,
+            timestamp: t.timestamp,
+            fontSize: t.style === 'large-center' ? 'large' : 'medium',
+            color: '#FFFFFF',
+          }));
+          const aspectRatio = job.plan.export.formats.includes('9:16') ? '9:16' : '16:9';
+          const readability = await checkTextReadability(finalVideoPath, overlays, aspectRatio);
+          job.textReadability = readability;
+          updateJob(job.id, { textReadability: readability } as any);
+          const readableCount = readability.filter(r => r.readable).length;
+          console.log(`[Pipeline] Text readability: ${readableCount}/${readability.length} texts readable on mobile`);
+        } catch (error: any) {
+          console.error('Text readability check failed:', error.message);
+          allWarnings.push('Text readability check failed: ' + error.message);
+        }
+      }
     }
 
     // --- HOOK VARIATIONS ---
@@ -1176,6 +1415,28 @@ Return JSON:
         console.error('Virality score failed:', error.message);
         viralityScore = generateViralityScore(); // fallback to simulated
       }
+    }
+
+    // --- ENGAGEMENT PREDICTION (final step) ---
+    try {
+      updateJob(job.id, { currentStep: 'מחשב ציון engagement צפוי...' });
+      const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
+      const engagementPrediction = await predictEngagement(
+        job.editingBlueprint,
+        job.contentSelection,
+        job.videoIntelligence?.marketingPlan,
+        job.retentionPlan,
+        job.qaResult,
+        job.hookVariations || [],
+        exportDuration,
+        platformGuess
+      );
+      job.engagementPrediction = engagementPrediction;
+      updateJob(job.id, { engagementPrediction } as any);
+      console.log(`[Pipeline] Engagement prediction: ${engagementPrediction.overallScore}/100, Rate: ${engagementPrediction.predictedEngagementRate}% (avg: ${engagementPrediction.platformAverage}%)`);
+    } catch (error: any) {
+      console.error('Engagement prediction failed:', error.message);
+      allWarnings.push('Engagement prediction failed: ' + error.message);
     }
 
     // Create version 0 (original) via versionManager

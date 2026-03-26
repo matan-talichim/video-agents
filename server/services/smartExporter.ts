@@ -73,8 +73,26 @@ export const EXPORT_PRESETS: Record<string, ExportPreset> = {
   },
 };
 
+// --- LOUDNESS STANDARDS PER PLATFORM (LUFS) ---
+
+export const LOUDNESS_STANDARDS: Record<string, { target: number; tp: number; lra: number }> = {
+  'youtube': { target: -14, tp: -1, lra: 11 },
+  'instagram-reels': { target: -14, tp: -1, lra: 11 },
+  'tiktok': { target: -14, tp: -1, lra: 11 },
+  'linkedin': { target: -14, tp: -1, lra: 11 },
+  'facebook': { target: -14, tp: -1, lra: 11 },
+  'broadcast-tv': { target: -24, tp: -2, lra: 7 },
+  'podcast': { target: -16, tp: -1, lra: 8 },
+};
+
+export function getLoudnessCommand(platform: string): string {
+  const std = LOUDNESS_STANDARDS[platform] || LOUDNESS_STANDARDS['youtube'];
+  return `loudnorm=I=${std.target}:TP=${std.tp}:LRA=${std.lra}`;
+}
+
 export function getExportCommand(inputPath: string, outputPath: string, platform: string): string {
   const preset = EXPORT_PRESETS[platform] || EXPORT_PRESETS['youtube'];
+  const loudness = getLoudnessCommand(platform);
 
-  return `ffmpeg -i "${inputPath}" -vf "scale=${preset.resolution}:flags=lanczos" -c:v ${preset.codec} -b:v ${preset.bitrate} -crf ${preset.crf} -r ${preset.fps} -c:a aac -b:a ${preset.audioBitrate} -movflags +faststart -y "${outputPath}"`;
+  return `ffmpeg -i "${inputPath}" -vf "scale=${preset.resolution}:flags=lanczos" -af "${loudness}" -c:v ${preset.codec} -b:v ${preset.bitrate} -crf ${preset.crf} -r ${preset.fps} -c:a aac -b:a ${preset.audioBitrate} -movflags +faststart -y "${outputPath}"`;
 }
