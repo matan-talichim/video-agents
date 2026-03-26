@@ -38,6 +38,9 @@ import { checkTextReadability } from '../services/qualityCheck.js';
 import { planIntroOutro, generateIntro, generateOutro, attachIntroOutro } from '../services/brandedIntroOutro.js';
 import { analyzeExpressions } from '../services/expressionAnalyzer.js';
 import { predictEngagement } from '../services/engagementPredictor.js';
+import { selectSubtitleStyle } from '../services/subtitleStyler.js';
+import { simulateDevicePreview } from '../services/devicePreview.js';
+import { checkContentSafety } from '../services/contentSafety.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -763,6 +766,31 @@ export async function runPipeline(job: Job): Promise<void> {
       });
     }
 
+    // --- SUBTITLE STYLE INTELLIGENCE (before rendering) ---
+    if (job.plan.edit.subtitles) {
+      try {
+        updateJob(job.id, { currentStep: 'בוחר סגנון כתוביות...' });
+        const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
+        const videoCategory = job.videoIntelligence?.concept?.category || 'talking-head';
+        const emotionalTone = job.emotionalArc?.[0]?.phase || 'neutral';
+        const hasPresenter = !!job.presenterDetection;
+
+        const subtitleStylePlan = await selectSubtitleStyle(
+          videoCategory,
+          platformGuess,
+          emotionalTone,
+          hasPresenter,
+          job.brandKit
+        );
+        job.subtitleStylePlan = subtitleStylePlan;
+        updateJob(job.id, { subtitleStylePlan } as any);
+        console.log(`[Pipeline] Subtitle style: ${subtitleStylePlan.selectedStyle} — ${subtitleStylePlan.reason}`);
+      } catch (error: any) {
+        console.error('Subtitle style selection failed:', error.message);
+        allWarnings.push('Subtitle style selection failed: ' + error.message);
+      }
+    }
+
     // --- APPLY EDIT STYLE (if user selected one) ---
     if (job.editStyle && EDIT_STYLES[job.editStyle]) {
       console.log(`[Pipeline] Applying edit style: ${job.editStyle}`);
@@ -940,6 +968,42 @@ export async function runPipeline(job: Job): Promise<void> {
       });
 
       await delay(randomBetween(500, 1000));
+    }
+
+    // --- CONTENT SAFETY CHECK (before export — last chance to catch issues) ---
+    if (analysisTranscript || transcript) {
+      try {
+        updateJob(job.id, { currentStep: 'בודק בטיחות תוכן...' });
+        const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
+        const transcriptText = (analysisTranscript || transcript)?.fullText || '';
+        const musicSource = job.generateResult?.musicPath ? 'suno-ai' : 'none';
+        const industry = job.videoIntelligence?.concept?.industry || 'general';
+
+        const contentSafety = await checkContentSafety(
+          transcriptText,
+          job.videoIntelligence?.marketingPlan,
+          musicSource,
+          platformGuess,
+          industry
+        );
+        job.contentSafety = contentSafety;
+        updateJob(job.id, { contentSafety } as any);
+
+        if (!contentSafety.safe) {
+          allWarnings.push('נמצאו בעיות בטיחות בתוכן — עיין בפרטים');
+        }
+        for (const flag of contentSafety.flags) {
+          if (flag.severity === 'block') {
+            allWarnings.push(`חסימה: ${flag.description}`);
+          } else if (flag.severity === 'warning') {
+            allWarnings.push(`אזהרה: ${flag.description}`);
+          }
+        }
+        console.log(`[Pipeline] Content safety: ${contentSafety.score}/10 | Safe: ${contentSafety.safe} | Flags: ${contentSafety.flags.length}`);
+      } catch (error: any) {
+        console.error('Content safety check failed:', error.message);
+        allWarnings.push('Content safety check failed: ' + error.message);
+      }
     }
 
     // --- EXPORT AGENT ---
@@ -1221,6 +1285,24 @@ Return JSON:
           console.error('Brand compliance check failed:', error.message);
           allWarnings.push('Brand compliance check failed: ' + error.message);
         }
+      }
+
+      // --- MULTI-DEVICE PREVIEW SIMULATION ---
+      try {
+        updateJob(job.id, { currentStep: 'בודק תצוגה במכשירים שונים...' });
+        const aspectRatio = job.plan.export.formats.includes('9:16') ? '9:16' : '16:9';
+        const devicePreview = await simulateDevicePreview(finalVideoPath, exportDuration, aspectRatio);
+        job.devicePreview = devicePreview;
+        updateJob(job.id, { devicePreview } as any);
+
+        if (!devicePreview.overallPassed) {
+          const failedDevices = devicePreview.devices.filter(d => !d.passed).map(d => d.name);
+          allWarnings.push(`תצוגה לא תקינה במכשירים: ${failedDevices.join(', ')}`);
+        }
+        console.log(`[Pipeline] Device preview: ${devicePreview.devices.filter(d => d.passed).length}/${devicePreview.devices.length} devices passed`);
+      } catch (error: any) {
+        console.error('Device preview simulation failed:', error.message);
+        allWarnings.push('Device preview simulation failed: ' + error.message);
       }
 
       // --- TEXT READABILITY CHECK (mobile) ---

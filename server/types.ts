@@ -65,6 +65,9 @@ export interface Job {
   introOutroPlan?: import('./services/brandedIntroOutro.js').IntroOutroPlan;
   expressionAnalysis?: import('./services/expressionAnalyzer.js').ExpressionAnalysis;
   engagementPrediction?: import('./services/engagementPredictor.js').EngagementPrediction;
+  subtitleStylePlan?: import('./services/subtitleStyler.js').SubtitleStylePlan;
+  devicePreview?: import('./services/devicePreview.js').DevicePreviewResult;
+  contentSafety?: import('./services/contentSafety.js').ContentSafetyResult;
   hookVariations?: import('./services/hookGenerator.js').HookVariation[];
   abTestResult?: import('./services/abTesting.js').ABTestResult;
   retentionPlan?: import('./services/retentionOptimizer.js').RetentionPlan;
