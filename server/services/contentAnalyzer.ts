@@ -72,6 +72,8 @@ export interface ContentAnalysis {
     end: number;
     reason: string;
     suggestedPrompt: string;
+    triggerWord?: string;
+    triggerWordTimestamp?: number;
   }>;
 
   // Emotional arc plan
@@ -180,6 +182,23 @@ export interface ContentAnalysis {
 
   // Complete editing blueprint
   editingBlueprint?: EditingBlueprint;
+
+  // Detailed emotional arc (rollercoaster phases)
+  detailedEmotionalArc: Array<{
+    start: number;
+    end: number;
+    energy: number;         // 1-10
+    phase: string;
+    editStyle: string;
+  }>;
+
+  // Protected silences (strategic pauses to keep)
+  protectedSilences: Array<{
+    at: number;
+    duration: number;
+    type: 'impact' | 'anticipation' | 'rhetorical' | 'emotional' | 'comedic';
+    reason: string;
+  }>;
 }
 
 export async function analyzeContent(
@@ -450,7 +469,15 @@ Analyze this content and return JSON with ALL of the following fields:
     "captionPosition": "center-vertical",
     "loopable": true,
     "endStrategy": "cta"
-  }
+  },
+  "detailedEmotionalArc": [
+    { "start": 0, "end": 1, "energy": 6, "phase": "start", "editStyle": "establishing — medium shot, gentle music fade-in" },
+    { "start": 1, "end": 3, "energy": 9, "phase": "hook", "editStyle": "fast cuts, bold text overlay, SFX impact" }
+  ],
+  "protectedSilences": [
+    { "at": 25.3, "duration": 0.8, "type": "impact", "reason": "dramatic pause after key statement" },
+    { "at": 40.1, "duration": 0.5, "type": "anticipation", "reason": "pause before price reveal" }
+  ]
 }
 
 IMPORTANT:
@@ -462,7 +489,11 @@ IMPORTANT:
 - For footageIssues solutions, use keywords: background-blur, fast-pacing, energetic-music, frequent-broll, noise-reduction, speech-enhancement, lighting-enhancement, color-correction.
 - Provide exactly 3 hookOptions ranked by viralScore (highest first).
 - brollCoverMoments should cover weak visual moments (speaker looking away, bad framing, jump cuts).
+- For brollCoverMoments, use word-level precision: find the exact trigger word timestamp from the transcript and start B-Roll 0.3s before that word.
+- Include triggerWord and triggerWordTimestamp in brollCoverMoments when a specific word triggers the B-Roll need.
 - emotionalArc should have 2-4 sections covering the full video.
+- detailedEmotionalArc should design a rollercoaster with phases (start, hook, dip, build, breathe, peak, resolve) — energy must NEVER stay flat for >10 seconds.
+- protectedSilences should mark strategic pauses that should NOT be removed: impact pauses, anticipation pauses, rhetorical pauses, emotional pauses, comedic pauses.
 - cutTransitions should mark where hard cuts happen and suggest transition types.
 - For cutTransitions, use this enhanced format: { "at": 5.2, "type": "lcutBroll", "murchScore": 8, "audioOverlapAfter": 1.0, "reason": "speaker mentions beach — L-cut to B-Roll" }
 - Valid cut types: "hard", "lcutBroll", "crossfade", "smashCut", "cutaway", "montage"
@@ -472,7 +503,7 @@ IMPORTANT:
 ${MASTER_EDITING_PROMPT}
 
 Based on your content analysis, create a complete "editingBlueprint" following ALL the rules above.
-The blueprint should contain: cuts, zooms, brollInsertions, musicSync, soundDesign, colorPlan, platformOptimization, speedRamps, patternInterrupts.
+The blueprint should contain: cuts, zooms, brollInsertions, musicSync, soundDesign, colorPlan, platformOptimization, speedRamps, patternInterrupts, emotionalArc.
 Include a murchAverageScore (average of all cut murch scores).
 Also include "musicSync", "soundDesign", "zooms", "colorPlan", and "platformOptimization" as top-level fields in the response.`
     );
@@ -504,6 +535,8 @@ Also include "musicSync", "soundDesign", "zooms", "colorPlan", and "platformOpti
       colorPlan: analysis.colorPlan || undefined,
       platformOptimization: analysis.platformOptimization || undefined,
       editingBlueprint: analysis.editingBlueprint || undefined,
+      detailedEmotionalArc: analysis.detailedEmotionalArc || [],
+      protectedSilences: analysis.protectedSilences || [],
     };
   } catch (error: any) {
     console.error('[ContentAnalyzer] Content analysis failed:', error.message);
@@ -575,5 +608,7 @@ function getDefaultAnalysis(
     cutTransitions: [],
     footageIssues: [],
     hookOptions: [],
+    detailedEmotionalArc: [],
+    protectedSilences: [],
   };
 }

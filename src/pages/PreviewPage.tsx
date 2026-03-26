@@ -648,8 +648,47 @@ export default function PreviewPage() {
                   )}
                 </div>
 
-                {/* Emotional arc visualization */}
-                {contentAnalysis.emotionalArc && contentAnalysis.emotionalArc.length > 0 && (
+                {/* Detailed Emotional Arc (Rollercoaster) */}
+                {contentAnalysis.detailedEmotionalArc && contentAnalysis.detailedEmotionalArc.length > 0 && (
+                  <div>
+                    <p className="text-[11px] text-gray-400 mb-2">עקומת אנרגיה (רכבת הרים):</p>
+                    <div className="flex items-end gap-0.5 h-16">
+                      {contentAnalysis.detailedEmotionalArc.map((phase: any, i: number) => {
+                        const totalDur = contentAnalysis.detailedEmotionalArc.reduce(
+                          (sum: number, a: any) => sum + (a.end - a.start), 0
+                        );
+                        const width = ((phase.end - phase.start) / totalDur) * 100;
+                        const height = (phase.energy / 10) * 100;
+                        const color =
+                          phase.phase === 'hook' ? 'bg-red-500' :
+                          phase.phase === 'peak' ? 'bg-amber-500' :
+                          phase.phase === 'build' ? 'bg-blue-500' :
+                          phase.phase === 'dip' || phase.phase === 'breathe' ? 'bg-cyan-500' :
+                          phase.phase === 'resolve' ? 'bg-green-500' :
+                          'bg-purple-500';
+                        return (
+                          <div
+                            key={i}
+                            className="flex flex-col items-center justify-end"
+                            style={{ width: `${width}%` }}
+                            title={`${phase.phase} | אנרגיה: ${phase.energy}/10 | ${phase.editStyle}`}
+                          >
+                            <span className="text-[8px] text-white font-bold mb-0.5">{phase.energy}</span>
+                            <div
+                              className={`${color} rounded-t w-full opacity-70 transition-all`}
+                              style={{ height: `${height}%` }}
+                            />
+                            <span className="text-[8px] text-gray-500 mt-0.5 uppercase tracking-tight">{phase.phase}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Legacy Emotional arc visualization (fallback) */}
+                {(!contentAnalysis.detailedEmotionalArc || contentAnalysis.detailedEmotionalArc.length === 0) &&
+                  contentAnalysis.emotionalArc && contentAnalysis.emotionalArc.length > 0 && (
                   <div>
                     <p className="text-[11px] text-gray-400 mb-2">עקומת אנרגיה:</p>
                     <div className="flex items-end gap-0.5 h-12">

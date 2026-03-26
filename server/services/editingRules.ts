@@ -346,6 +346,172 @@ For the plan, return:
 }`;
 
 // ============================================================
+// CATEGORY 11: EMOTIONAL ARC ROLLERCOASTER
+// ============================================================
+export const EMOTIONAL_ARC_PROMPT = `Design the video's emotional arc like a rollercoaster.
+
+A flat emotional line = boring video. Viewers need CONTRAST between high and low energy.
+
+THE IDEAL EMOTIONAL ARC:
+
+Energy
+10 |         ★PEAK
+ 9 |  ★HOOK
+ 8 |
+ 7 |                  ★CTA
+ 6 |★START    ★BUILD
+ 5 |
+ 4 |      ★DIP
+ 3 |            ★BREATHE
+ 1 |________________________________
+   0s   3s   8s  20s  25s  35s  42s
+
+PHASES:
+1. START (0-1s): Energy 6 — establish context, medium pace
+2. HOOK (1-3s): Energy 9 — grab attention, fast cuts, bold text
+3. DIP (3-8s): Energy 4 — let them settle, single speaker shot, context
+4. BUILD (8-20s): Energy 6→7 — gradually rising, facts/benefits, mix of speaker and B-Roll
+5. BREATHE (20-25s): Energy 3 — brief valley, moment of calm before peak, emotional pause
+6. PEAK (25-35s): Energy 10 — strongest point, social proof, wow moment, fast montage
+7. RESOLVE (35-end): Energy 7 — confident CTA, clear action, not frantic
+
+EDITING STYLE BY ENERGY LEVEL:
+- Energy 1-3 (low): shots 4-6s long, soft music 15%, no SFX, gentle slow zooms
+- Energy 4-5 (medium-low): shots 3-4s, music 20%, subtle SFX, normal zooms
+- Energy 6-7 (medium-high): shots 2-3s, music 25%, occasional SFX, active zooms
+- Energy 8-9 (high): shots 1.5-2.5s, music 30%, frequent SFX, zoom punches, B-Roll montage
+- Energy 10 (maximum): shots 1-2s, music 35%, heavy SFX, rapid cuts, kinetic text burst
+
+CRITICAL RULE: The energy must NEVER stay flat for more than 10 seconds. There must always be movement — either rising or falling. Flat = boring.
+
+Return:
+{
+  "emotionalArc": [
+    { "start": 0, "end": 1, "energy": 6, "phase": "start", "editStyle": "establishing — medium shot, gentle music fade-in" },
+    { "start": 1, "end": 3, "energy": 9, "phase": "hook", "editStyle": "fast cuts, bold text overlay, SFX impact" },
+    { "start": 3, "end": 8, "energy": 4, "phase": "dip", "editStyle": "single speaker shot, soft music, no SFX" },
+    { "start": 8, "end": 20, "energy": 7, "phase": "build", "editStyle": "mix speaker and B-Roll, rising music, gradual zoom-ins" },
+    { "start": 20, "end": 25, "energy": 3, "phase": "breathe", "editStyle": "slow shot, emotional pause, music drops" },
+    { "start": 25, "end": 35, "energy": 10, "phase": "peak", "editStyle": "montage, rapid cuts, SFX hits, kinetic text burst, music climax" },
+    { "start": 35, "end": 42, "energy": 7, "phase": "resolve", "editStyle": "confident single shot, CTA overlay, music resolves" }
+  ]
+}`;
+
+// ============================================================
+// CATEGORY 12: STRATEGIC SILENCE PROTECTION
+// ============================================================
+export const STRATEGIC_SILENCE_PROMPT = `Not all silence should be removed. Strategic pauses are powerful selling tools.
+
+SILENCE TO REMOVE (always cut):
+- "Umm", "ahh", "ehh" hesitation pauses → always remove
+- Dead air at start/end of sentences → trim
+- Long pauses from losing train of thought → cut
+- Breathing pauses mid-sentence → trim to 0.2s max
+- False starts → remove completely
+
+SILENCE TO KEEP (mark as "protected"):
+
+1. IMPACT PAUSE — after a powerful statement:
+   "רק 5 דירות נותרו." [0.8s pause] "תתקשרו עכשיו."
+   The pause lets the statement sink in.
+   Duration: 0.5-1.0 seconds.
+
+2. ANTICIPATION PAUSE — before a reveal:
+   [0.5s pause] "המחיר? ₪1,890,000."
+   The pause creates tension before the answer.
+   Duration: 0.3-0.7 seconds.
+
+3. RHETORICAL PAUSE — after a question:
+   "מה הייתם עושים עם דירה כזו?" [1.0s pause]
+   Lets the viewer mentally answer.
+   Duration: 0.7-1.2 seconds.
+
+4. EMOTIONAL PAUSE — speaker collects themselves:
+   Speaker pauses from genuine emotion → shows authenticity.
+   Duration: keep as-is (don't trim at all).
+
+5. COMEDIC PAUSE — timing for humor:
+   Setup... [pause]... punchline.
+   The pause IS the comedy.
+   Duration: 0.5-1.5 seconds depending on setup.
+
+When scoring segments in content selection, detect and mark protected silences:
+{
+  "protectedSilences": [
+    { "at": 25.3, "duration": 0.8, "type": "impact", "reason": "dramatic pause after key statement — creates impact" },
+    { "at": 40.1, "duration": 0.5, "type": "anticipation", "reason": "pause before price reveal — builds tension" },
+    { "at": 52.0, "duration": 1.0, "type": "rhetorical", "reason": "pause after question — lets viewer think" }
+  ]
+}`;
+
+// ============================================================
+// CATEGORY 13: B-ROLL TIMING PRECISION
+// ============================================================
+export const BROLL_PRECISION_PROMPT = `B-Roll must appear at the EXACT trigger word, not approximately.
+
+BAD TIMING:
+Speaker: "Our project is located 5 minutes from the beautiful beach of Haifa"
+B-Roll of beach appears 2 seconds AFTER the word "beach" → feels disconnected
+
+GOOD TIMING:
+Speaker: "Our project is located 5 minutes from the beautiful beach of Haifa"
+B-Roll of beach starts 0.3 seconds BEFORE the word "beach" → feels intentional and professional
+
+TRIGGER WORD DETECTION RULES:
+
+1. VISUAL NOUNS — words that can be shown:
+   "beach", "building", "view", "kitchen", "garden", "street", "park", "sunset", "pool"
+   → B-Roll shows what the word describes
+
+2. NUMBERS that need emphasis:
+   "5 minutes", "3 bedrooms", "₪1.89M", "120 sqm"
+   → B-Roll of the related visual + number as kinetic text overlay
+
+3. EMOTIONAL WORDS that benefit from visual support:
+   "dream home", "perfect location", "stunning view", "unique opportunity"
+   → B-Roll amplifies the emotion (aerial shots, golden hour, cinematic)
+
+4. COMPARISON WORDS:
+   "before/after", "old/new", "with/without"
+   → Split screen or sequential comparison B-Roll
+
+TIMING RULES:
+- VIDEO starts: 0.3 seconds BEFORE the trigger word (anticipation — brain processes visual first)
+- VIDEO continues: 2-4 seconds after trigger word
+- AUDIO: speaker's voice continues throughout (L-cut — NEVER cut the audio)
+- If speaker says 2 visual words in one sentence → B-Roll for the MOST visual word only (not both)
+- Minimum gap between B-Roll insertions: 4 seconds (don't show B-Roll back-to-back)
+
+For each B-Roll insertion, use word-level timestamps from the transcript:
+{
+  "brollInsertions": [
+    {
+      "triggerWord": "חוף",
+      "triggerWordTimestamp": 15.3,
+      "videoStartTime": 15.0,
+      "videoEndTime": 18.0,
+      "speakerAudioContinues": true,
+      "cutType": "lcut",
+      "audioOverlapAfter": 1.0,
+      "brollPrompt": "aerial view of Haifa beach, cinematic, golden hour, 4K",
+      "reason": "speaker mentions beach — show it at the exact moment"
+    },
+    {
+      "triggerWord": "3 חדרים",
+      "triggerWordTimestamp": 22.7,
+      "videoStartTime": 22.4,
+      "videoEndTime": 25.0,
+      "speakerAudioContinues": true,
+      "cutType": "lcut",
+      "audioOverlapAfter": 0.8,
+      "brollPrompt": "modern bedroom interior, bright, spacious, Israeli style apartment",
+      "kineticTextOverlay": "3 חדרי שינה",
+      "reason": "speaker says number of bedrooms — show bedroom + number overlay"
+    }
+  ]
+}`;
+
+// ============================================================
 // MASTER EDITING PROMPT (all rules combined)
 // ============================================================
 export const MASTER_EDITING_PROMPT = [
@@ -354,7 +520,10 @@ export const MASTER_EDITING_PROMPT = [
   EDITING_RULES_PART3,     // Zoom + Color
   PLATFORM_RULES_PROMPT,   // Platform optimization
   SPEED_RAMP_PROMPT,       // Speed ramping
-  PATTERN_INTERRUPT_PROMPT // Pattern interrupts
+  PATTERN_INTERRUPT_PROMPT, // Pattern interrupts
+  EMOTIONAL_ARC_PROMPT,    // Emotional arc rollercoaster
+  STRATEGIC_SILENCE_PROMPT, // Strategic silence protection
+  BROLL_PRECISION_PROMPT   // B-Roll word-level precision
 ].join('\n\n');
 
 // ============================================================
@@ -384,6 +553,12 @@ export interface EditingBlueprint {
     audioOverlap: number;
     cutType: string;
     prompt: string;
+    triggerWord?: string;
+    triggerWordTimestamp?: number;
+    videoStartTime?: number;
+    videoEndTime?: number;
+    speakerAudioContinues?: boolean;
+    kineticTextOverlay?: string;
   }>;
   musicSync: {
     ducking: Array<{ start: number; end: number; volume: number; reason: string }>;
@@ -424,6 +599,13 @@ export interface EditingBlueprint {
     text?: string;
     zoomLevel?: number;
     sfxType?: string;
+  }>;
+  emotionalArc?: Array<{
+    start: number;
+    end: number;
+    energy: number;         // 1-10
+    phase: string;
+    editStyle: string;
   }>;
   murchAverageScore: number;
 }
