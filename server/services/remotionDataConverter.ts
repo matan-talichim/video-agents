@@ -71,7 +71,7 @@ export function buildRemotionProps(
 }
 
 function buildSubtitleEntries(transcript: TranscriptResult): SubtitleEntry[] {
-  // Group words into subtitle lines (max 8 words, max 3 seconds)
+  // Group words into subtitle lines (max 3 words, max 1.5 seconds — word-by-word style)
   const entries: SubtitleEntry[] = [];
   let currentGroup: TranscriptResult['words'][0][] = [];
   let groupStart = 0;
@@ -83,8 +83,8 @@ function buildSubtitleEntries(transcript: TranscriptResult): SubtitleEntry[] {
     currentGroup.push(word);
 
     const isEndOfSentence = /[.!?]$/.test(word.word);
-    const isTooLong = currentGroup.length >= 8;
-    const isTooLongDuration = (word.end - groupStart) >= 3;
+    const isTooLong = currentGroup.length >= 3;
+    const isTooLongDuration = (word.end - groupStart) >= 1.5;
 
     if (isEndOfSentence || isTooLong || isTooLongDuration) {
       entries.push({
@@ -123,7 +123,7 @@ function buildSubtitleEntries(transcript: TranscriptResult): SubtitleEntry[] {
 function buildSubtitleStyle(plan: ExecutionPlan, brandKit?: any): SubtitleStyleConfig {
   return {
     template: (plan.edit.captionTemplate || plan.edit.subtitleStyle || 'word-by-word') as any,
-    fontSize: 42,
+    fontSize: 22,  // Small readable size — NOT 42+ which covers the presenter
     fontFamily: brandKit?.font || 'Heebo, sans-serif',
     color: '#ffffff',
     highlightColor: brandKit?.secondaryColor || '#7c3aed',

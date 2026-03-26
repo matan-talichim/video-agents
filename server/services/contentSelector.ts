@@ -319,9 +319,10 @@ export async function determineOptimalOrder(
     .map((s, i) => ({ ...s, originalIndex: i }))
     .filter(s => s.decision === 'must-keep' || s.decision === 'keep');
 
-  // If too much content for target duration, drop lowest-scored
   if (targetDuration) {
     const totalKept = keptSegments.reduce((sum, s) => sum + (s.end - s.start), 0);
+
+    // If too much content for target duration, drop lowest-scored
     if (totalKept > targetDuration * 1.2) {
       keptSegments.sort((a, b) => b.totalScore - a.totalScore);
       let duration = 0;
@@ -335,6 +336,24 @@ export async function determineOptimalOrder(
       keptSegments.length = 0;
       keptSegments.push(...fitting);
     }
+    // If too little content, promote 'maybe' segments (sorted by score) to fill target
+    else if (totalKept < targetDuration * 0.85) {
+      const maybeSegments = segments
+        .map((s, i) => ({ ...s, originalIndex: i }))
+        .filter(s => s.decision === 'maybe')
+        .sort((a, b) => b.totalScore - a.totalScore);
+
+      let currentDuration = totalKept;
+      for (const seg of maybeSegments) {
+        if (currentDuration >= targetDuration * 0.95) break;
+        keptSegments.push(seg);
+        currentDuration += (seg.end - seg.start);
+        console.log(`[Content Selection] Promoted 'maybe' segment to fill target: +${(seg.end - seg.start).toFixed(1)}s → ${currentDuration.toFixed(1)}s`);
+      }
+    }
+
+    const finalDuration = keptSegments.reduce((sum, s) => sum + (s.end - s.start), 0);
+    console.log(`[Content Selection] Target: ${targetDuration}s | Selected: ${finalDuration.toFixed(1)}s`);
   }
 
   const response = await askClaude(

@@ -171,7 +171,13 @@ export async function runEditAgent(
         if (fs.existsSync(selectedOutput) && fs.statSync(selectedOutput).size > 0) {
           currentVideo = selectedOutput;
           await verifySyncAfterEdit(currentVideo, 'content-selection-concat');
-          console.log(`[Edit] Assembled ${segmentFiles.length} selected segments`);
+          const assembledDuration = await ffmpeg.getVideoDurationSafe(currentVideo);
+          const targetDur = typeof plan.export.targetDuration === 'number' ? plan.export.targetDuration : 0;
+          console.log(`[Edit] Assembled ${segmentFiles.length} selected segments → ${assembledDuration.toFixed(1)}s (target: ${targetDur || 'auto'}s)`);
+          if (targetDur > 0 && assembledDuration > 0 && Math.abs(assembledDuration - targetDur) > targetDur * 0.15) {
+            console.warn(`[Edit] ⚠️ Assembled duration ${assembledDuration.toFixed(1)}s differs from target ${targetDur}s by more than 15%`);
+            warnings.push(`Duration mismatch: assembled ${assembledDuration.toFixed(1)}s vs target ${targetDur}s`);
+          }
         } else {
           console.warn('[Edit] ⚠️ Concat output empty — using original video as base');
           warnings.push('Segment assembly produced empty output — using original video');
@@ -188,6 +194,28 @@ export async function runEditAgent(
       console.error('[Edit] ⚠️ Content selection assembly failed — using original video as base:', error.message);
       warnings.push('Content selection assembly failed: ' + error.message);
       // currentVideo stays as cleanVideoPath (the original input)
+    }
+  }
+
+  // ========================================================
+  // STEP 0.1: MUTE NON-PRESENTER AUDIO (remove coach/director voice)
+  // ========================================================
+  if (job.presenterDetection?.nonPresenterSegments && job.presenterDetection.nonPresenterSegments.length > 0) {
+    try {
+      updateProgress(job, 'מסיר קול מנחה/במאי...');
+      const nonPresenterSegs = job.presenterDetection.nonPresenterSegments;
+      console.log(`[Edit] Muting ${nonPresenterSegs.length} non-presenter audio segments`);
+
+      const output = nextOutput();
+      await ffmpeg.runFFmpeg(ffmpeg.muteNonPresenterSegments(
+        currentVideo,
+        nonPresenterSegs.map(s => ({ start: s.start, end: s.end })),
+        output
+      ));
+      currentVideo = verifyStepOutput(output, currentVideo, 'Mute non-presenter', warnings);
+    } catch (error: any) {
+      console.error('[Edit] Non-presenter muting failed:', error.message);
+      warnings.push('Non-presenter muting failed: ' + error.message);
     }
   }
 
@@ -1545,9 +1573,21 @@ Rules:
         const output = nextOutput();
         try {
           switch (vfxType) {
-            case 'camera-shake':
+            case 'camera-shake': {
+              // BUG 12: Only apply camera shake when Brain explicitly approved it
+              // Never on talking heads, calm presets, or text overlay segments
+              const category = job.videoIntelligence?.concept?.category || '';
+              const isTalkingHead = category.includes('talking') || category.includes('interview') || category.includes('lecture');
+              const editStyle = (job as any).editStyle || (plan as any).editStyle || '';
+              const isCalm = editStyle.includes('calm') || editStyle.includes('corporate') || editStyle.includes('minimal');
+              if (isTalkingHead || isCalm) {
+                console.log(`[Edit] Skipping camera-shake: not suitable for ${category || editStyle || 'this content'}`);
+                warnings.push('Camera shake skipped: not suitable for talking head / calm style');
+                continue;
+              }
               await ffmpeg.runFFmpeg(ffmpeg.cameraShake(currentVideo, 'small', output));
               break;
+            }
             case 'film-burn':
               await ffmpeg.runFFmpeg(ffmpeg.filmGrain(currentVideo, 15, output));
               break;

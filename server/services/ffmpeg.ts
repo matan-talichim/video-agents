@@ -380,21 +380,42 @@ export function addLogo(input: string, logoFile: string, position: string, opaci
 // === SUBTITLES ===
 
 // Burn Hebrew RTL subtitles (simple — FFmpeg drawtext)
+// Small text at the bottom, 1-3 words at a time. NOT huge multi-line blocks.
 export function addSubtitlesSimple(input: string, srtFile: string, output: string, fontFile?: string): string {
   const font = fontFile || 'Heebo';
-  return `ffmpeg -i "${input}" -vf "subtitles='${srtFile}':force_style='FontName=${font},FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,Alignment=2,MarginV=50'" -c:a copy -y "${output}"`;
+  return `ffmpeg -i "${input}" -vf "subtitles='${srtFile}':force_style='FontName=${font},FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Bold=1,Alignment=2,MarginV=80'" -c:a copy -y "${output}"`;
 }
 
 // Add lower third (name + title text overlay)
 export function addLowerThird(input: string, name: string, title: string, startTime: number, duration: number, output: string, fontFile?: string): string {
   const font = fontFile || 'Heebo';
   const endTime = startTime + duration;
-  return `ffmpeg -i "${input}" -vf "drawtext=text='${name}':fontfile='${font}':fontsize=22:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=8:x=w-text_w-30:y=h-100:enable='between(t,${startTime},${endTime})',drawtext=text='${title}':fontfile='${font}':fontsize=16:fontcolor=gray:box=1:boxcolor=black@0.6:boxborderw=8:x=w-text_w-30:y=h-70:enable='between(t,${startTime},${endTime})'" -c:a copy -y "${output}"`;
+  return `ffmpeg -i "${input}" -vf "drawtext=text='${name}':fontfile='${font}':fontsize=22:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=8:x=w-text_w-30:y=h-100:enable='between(t,${startTime},${endTime})':text_shaping=1,drawtext=text='${title}':fontfile='${font}':fontsize=16:fontcolor=gray:box=1:boxcolor=black@0.6:boxborderw=8:x=w-text_w-30:y=h-70:enable='between(t,${startTime},${endTime})':text_shaping=1" -c:a copy -y "${output}"`;
 }
 
-// Add CTA text overlay
+// Add CTA text overlay (Hebrew RTL safe — uses text_shaping=1 + fontfile for proper rendering)
 export function addCTA(input: string, ctaText: string, startTime: number, endTime: number, output: string): string {
-  return `ffmpeg -i "${input}" -vf "drawtext=text='${ctaText}':fontsize=32:fontcolor=white:box=1:boxcolor=#7c3aed@0.85:boxborderw=15:x=(w-text_w)/2:y=h-130:enable='between(t,${startTime},${endTime})'" -c:a copy -y "${output}"`;
+  // Hebrew text needs text_shaping=1 for proper RTL rendering in FFmpeg drawtext
+  return `ffmpeg -i "${input}" -vf "drawtext=text='${ctaText}':fontsize=32:fontcolor=white:box=1:boxcolor=#7c3aed@0.85:boxborderw=15:x=(w-text_w)/2:y=h-130:enable='between(t,${startTime},${endTime})':text_shaping=1" -c:a copy -y "${output}"`;
+}
+
+// Mute (duck) audio during non-presenter segments — reduces coach/director voice
+export function muteNonPresenterSegments(
+  input: string,
+  nonPresenterSegments: Array<{ start: number; end: number }>,
+  output: string
+): string {
+  if (nonPresenterSegments.length === 0) {
+    return `ffmpeg -i "${input}" -c copy -y "${output}"`;
+  }
+
+  // Build volume filter: mute during each non-presenter segment
+  const volumeExprs = nonPresenterSegments.map(
+    seg => `volume=enable='between(t,${seg.start.toFixed(2)},${seg.end.toFixed(2)})':volume=0.05`
+  );
+  const filterChain = volumeExprs.join(',');
+
+  return `ffmpeg -i "${input}" -af "${filterChain}" -c:v copy -y "${output}"`;
 }
 
 // === CAMERA EFFECTS ===

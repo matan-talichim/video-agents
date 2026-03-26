@@ -57,7 +57,9 @@ export async function getKeywordsForHighlight(transcript: TranscriptResult): Pro
   }
 }
 
-// Group transcript words into subtitle lines
+// Group transcript words into subtitle lines.
+// Shows 1-3 words at a time for word-by-word highlight style (social/reels).
+// Each entry should be 0.3-1.5 seconds max — keeps subtitles snappy and readable.
 function groupWordsForSubtitles(words: Array<{word: string; start: number; end: number}>): SubtitleGroup[] {
   const groups: SubtitleGroup[] = [];
   let currentGroup: SubtitleGroup = { words: [], start: 0, end: 0 };
@@ -70,10 +72,10 @@ function groupWordsForSubtitles(words: Array<{word: string; start: number; end: 
     currentGroup.words.push(word);
     currentGroup.end = word.end;
 
-    // Break conditions: 8 words max, or 3 seconds max, or sentence-ending punctuation
+    // Break conditions: 3 words max (word-by-word style), or 1.5 seconds max, or sentence end
     const isEndOfSentence = /[.!?]$/.test(word.word);
-    const isTooLong = currentGroup.words.length >= 8;
-    const isTooLongDuration = (currentGroup.end - currentGroup.start) >= 3;
+    const isTooLong = currentGroup.words.length >= 3;
+    const isTooLongDuration = (currentGroup.end - currentGroup.start) >= 1.5;
 
     if (isEndOfSentence || isTooLong || isTooLongDuration) {
       groups.push({ ...currentGroup });
