@@ -41,6 +41,10 @@ import { predictEngagement } from '../services/engagementPredictor.js';
 import { selectSubtitleStyle } from '../services/subtitleStyler.js';
 import { simulateDevicePreview } from '../services/devicePreview.js';
 import { checkContentSafety } from '../services/contentSafety.js';
+import { detectBeats as detectBeatSync, snapCutsToBeats } from '../services/beatSync.js';
+import { selectPaceMode, PACE_MODES } from '../services/editingRules.js';
+import { filterBRollQuality } from '../services/brollQualityFilter.js';
+import { planAutoReframe, applyAutoReframe } from '../services/autoReframe.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -712,6 +716,19 @@ export async function runPipeline(job: Job): Promise<void> {
       }
     }
 
+    // --- PACE MODE SELECTION ---
+    try {
+      const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'tiktok' : 'youtube';
+      const videoCategory = job.videoIntelligence?.concept?.category || 'talking-head';
+      const paceMode = selectPaceMode(platformGuess, videoCategory, job.plan.edit.pacing as any);
+      job.paceMode = paceMode;
+      const paceConfig = PACE_MODES[paceMode];
+      updateJob(job.id, { paceMode } as any);
+      console.log(`[Pipeline] Pace mode: ${paceMode} (cut every ${paceConfig.cutFrequency.min}-${paceConfig.cutFrequency.max}s, zoom ${paceConfig.zoomIntensity}x)`);
+    } catch (error: any) {
+      console.warn('[Pipeline] Pace mode selection failed (non-critical):', error.message);
+    }
+
     // --- REAL CLEAN AGENT ---
     const hasCleanSteps =
       job.plan.clean.removeSilences ||
@@ -764,6 +781,52 @@ export async function runPipeline(job: Job): Promise<void> {
       updateJob(job.id, {
         progress: calculateProgress(completedSteps, totalSteps),
       });
+    }
+
+    // --- BEAT-SYNC: Detect beats in music and snap cuts ---
+    if (generateResult?.musicPath && job.plan.edit.beatSyncCuts) {
+      try {
+        updateJob(job.id, { currentStep: 'מנתח ביטים במוזיקה...' });
+        const beatMap = await detectBeatSync(generateResult.musicPath, job.id);
+        job.beatMap = beatMap;
+        updateJob(job.id, { beatMap } as any);
+
+        // Snap existing cuts to nearest beat
+        if (job.editingBlueprint?.cuts) {
+          const snappedCuts = snapCutsToBeats(job.editingBlueprint.cuts, beatMap);
+          job.editingBlueprint.cuts = snappedCuts as any;
+          const snapped = snappedCuts.filter((c: any) => c.snappedToBeat).length;
+          console.log(`[BeatSync] Snapped ${snapped}/${job.editingBlueprint.cuts.length} cuts to beats`);
+        }
+      } catch (error: any) {
+        console.error('Beat sync failed:', error.message);
+        allWarnings.push('Beat sync failed: ' + error.message);
+      }
+    }
+
+    // --- B-ROLL QUALITY FILTER ---
+    if (generateResult?.brollClips && generateResult.brollClips.length > 0) {
+      try {
+        const clipPaths = generateResult.brollClips
+          .filter(c => !c.isStock && fs.existsSync(c.path))
+          .map(c => c.path);
+
+        if (clipPaths.length > 0) {
+          updateJob(job.id, { currentStep: `בודק איכות ${clipPaths.length} קליפי B-Roll...` });
+          const brollQA = await filterBRollQuality(clipPaths);
+          job.brollQA = brollQA;
+          updateJob(job.id, { brollQA } as any);
+
+          const needRegen = brollQA.filter(r => r.recommendation === 'regenerate');
+          if (needRegen.length > 0) {
+            console.log(`[B-Roll QA] ${needRegen.length} clips need regeneration`);
+            allWarnings.push(`${needRegen.length} B-Roll clips had quality issues`);
+          }
+        }
+      } catch (error: any) {
+        console.error('B-Roll QA failed:', error.message);
+        allWarnings.push('B-Roll QA failed: ' + error.message);
+      }
     }
 
     // --- SUBTITLE STYLE INTELLIGENCE (before rendering) ---
@@ -1046,6 +1109,41 @@ export async function runPipeline(job: Job): Promise<void> {
             allWarnings.push(`Smart export ${platform} failed: ${error.message}`);
           }
         }
+      }
+    }
+
+    // === SMART AUTO-REFRAME (Speaker Tracking) ===
+    if (
+      job.plan.export.aiReframe &&
+      editResult?.finalVideoPath &&
+      fs.existsSync(editResult.finalVideoPath) &&
+      job.plan.export.formats.includes('9:16')
+    ) {
+      try {
+        updateJob(job.id, { currentStep: 'מבצע reframe חכם עם מעקב פנים...' });
+        const hasPresenter = !!job.presenterDetection;
+
+        const reframePlan = await planAutoReframe(
+          editResult.finalVideoPath,
+          exportDuration,
+          '16:9',
+          '9:16',
+          hasPresenter
+        );
+        job.reframePlan = reframePlan;
+        updateJob(job.id, { reframePlan } as any);
+
+        const reframedPath = `output/${job.id}/reframed_9x16.mp4`;
+        fs.mkdirSync(`output/${job.id}`, { recursive: true });
+        await applyAutoReframe(editResult.finalVideoPath, reframePlan, reframedPath, '9:16');
+
+        if (fs.existsSync(reframedPath)) {
+          exportExports.push({ format: '9:16-reframed', url: `/api/jobs/${job.id}/video?format=9x16-reframed` });
+          console.log(`[Pipeline] Auto-reframe: ${reframePlan.method} with ${reframePlan.keyframes.length} keyframes`);
+        }
+      } catch (error: any) {
+        console.error('Auto-reframe failed:', error.message);
+        allWarnings.push('Auto-reframe failed: ' + error.message);
       }
     }
 

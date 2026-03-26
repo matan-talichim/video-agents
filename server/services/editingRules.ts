@@ -1130,6 +1130,66 @@ export const MASTER_EDITING_PROMPT = [
 ].join('\n\n');
 
 // ============================================================
+// EDITING PACE MODES
+// ============================================================
+
+export type PaceMode = 'fast' | 'normal' | 'calm';
+
+export interface PaceModeConfig {
+  cutFrequency: { min: number; max: number };   // seconds between cuts
+  zoomIntensity: number;                          // 1.0 = none, 1.3 = aggressive
+  sfxDensity: 'heavy' | 'moderate' | 'minimal';
+  musicVolume: number;                            // percentage 0-100
+  patternInterruptFrequency: number;              // seconds between interrupts
+  brollRatio: number;                             // percentage of video that is B-Roll
+  transitionStyle: 'hard-cut' | 'crossfade' | 'mix';
+}
+
+export const PACE_MODES: Record<PaceMode, PaceModeConfig> = {
+  'fast': {
+    cutFrequency: { min: 1.0, max: 2.5 },
+    zoomIntensity: 1.25,
+    sfxDensity: 'heavy',
+    musicVolume: 35,
+    patternInterruptFrequency: 8,
+    brollRatio: 40,
+    transitionStyle: 'hard-cut',
+  },
+  'normal': {
+    cutFrequency: { min: 2.5, max: 4.5 },
+    zoomIntensity: 1.15,
+    sfxDensity: 'moderate',
+    musicVolume: 25,
+    patternInterruptFrequency: 15,
+    brollRatio: 25,
+    transitionStyle: 'mix',
+  },
+  'calm': {
+    cutFrequency: { min: 4.0, max: 8.0 },
+    zoomIntensity: 1.08,
+    sfxDensity: 'minimal',
+    musicVolume: 15,
+    patternInterruptFrequency: 25,
+    brollRatio: 15,
+    transitionStyle: 'crossfade',
+  },
+};
+
+export function selectPaceMode(platform: string, videoCategory: string, userOverride?: PaceMode): PaceMode {
+  if (userOverride) return userOverride;
+
+  // Auto-select by platform + category
+  if (platform === 'tiktok') return 'fast';
+  if (platform === 'linkedin') return 'calm';
+  if (videoCategory === 'luxury-real-estate') return 'calm';
+  if (videoCategory === 'product-launch') return 'fast';
+  if (videoCategory === 'testimonial') return 'normal';
+  if (videoCategory === 'corporate') return 'calm';
+
+  return 'normal';
+}
+
+// ============================================================
 // EDITING BLUEPRINT INTERFACE
 // ============================================================
 export interface EditingBlueprint {

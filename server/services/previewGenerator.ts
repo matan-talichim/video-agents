@@ -267,6 +267,9 @@ function getEnabledFeatureNames(plan: ExecutionPlan): string[] {
   if (plan.edit.kineticTypography) features.push('טקסט מונפש');
   if (plan.edit.photoMotion) features.push('אפקט תנועה על תמונות');
 
+  // Export
+  if (plan.export.aiReframe) features.push('Reframe חכם עם מעקב פנים');
+
   // Templates
   if (plan.templates.brandKit) features.push('ערכת מותג');
   if (plan.templates.ecommerceTemplate) features.push('תבנית e-commerce');
