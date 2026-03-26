@@ -126,6 +126,8 @@ export interface Job {
     }>;
   };
   uploadedPhotos?: string[];
+  footageDiagnosis?: import('./services/footageDoctor.js').FootageDiagnosis;
+  durationCategory?: 'too-short' | 'short' | 'normal' | 'long' | 'very-long';
 }
 
 export interface FileInfo {
@@ -536,6 +538,7 @@ export interface ExecutionPlan {
     customTheme: boolean;
     themeColors?: { primary: string; secondary: string };
     themeFont?: string;
+    platforms?: string[];
   };
   templates: {
     brandKit: boolean;

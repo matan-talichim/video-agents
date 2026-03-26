@@ -30,6 +30,8 @@ import { analyzeRetention } from '../services/retentionOptimizer.js';
 import { planLoop, applyLoop } from '../services/loopOptimizer.js';
 import { planThumbnail, generateThumbnail } from '../services/thumbnailOptimizer.js';
 import { planMultiPlatformCuts } from '../services/multiPlatformCutter.js';
+import { diagnoseFootage, autoFixFootage } from '../services/footageDoctor.js';
+import { getExportCommand, EXPORT_PRESETS } from '../services/smartExporter.js';
 import fs from 'fs';
 
 function saveJSON(filePath: string, data: any): void {
@@ -383,6 +385,34 @@ export async function runPipeline(job: Job): Promise<void> {
     }
 
     // === RAW MODE (existing pipeline) ===
+
+    // --- FOOTAGE DOCTOR: Diagnose & auto-fix before editing ---
+    if (job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מאבחן חומרי גלם...' });
+        const videoPath = job.files[0].path;
+        const diagnosis = await diagnoseFootage(videoPath, job.id);
+        job.footageDiagnosis = diagnosis;
+        updateJob(job.id, { footageDiagnosis: diagnosis } as any);
+
+        // AUTO-FIX: upscale, crop black bars, remove freeze frames
+        if (diagnosis.fixes.length > 0) {
+          updateJob(job.id, { currentStep: `מתקן ${diagnosis.fixes.length} בעיות בחומר הגלם...` });
+          const fixedPath = await autoFixFootage(videoPath, diagnosis, job.id);
+          if (fixedPath !== videoPath) {
+            job.files[0].path = fixedPath;
+            console.log(`[Pipeline] Auto-fixed: ${diagnosis.fixes.join(', ')}`);
+          }
+        }
+
+        // Pass duration category to Brain for edge case handling
+        job.durationCategory = diagnosis.durationCategory;
+        updateJob(job.id, { durationCategory: diagnosis.durationCategory } as any);
+      } catch (error: any) {
+        console.warn('[Pipeline] Footage doctor failed (non-critical):', error.message);
+        allWarnings.push(`Footage diagnosis skipped: ${error.message}`);
+      }
+    }
 
     // --- REAL INGEST AGENT ---
     const hasIngestSteps =
@@ -858,6 +888,26 @@ export async function runPipeline(job: Job): Promise<void> {
       } catch (error: any) {
         console.error('Export agent failed:', error.message);
         allWarnings.push(`Export failed: ${error.message}`);
+      }
+
+      // --- SMART PLATFORM EXPORTS ---
+      const platformTargets = job.plan.export.platforms || [];
+      if (platformTargets.length > 0 && editResult.finalVideoPath) {
+        for (const platform of platformTargets) {
+          try {
+            updateJob(job.id, { currentStep: `מייצא ל-${EXPORT_PRESETS[platform]?.name || platform}...` });
+            const platformOutput = `output/${job.id}/${platform}.mp4`;
+            fs.mkdirSync(`output/${job.id}`, { recursive: true });
+            const exportCmd = getExportCommand(editResult.finalVideoPath, platformOutput, platform);
+            const { runFFmpeg } = await import('../services/ffmpeg.js');
+            await runFFmpeg(exportCmd);
+            console.log(`[Export] Smart export for ${platform} done`);
+            exportExports.push({ format: platform, url: `/api/jobs/${job.id}/video?format=${platform}` });
+          } catch (error: any) {
+            console.warn(`[Export] Smart export ${platform} failed:`, error.message);
+            allWarnings.push(`Smart export ${platform} failed: ${error.message}`);
+          }
+        }
       }
     }
 
