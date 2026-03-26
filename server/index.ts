@@ -12,6 +12,7 @@ import chatEditorRouter from './routes/chatEditor.js';
 import visualDNARouter from './routes/visualDNA.js';
 import previewRouter from './routes/preview.js';
 import { startCleanupSchedule } from './services/cleanup.js';
+import { checkEnvironment } from './checkEnv.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -62,6 +63,17 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// System test endpoint
+app.get('/api/system-test', async (_req, res) => {
+  try {
+    const { runSystemTest } = await import('./tests/systemTest.js');
+    const results = await runSystemTest();
+    res.json(results);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 404 handler
 app.use((_req, res) => {
   res.status(404).json({ error: 'נתיב לא נמצא' });
@@ -108,6 +120,13 @@ async function healthCheck(): Promise<void> {
   if (missing.length > 0) {
     console.warn(`Missing: ${missing.join(', ')} — some features may not work`);
   }
+}
+
+// Run environment check before starting
+const envCheck = checkEnvironment();
+if (!envCheck.valid) {
+  console.error(`Missing required environment variables: ${envCheck.missing.join(', ')}`);
+  console.error('Create a .env file based on .env.example');
 }
 
 app.listen(PORT, () => {

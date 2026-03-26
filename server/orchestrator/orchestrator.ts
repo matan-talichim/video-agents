@@ -461,6 +461,12 @@ export async function runPipeline(job: Job): Promise<void> {
       transcript = ingestResult.transcript;
       allWarnings.push(...ingestResult.warnings);
 
+      // Save transcript to job so frontend can display it in preview
+      if (transcript) {
+        job.transcript = transcript;
+        updateJob(job.id, { transcript } as any);
+      }
+
       // Count completed ingest steps
       const ingestStepCount = steps.filter(s => s.stage === 'ingest').length;
       completedSteps += ingestStepCount;
@@ -795,6 +801,19 @@ export async function runPipeline(job: Job): Promise<void> {
       } catch (error: any) {
         console.error('Auto model pre-selection failed:', error.message);
       }
+    }
+
+    // --- B-ROLL COUNT (dynamic by duration + pace + speech) ---
+    try {
+      const { calculateBRollCount } = await import('../services/editingRules.js');
+      const videoDuration = job.footageDiagnosis?.duration || job.plan.export.targetDuration as number || 60;
+      const hasSpeech = job.footageDiagnosis?.hasSpeech !== false;
+      const brollCount = calculateBRollCount(videoDuration, (job as any).paceMode || 'normal', hasSpeech);
+      (job as any).targetBRollCount = brollCount.recommended;
+      updateJob(job.id, { targetBRollCount: brollCount.recommended } as any);
+      console.log(`[B-Roll] Target: ${brollCount.recommended} clips (min ${brollCount.min}, max ${brollCount.max}) for ${videoDuration}s video`);
+    } catch (error: any) {
+      console.warn('[B-Roll] Count calculation failed (non-critical):', error.message);
     }
 
     // --- REAL GENERATE AGENT ---

@@ -14,6 +14,9 @@ import BrainNotes from '../components/BrainNotes';
 import SpeakerVerificationPanel from '../components/SpeakerVerificationPanel';
 import ContentSelectionPanel from '../components/ContentSelectionPanel';
 import MarketingPlanPanel from '../components/MarketingPlanPanel';
+import EditingPlanPreview from '../components/EditingPlanPreview';
+import CostBreakdownDetailed from '../components/CostBreakdown';
+import TranscriptPreview from '../components/TranscriptPreview';
 import { calculateLiveCost } from '../utils/costCalculator';
 import type { RecommendedConfig } from '../types';
 
@@ -25,6 +28,7 @@ export default function PreviewPage() {
   const [changeHistory, setChangeHistory] = useState<string[]>([]);
   const [isApproving, setIsApproving] = useState(false);
   const [isChanging, setIsChanging] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [showRecommendationBanner, setShowRecommendationBanner] = useState(false);
   const [recommendationApplied, setRecommendationApplied] = useState(false);
 
@@ -80,6 +84,7 @@ export default function PreviewPage() {
   const handleChange = useCallback(async (message: string) => {
     if (!id || isChanging) return;
     setIsChanging(true);
+    setChatError(null);
 
     // Start polling again while change is processing
     if (!intervalRef.current) {
@@ -93,7 +98,11 @@ export default function PreviewPage() {
       if (newPreview) {
         setChangeHistory(prev => [...prev, message]);
         fetchJob(id);
+      } else {
+        setChatError('שגיאה בעדכון — נסה שוב');
       }
+    } catch {
+      setChatError('שגיאה בחיבור לשרת');
     } finally {
       setIsChanging(false);
       // Stop polling after change completes
@@ -255,6 +264,14 @@ export default function PreviewPage() {
   const freshEyesReview = (job as any).freshEyesReview;
   const contentSelection = (job as any).contentSelection;
   const footageDiagnosis = (job as any).footageDiagnosis;
+  const transcriptText: string = (job as any).transcript?.fullText || '';
+  const editingBlueprint = contentAnalysis?.editingBlueprint;
+  const emotionalArc = contentAnalysis?.detailedEmotionalArc || contentAnalysis?.emotionalArc;
+  const retentionPlan = (job as any).retentionPlan;
+  const paceMode: string = (job as any).paceMode || 'balanced';
+  const subtitleStyleData = (job as any).subtitleStyle;
+  const beatMap = (job as any).beatMap;
+  const marketingPlan = videoIntelligence?.marketingPlan;
 
   return (
     <div className="min-h-screen bg-dark-bg pb-20">
@@ -921,7 +938,33 @@ export default function PreviewPage() {
           </div>
         )}
 
+        {/* Transcript */}
+        <TranscriptPreview text={transcriptText} />
+
+        {/* Full Editing Plan Preview — ALL effects */}
+        {editingBlueprint && (
+          <EditingPlanPreview
+            editingBlueprint={editingBlueprint}
+            contentSelection={contentSelection}
+            marketingPlan={marketingPlan}
+            emotionalArc={emotionalArc}
+            retentionPlan={retentionPlan}
+            paceMode={paceMode}
+            subtitleStyle={subtitleStyleData}
+            beatMap={beatMap}
+            brandKit={job.brandKit}
+          />
+        )}
+
+        {/* Detailed Cost Breakdown (updated) */}
+        <CostBreakdownDetailed blueprint={editingBlueprint} />
+
         {/* Chat input */}
+        {chatError && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-400 text-center">
+            {chatError}
+          </div>
+        )}
         <PreviewChat
           onSend={handleChange}
           isLoading={isBusy}

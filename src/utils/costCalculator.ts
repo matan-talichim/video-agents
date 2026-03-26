@@ -80,17 +80,26 @@ export function calculateLiveCost(s: LiveCostSelections): { items: CostItem[]; t
   const durMinutes = dur / 60;
 
   // --- Always-on: Claude Brain ---
-  // Estimate Claude calls based on what's enabled
-  let claudeCalls = 1; // Brain plan always
+  // Core pipeline calls: brain plan + content selection (2) + content analysis + editing blueprint
+  let claudeCalls = 5;
+  // Brain intelligence: emotional arc + pattern interrupts + marketing plan + hook generation
+  claudeCalls += 4;
+  // Quality: retention analysis + fresh eyes review + loop optimizer
+  claudeCalls += 3;
+  // Enterprise polish: subtitle style + engagement prediction + content safety + ambient sound
+  claudeCalls += 4;
   if (s.hasFiles) claudeCalls += 2; // transcription analysis + smart zooms
   if (s.options.viralityScore) claudeCalls += 1;
   if (s.options.soundEffects) claudeCalls += 1;
-  if (s.options.hebrewSubtitles) claudeCalls += 1; // keyword detection
-  if (s.options.removeSilences) claudeCalls += 1;   // filler word check
   if (s.options.thumbnailGeneration) claudeCalls += 1;
 
-  const claudeCost = claudeCalls * CLAUDE_PRICING.estimatePerCall;
-  add('Claude API (מוח)', claudeCost, `${claudeCalls} קריאות`, false);
+  // Vision calls: B-Roll QA + general QA + brand compliance + expression analysis + device preview
+  let visionCalls = 2; // QA + brand compliance
+  if (s.options.thumbnailGeneration) visionCalls += 1;
+  if (s.hasFiles) visionCalls += 2; // expression analysis + device preview
+
+  const claudeCost = claudeCalls * CLAUDE_PRICING.estimatePerCall + visionCalls * CLAUDE_PRICING.estimatePerVisionCall;
+  add('Claude API (מוח)', claudeCost, `${claudeCalls} text + ${visionCalls} vision`, false);
 
   // --- Transcription (Deepgram) — only if user uploads files ---
   if (s.hasFiles) {
@@ -175,11 +184,6 @@ export function calculateLiveCost(s: LiveCostSelections): { items: CostItem[]; t
   if (s.options.transitions) {
     add('מעברים (FFmpeg)', 0, 'חינם', true);
   }
-
-  // --- QA + Hooks + A/B Testing ---
-  // Always included: 1 Vision call (QA) + 3 text calls (hooks, retention, loop)
-  const qaHooksCost = CLAUDE_PRICING.estimatePerVisionCall + CLAUDE_PRICING.estimatePerCall * 3;
-  add('בקרת איכות + הוקים + A/B', qaHooksCost, '4 קריאות', false);
 
   // --- FFmpeg processing (always) ---
   add('FFmpeg (עיבוד וידאו)', 0, 'חינם', true);
