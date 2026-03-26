@@ -241,6 +241,34 @@ export interface VideoIntelligenceData {
   [key: string]: any;
 }
 
+// --- Speaker Verification Types (3-Layer) ---
+
+export interface VerifiedSpeakerMap {
+  speakers: VerifiedSpeaker[];
+  corrections: SpeakerCorrectionData[];
+  confidence: number;
+  verificationMethod: string;
+}
+
+export interface VerifiedSpeaker {
+  id: number;
+  originalIds: number[];
+  role: 'presenter' | 'director' | 'assistant' | 'interviewer' | 'background' | 'unknown';
+  isOnCamera: boolean;
+  description: string;
+  voiceCharacteristics: string;
+  segments: Array<{ start: number; end: number; text: string }>;
+  totalTime: number;
+}
+
+export interface SpeakerCorrectionData {
+  type: 'merge' | 'split';
+  description: string;
+  originalSpeakerIds: number[];
+  correctedSpeakerId: number;
+  evidence: string;
+}
+
 export interface RevisionRequest {
   type: 'general' | 'timestamp' | 'duration' | 'chat';
   prompt?: string;

@@ -48,6 +48,7 @@ export interface Job {
   emotionalArc?: ContentAnalysis['emotionalArc'];
   cutTransitions?: ContentAnalysis['cutTransitions'];
   presenterDetection?: PresenterDetection;
+  speakerVerification?: VerifiedSpeakerMap;
   videoIntelligence?: VideoIntelligence;
 }
 
@@ -659,6 +660,34 @@ export interface SpeakerInfo {
   segmentCount: number;
   isOnCamera: boolean;
   description: string;
+}
+
+// --- Speaker Verification Types (3-Layer) ---
+
+export interface VerifiedSpeakerMap {
+  speakers: VerifiedSpeaker[];
+  corrections: SpeakerCorrection[];
+  confidence: number;
+  verificationMethod: string;
+}
+
+export interface VerifiedSpeaker {
+  id: number;
+  originalIds: number[];
+  role: 'presenter' | 'director' | 'assistant' | 'interviewer' | 'background' | 'unknown';
+  isOnCamera: boolean;
+  description: string;
+  voiceCharacteristics: string;
+  segments: Array<{ start: number; end: number; text: string }>;
+  totalTime: number;
+}
+
+export interface SpeakerCorrection {
+  type: 'merge' | 'split';
+  description: string;
+  originalSpeakerIds: number[];
+  correctedSpeakerId: number;
+  evidence: string;
 }
 
 // --- Video Intelligence Types ---

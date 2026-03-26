@@ -11,6 +11,7 @@ import ApproveButton from '../components/ApproveButton';
 import ContentIntelligencePanel from '../components/ContentIntelligencePanel';
 import BrainRecommendations from '../components/BrainRecommendations';
 import BrainNotes from '../components/BrainNotes';
+import SpeakerVerificationPanel from '../components/SpeakerVerificationPanel';
 import { calculateLiveCost } from '../utils/costCalculator';
 import type { RecommendedConfig } from '../types';
 
@@ -229,6 +230,7 @@ export default function PreviewPage() {
   const presenterDetection = (job as any).presenterDetection;
   const videoIntelligence = (job as any).videoIntelligence;
   const brainNotes: string[] = (job as any).brainNotes || [];
+  const speakerVerification = (job as any).speakerVerification;
 
   // Compute cost breakdown from job selections
   const previewCost = useMemo(() => {
@@ -383,8 +385,13 @@ export default function PreviewPage() {
           </div>
         )}
 
-        {/* Presenter Detection Section */}
-        {presenterDetection && presenterDetection.allSpeakers?.length > 1 && (
+        {/* Speaker Verification Section (3-Layer) */}
+        {speakerVerification && (
+          <SpeakerVerificationPanel verification={speakerVerification} />
+        )}
+
+        {/* Presenter Detection Section (legacy — hidden when verification is available) */}
+        {!speakerVerification && presenterDetection && presenterDetection.allSpeakers?.length > 1 && (
           <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
             <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
               <span className="text-lg">🎙️</span>
