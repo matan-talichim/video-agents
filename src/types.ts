@@ -202,6 +202,37 @@ export interface Job {
   error?: string;
   createdAt: string;
   updatedAt: string;
+  videoIntelligence?: VideoIntelligenceData;
+}
+
+export interface RecommendedConfig {
+  model: string;
+  modelReason: string;
+  editStyle: 'cinematic' | 'energetic' | 'minimal' | 'trendy';
+  editStyleReason: string;
+  suggestedDuration: number;
+  durationReason: string;
+  subtitleStyle: string;
+  subtitleStyleReason: string;
+  enabledOptions: Record<string, boolean>;
+  optionReasons: Record<string, string>;
+  formats: string[];
+  formatReason: string;
+  estimatedCost: number;
+  confidence: number;
+}
+
+export interface VideoIntelligenceData {
+  concept: {
+    title: string;
+    summary: string;
+    category: string;
+    industry: string;
+    targetAudience: string;
+    tone: string;
+  };
+  recommendedConfig?: RecommendedConfig;
+  [key: string]: any;
 }
 
 export interface RevisionRequest {

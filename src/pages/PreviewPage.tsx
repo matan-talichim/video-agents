@@ -9,7 +9,9 @@ import ScriptPreviewPanel from '../components/ScriptPreviewPanel';
 import PreviewChat from '../components/PreviewChat';
 import ApproveButton from '../components/ApproveButton';
 import ContentIntelligencePanel from '../components/ContentIntelligencePanel';
+import BrainRecommendations from '../components/BrainRecommendations';
 import { calculateLiveCost } from '../utils/costCalculator';
+import type { RecommendedConfig } from '../types';
 
 export default function PreviewPage() {
   const { id } = useParams<{ id: string }>();
@@ -19,6 +21,8 @@ export default function PreviewPage() {
   const [changeHistory, setChangeHistory] = useState<string[]>([]);
   const [isApproving, setIsApproving] = useState(false);
   const [isChanging, setIsChanging] = useState(false);
+  const [showRecommendationBanner, setShowRecommendationBanner] = useState(false);
+  const [recommendationApplied, setRecommendationApplied] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -104,6 +108,28 @@ export default function PreviewPage() {
       fetchJob(id);
     }
   }, [id, undoPreviewChange, fetchJob]);
+
+  // Detect Brain recommendations
+  useEffect(() => {
+    if (currentJob?.videoIntelligence?.recommendedConfig && !recommendationApplied) {
+      setShowRecommendationBanner(true);
+    }
+  }, [currentJob?.videoIntelligence?.recommendedConfig, recommendationApplied]);
+
+  const handleApplyRecommendations = useCallback(() => {
+    setRecommendationApplied(true);
+    setShowRecommendationBanner(false);
+  }, []);
+
+  const handleEditManually = useCallback(() => {
+    if (!id) return;
+    // Navigate to editor with recommendations pre-filled via query param
+    const config = currentJob?.videoIntelligence?.recommendedConfig;
+    if (config) {
+      sessionStorage.setItem(`brain-config-${id}`, JSON.stringify(config));
+    }
+    navigate(`/editor/upload?jobId=${id}&fromBrain=true`);
+  }, [id, currentJob, navigate]);
 
   // Loading state
   if (!currentJob && !error) {
@@ -239,6 +265,25 @@ export default function PreviewPage() {
         {/* Video Intelligence — FIRST section */}
         {videoIntelligence && (
           <ContentIntelligencePanel intelligence={videoIntelligence} />
+        )}
+
+        {/* Brain Recommendations — auto-selected optimal config */}
+        {videoIntelligence?.recommendedConfig && (
+          <BrainRecommendations
+            config={videoIntelligence.recommendedConfig as RecommendedConfig}
+            onApply={handleApplyRecommendations}
+            onEditManually={handleEditManually}
+            applied={recommendationApplied}
+          />
+        )}
+
+        {/* Recommendation banner */}
+        {showRecommendationBanner && (
+          <div className="bg-accent-purple/10 border border-accent-purple/30 rounded-xl p-4 text-center animate-pulse">
+            <p className="text-sm text-accent-purple-light font-medium">
+              המוח בחר את ההגדרות הטובות ביותר לסרטון שלך
+            </p>
+          </div>
         )}
 
         {/* Storyboard */}
