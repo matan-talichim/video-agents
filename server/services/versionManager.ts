@@ -106,6 +106,12 @@ export function getActiveVideoPath(jobId: string): string {
     return active.filePath;
   }
 
+  // Check branded version first (pipeline may produce final_branded.mp4)
+  const brandedPath = `output/${jobId}/final_branded.mp4`;
+  if (fs.existsSync(brandedPath)) {
+    return brandedPath;
+  }
+
   return `output/${jobId}/final.mp4`;
 }
 

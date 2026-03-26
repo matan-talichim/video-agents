@@ -150,6 +150,22 @@ export async function getVideoDuration(input: string): Promise<number> {
   return parseFloat(stdout.trim());
 }
 
+// Safe duration getter — returns 0 on failure instead of throwing
+export async function getVideoDurationSafe(input: string): Promise<number> {
+  try {
+    return await getVideoDuration(input);
+  } catch {
+    return 0;
+  }
+}
+
+// Validate that a timestamp is within video bounds before using it in FFmpeg commands.
+// Returns the clamped timestamp, or -1 if the video is too short to process.
+export function clampTimestamp(timestamp: number, videoDuration: number, minRemaining: number = 0.5): number {
+  if (videoDuration < minRemaining) return -1;
+  return Math.min(timestamp, Math.max(0, videoDuration - minRemaining));
+}
+
 // Get video info (resolution, fps, codec)
 export async function getVideoInfo(
   input: string
@@ -330,8 +346,13 @@ export function backgroundBlur(input: string, blurStrength: number, output: stri
 }
 
 // Smart zooms at keyframe moments
+// NOTE: zoompan re-encodes every frame. If timestamps exceed video duration, FFmpeg hits EOF before encoder starts.
+// Callers should validate timestamps against actual video duration before calling this.
 export function addZoom(input: string, startTime: number, endTime: number, zoomFactor: number, output: string): string {
-  return `ffmpeg -i "${input}" -vf "zoompan=z='if(between(t,${startTime},${endTime}),${zoomFactor},1)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=30" -c:a copy -y "${output}"`;
+  // Ensure non-negative and startTime < endTime
+  const safeStart = Math.max(0, startTime);
+  const safeEnd = Math.max(safeStart + 0.1, endTime);
+  return `ffmpeg -i "${input}" -vf "zoompan=z='if(between(t,${safeStart},${safeEnd}),${zoomFactor},1)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=30" -c:a copy -y "${output}"`;
 }
 
 // Ken Burns effect on still image
@@ -359,21 +380,42 @@ export function addLogo(input: string, logoFile: string, position: string, opaci
 // === SUBTITLES ===
 
 // Burn Hebrew RTL subtitles (simple — FFmpeg drawtext)
+// Small text at the bottom, 2 words at a time synced to speech. NOT huge multi-line blocks.
 export function addSubtitlesSimple(input: string, srtFile: string, output: string, fontFile?: string): string {
   const font = fontFile || 'Heebo';
-  return `ffmpeg -i "${input}" -vf "subtitles='${srtFile}':force_style='FontName=${font},FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,Alignment=2,MarginV=50'" -c:a copy -y "${output}"`;
+  return `ffmpeg -i "${input}" -vf "subtitles='${srtFile}':force_style='FontName=${font},FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Bold=1,Alignment=2,MarginV=80'" -c:a copy -y "${output}"`;
 }
 
 // Add lower third (name + title text overlay)
 export function addLowerThird(input: string, name: string, title: string, startTime: number, duration: number, output: string, fontFile?: string): string {
   const font = fontFile || 'Heebo';
   const endTime = startTime + duration;
-  return `ffmpeg -i "${input}" -vf "drawtext=text='${name}':fontfile='${font}':fontsize=22:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=8:x=w-text_w-30:y=h-100:enable='between(t,${startTime},${endTime})',drawtext=text='${title}':fontfile='${font}':fontsize=16:fontcolor=gray:box=1:boxcolor=black@0.6:boxborderw=8:x=w-text_w-30:y=h-70:enable='between(t,${startTime},${endTime})'" -c:a copy -y "${output}"`;
+  return `ffmpeg -i "${input}" -vf "drawtext=text='${name}':fontfile='${font}':fontsize=22:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=8:x=w-text_w-30:y=h-100:enable='between(t,${startTime},${endTime})':text_shaping=1,drawtext=text='${title}':fontfile='${font}':fontsize=16:fontcolor=gray:box=1:boxcolor=black@0.6:boxborderw=8:x=w-text_w-30:y=h-70:enable='between(t,${startTime},${endTime})':text_shaping=1" -c:a copy -y "${output}"`;
 }
 
-// Add CTA text overlay
+// Add CTA text overlay (Hebrew RTL safe — uses text_shaping=1 + fontfile for proper rendering)
 export function addCTA(input: string, ctaText: string, startTime: number, endTime: number, output: string): string {
-  return `ffmpeg -i "${input}" -vf "drawtext=text='${ctaText}':fontsize=32:fontcolor=white:box=1:boxcolor=#7c3aed@0.85:boxborderw=15:x=(w-text_w)/2:y=h-130:enable='between(t,${startTime},${endTime})'" -c:a copy -y "${output}"`;
+  // Hebrew text needs text_shaping=1 for proper RTL rendering in FFmpeg drawtext
+  return `ffmpeg -i "${input}" -vf "drawtext=text='${ctaText}':fontsize=32:fontcolor=white:box=1:boxcolor=#7c3aed@0.85:boxborderw=15:x=(w-text_w)/2:y=h-130:enable='between(t,${startTime},${endTime})':text_shaping=1" -c:a copy -y "${output}"`;
+}
+
+// Mute (duck) audio during non-presenter segments — reduces coach/director voice
+export function muteNonPresenterSegments(
+  input: string,
+  nonPresenterSegments: Array<{ start: number; end: number }>,
+  output: string
+): string {
+  if (nonPresenterSegments.length === 0) {
+    return `ffmpeg -i "${input}" -c copy -y "${output}"`;
+  }
+
+  // Build volume filter: mute during each non-presenter segment
+  const volumeExprs = nonPresenterSegments.map(
+    seg => `volume=enable='between(t,${seg.start.toFixed(2)},${seg.end.toFixed(2)})':volume=0.05`
+  );
+  const filterChain = volumeExprs.join(',');
+
+  return `ffmpeg -i "${input}" -af "${filterChain}" -c:v copy -y "${output}"`;
 }
 
 // === CAMERA EFFECTS ===
@@ -420,6 +462,7 @@ export function flashTransition(input: string, timestamp: number, output: string
 // === EXPORT ===
 
 // Export to different aspect ratios
+// Uses simple crop+scale approach compatible with all FFmpeg versions.
 export function exportFormat(input: string, format: string, output: string, faceX?: number): string {
   switch (format) {
     case '9:16': {
@@ -427,7 +470,8 @@ export function exportFormat(input: string, format: string, output: string, face
       return `ffmpeg -i "${input}" -vf "crop=ih*9/16:ih:${cropX}:0,scale=1080:1920" -c:a copy -y "${output}"`;
     }
     case '1:1': {
-      return `ffmpeg -i "${input}" -vf "crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2" -c:a copy -y "${output}"`;
+      // Use simple ih-based crop (works when ih <= iw, typical for 16:9 source)
+      return `ffmpeg -i "${input}" -vf "crop=ih:ih:(iw-ih)/2:0,scale=1080:1080" -c:a copy -y "${output}"`;
     }
     case '16:9':
     default:

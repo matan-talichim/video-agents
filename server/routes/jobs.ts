@@ -160,7 +160,11 @@ router.get('/:id/video', (req, res) => {
   }
 
   if (!fs.existsSync(videoPath)) {
-    // Fallback to main video
+    // Fallback — try branded version first, then plain final
+    videoPath = `output/${jobId}/final_branded.mp4`;
+  }
+
+  if (!fs.existsSync(videoPath)) {
     videoPath = `output/${jobId}/final.mp4`;
   }
 
@@ -168,7 +172,7 @@ router.get('/:id/video', (req, res) => {
     // Try alternative paths
     const job = getJob(jobId);
     const alternatives = [
-      job?.result?.videoUrl ? '' : '', // skip
+      `output/${jobId}/final_branded.mp4`,
       `output/${jobId}.mp4`,
       `temp/${jobId}/edit/final.mp4`,
       `temp/${jobId}/final.mp4`,

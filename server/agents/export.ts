@@ -44,14 +44,28 @@ export async function runExportAgent(
       } else if (format === '9:16') {
         // Vertical — smart reframe with face detection
         if (plan.export.aiReframe) {
-          await smartReframe(editedVideoPath, formatPath, '9:16', duration);
+          try {
+            await smartReframe(editedVideoPath, formatPath, '9:16', duration);
+          } catch (reframeErr: any) {
+            console.warn(`[Export] Smart reframe 9:16 failed, falling back to simple crop: ${reframeErr.message}`);
+            await ffmpeg.runFFmpeg(
+              `ffmpeg -i "${editedVideoPath}" -vf "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920" -c:a copy -y "${formatPath}"`
+            );
+          }
         } else {
           await ffmpeg.runFFmpeg(ffmpeg.exportFormat(editedVideoPath, '9:16', formatPath));
         }
       } else if (format === '1:1') {
         // Square
         if (plan.export.aiReframe) {
-          await smartReframe(editedVideoPath, formatPath, '1:1', duration);
+          try {
+            await smartReframe(editedVideoPath, formatPath, '1:1', duration);
+          } catch (reframeErr: any) {
+            console.warn(`[Export] Smart reframe 1:1 failed, falling back to simple crop: ${reframeErr.message}`);
+            await ffmpeg.runFFmpeg(
+              `ffmpeg -i "${editedVideoPath}" -vf "crop=ih:ih:(iw-ih)/2:0,scale=1080:1080" -c:a copy -y "${formatPath}"`
+            );
+          }
         } else {
           await ffmpeg.runFFmpeg(ffmpeg.exportFormat(editedVideoPath, '1:1', formatPath));
         }

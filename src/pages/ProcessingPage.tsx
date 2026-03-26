@@ -89,12 +89,21 @@ function mapStepKey(raw: string): string {
   return raw;
 }
 
+// Technical steps the user doesn't care about — hide from timeline
+const HIDDEN_STEPS = [
+  'content-safety',
+  'brand-compliance',
+  'device-preview',
+  'text-readability',
+];
+
 export default function ProcessingPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { currentJob, fetchJob, error } = useJobStore();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
+  const [maxProgress, setMaxProgress] = useState(0);
 
   useEffect(() => {
     if (!id) return;
@@ -118,10 +127,18 @@ export default function ProcessingPage() {
       return;
     }
 
-    // Track completed pipeline steps
+    // Track completed pipeline steps — only ADD, never remove
     const jobAny = currentJob as any;
     if (jobAny.completedPipelineSteps) {
-      setCompletedSteps(jobAny.completedPipelineSteps);
+      setCompletedSteps(prev => {
+        const combined = [...new Set([...prev, ...jobAny.completedPipelineSteps])];
+        return combined;
+      });
+    }
+
+    // Progress can ONLY go up, never down
+    if (currentJob.progress) {
+      setMaxProgress(prev => Math.max(prev, currentJob.progress || 0));
     }
 
     if (currentJob.status === 'done') {
@@ -161,7 +178,7 @@ export default function ProcessingPage() {
   }
 
   const job = currentJob!;
-  const progress = job.progress || 0;
+  const progress = Math.max(maxProgress, job.progress || 0);
 
   // Resolve current step to display info
   const currentStepKey = job.currentStep ? mapStepKey(job.currentStep) : 'analyzing';
@@ -225,9 +242,9 @@ export default function ProcessingPage() {
         <div className="text-center mt-2 text-sm text-gray-500 font-mono">{progress}%</div>
       </div>
 
-      {/* Completed steps timeline */}
+      {/* Completed steps timeline — filter out technical steps */}
       <div className="w-full max-w-lg space-y-1">
-        {completedSteps.map((stepKey, i) => {
+        {completedSteps.filter(s => !HIDDEN_STEPS.includes(s)).map((stepKey, i) => {
           const stepInfo = STEP_DISPLAY_MAP[stepKey] || { icon: '✅', label: stepKey, description: '' };
           return (
             <div

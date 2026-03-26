@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { askClaudeVision, askClaude } from './claude.js';
+import { askClaudeVision, askClaude, parseVisionJSON } from './claude.js';
 import { runFFmpeg } from './ffmpeg.js';
 import type { TranscriptResult } from '../types.js';
 
@@ -111,14 +111,9 @@ Return JSON:
           ]
         );
 
-        try {
-          const jsonStr = response.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-          const result = JSON.parse(jsonStr);
-          if (result.isOnCamera && result.isSpeakingToCamera) onCameraCount++;
-          if (!description && result.personDescription) description = result.personDescription;
-        } catch {
-          // Parse failed — skip this sample
-        }
+        const result = parseVisionJSON(response, { isOnCamera: false, isSpeakingToCamera: false, personDescription: '' });
+        if (result.isOnCamera && result.isSpeakingToCamera) onCameraCount++;
+        if (!description && result.personDescription) description = result.personDescription;
 
         try { fs.unlinkSync(framePath); } catch {}
       } catch (error: any) {

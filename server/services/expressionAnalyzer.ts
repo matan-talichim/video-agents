@@ -1,7 +1,7 @@
 // server/services/expressionAnalyzer.ts
 // Analyzes facial micro-expressions to guide editing decisions (zoom, B-Roll cover, cut).
 
-import { askClaudeVision } from './claude.js';
+import { askClaudeVision, parseVisionJSON } from './claude.js';
 import { runFFmpeg } from './ffmpeg.js';
 import fs from 'fs';
 
@@ -18,8 +18,10 @@ export interface ExpressionAnalysis {
 export async function analyzeExpressions(
   videoPath: string,
   duration: number,
-  presenterTimestamps: Array<{ start: number; end: number }>
+  presenterTimestamps: Array<{ start: number; end: number }>,
+  jobId?: string
 ): Promise<ExpressionAnalysis> {
+  const tempPrefix = jobId ? `temp/${jobId}` : 'temp';
   console.log(`[Expressions] Analyzing facial expressions across ${presenterTimestamps.length} presenter segments`);
 
   // Sample 1 frame per 3 seconds during presenter segments only
@@ -37,7 +39,7 @@ export async function analyzeExpressions(
 
   const frames: Array<{ path: string; timestamp: number }> = [];
   for (let i = 0; i < selectedPoints.length; i++) {
-    const framePath = `temp/expr_${i}.jpg`;
+    const framePath = `${tempPrefix}/expr_${i}.jpg`;
     try {
       await runFFmpeg(`ffmpeg -i "${videoPath}" -ss ${selectedPoints[i]} -vframes 1 -q:v 2 -y "${framePath}"`);
       frames.push({ path: framePath, timestamp: selectedPoints[i] });
@@ -96,7 +98,7 @@ Return JSON array for all ${batchFrames.length} frames.`,
         ]
       );
 
-      const parsed = JSON.parse(response);
+      const parsed = parseVisionJSON(response, []);
       const results = Array.isArray(parsed) ? parsed : [];
       for (let i = 0; i < results.length; i++) {
         allExpressions.push({

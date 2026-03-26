@@ -36,6 +36,25 @@ export function extractJSON(response: string): string {
   return cleaned.trim();
 }
 
+// Safely parse JSON from Vision responses that may contain natural language instead of JSON.
+// Falls back to a default value if parsing fails entirely.
+export function parseVisionJSON<T>(response: string, fallback: T): T {
+  // Try extractJSON first (handles ```json wrappers)
+  try {
+    return JSON.parse(extractJSON(response));
+  } catch {
+    // Try to find JSON object or array embedded in text
+    const jsonMatch = response.match(/\{[\s\S]*\}/) || response.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch { /* fall through */ }
+    }
+    console.warn('[Claude] Vision returned non-JSON response, using fallback');
+    return fallback;
+  }
+}
+
 // Text-only call with retry logic
 export async function askClaude(systemPrompt: string, userMessage: string): Promise<string> {
   const maxRetries = 3;

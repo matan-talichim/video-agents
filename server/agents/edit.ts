@@ -171,7 +171,13 @@ export async function runEditAgent(
         if (fs.existsSync(selectedOutput) && fs.statSync(selectedOutput).size > 0) {
           currentVideo = selectedOutput;
           await verifySyncAfterEdit(currentVideo, 'content-selection-concat');
-          console.log(`[Edit] Assembled ${segmentFiles.length} selected segments`);
+          const assembledDuration = await ffmpeg.getVideoDurationSafe(currentVideo);
+          const targetDur = typeof plan.export.targetDuration === 'number' ? plan.export.targetDuration : 0;
+          console.log(`[Edit] Assembled ${segmentFiles.length} selected segments → ${assembledDuration.toFixed(1)}s (target: ${targetDur || 'auto'}s)`);
+          if (targetDur > 0 && assembledDuration > 0 && Math.abs(assembledDuration - targetDur) > targetDur * 0.15) {
+            console.warn(`[Edit] ⚠️ Assembled duration ${assembledDuration.toFixed(1)}s differs from target ${targetDur}s by more than 15%`);
+            warnings.push(`Duration mismatch: assembled ${assembledDuration.toFixed(1)}s vs target ${targetDur}s`);
+          }
         } else {
           console.warn('[Edit] ⚠️ Concat output empty — using original video as base');
           warnings.push('Segment assembly produced empty output — using original video');
@@ -188,6 +194,28 @@ export async function runEditAgent(
       console.error('[Edit] ⚠️ Content selection assembly failed — using original video as base:', error.message);
       warnings.push('Content selection assembly failed: ' + error.message);
       // currentVideo stays as cleanVideoPath (the original input)
+    }
+  }
+
+  // ========================================================
+  // STEP 0.1: MUTE NON-PRESENTER AUDIO (remove coach/director voice)
+  // ========================================================
+  if (job.presenterDetection?.nonPresenterSegments && job.presenterDetection.nonPresenterSegments.length > 0) {
+    try {
+      updateProgress(job, 'מסיר קול מנחה/במאי...');
+      const nonPresenterSegs = job.presenterDetection.nonPresenterSegments;
+      console.log(`[Edit] Muting ${nonPresenterSegs.length} non-presenter audio segments`);
+
+      const output = nextOutput();
+      await ffmpeg.runFFmpeg(ffmpeg.muteNonPresenterSegments(
+        currentVideo,
+        nonPresenterSegs.map(s => ({ start: s.start, end: s.end })),
+        output
+      ));
+      currentVideo = verifyStepOutput(output, currentVideo, 'Mute non-presenter', warnings);
+    } catch (error: any) {
+      console.error('[Edit] Non-presenter muting failed:', error.message);
+      warnings.push('Non-presenter muting failed: ' + error.message);
     }
   }
 
@@ -924,11 +952,18 @@ Rules:
       );
       if (fakeZoomCuts.length > 0) {
         updateProgress(job, 'זום מדומה לחיתוכים — סימולציית מצלמה...');
+        // Get current video duration to validate timestamps
+        const currentDuration = await ffmpeg.getVideoDurationSafe(currentVideo);
         let cutIndex = 0;
         for (const cut of fakeZoomCuts) {
           if (!fs.existsSync(currentVideo)) {
             warnings.push('Fake zoom skipped: input file missing');
             break;
+          }
+          // Skip zoom if timestamp exceeds current video duration
+          if (currentDuration > 0 && cut.at >= currentDuration - 0.5) {
+            console.warn(`[Edit] Skipping fake zoom at ${cut.at}s — exceeds video duration ${currentDuration}s`);
+            continue;
           }
           try {
             const isOdd = cutIndex % 2 === 0;
@@ -936,7 +971,7 @@ Rules:
             await ffmpeg.runFFmpeg(ffmpeg.addZoom(
               currentVideo,
               cut.at,
-              cut.at + 0.3,
+              Math.min(cut.at + 0.3, currentDuration > 0 ? currentDuration - 0.1 : cut.at + 0.3),
               isOdd ? 1.15 : 1.0,
               output
             ));
@@ -961,6 +996,9 @@ Rules:
     try {
       updateProgress(job, 'מוסיף זומים חכמים...');
 
+      // Get current video duration — zooms may reference original timestamps that exceed edited duration
+      const bpDuration = await ffmpeg.getVideoDurationSafe(currentVideo);
+
       const sortedZooms = [...blueprintZooms].sort((a: any, b: any) => a.timestamp - b.timestamp);
       zoomPlan = sortedZooms.map((z: any) => ({
         start: z.timestamp,
@@ -974,12 +1012,18 @@ Rules:
           warnings.push('Blueprint zoom skipped: input file missing');
           break;
         }
+        // Skip zoom if timestamp exceeds current video duration
+        if (bpDuration > 0 && zoom.timestamp >= bpDuration - 0.5) {
+          console.warn(`[Edit] Skipping blueprint zoom at ${zoom.timestamp}s — exceeds video duration ${bpDuration}s`);
+          continue;
+        }
         try {
           const output = nextOutput();
+          const safeEnd = bpDuration > 0 ? Math.min(zoom.timestamp + zoom.duration, bpDuration - 0.1) : zoom.timestamp + zoom.duration;
           await ffmpeg.runFFmpeg(ffmpeg.addZoom(
             currentVideo,
             zoom.timestamp,
-            zoom.timestamp + zoom.duration,
+            safeEnd,
             zoom.zoomTo,
             output
           ));
@@ -1010,14 +1054,23 @@ Rules:
       const zooms = JSON.parse(jsonStr);
       zoomPlan = zooms; // Save for potential music sync snapping
 
+      // Get current video duration to validate timestamps
+      const smartZoomDuration = await ffmpeg.getVideoDurationSafe(currentVideo);
+
       for (const zoom of zooms) {
         if (!fs.existsSync(currentVideo)) {
           warnings.push('Smart zoom skipped: input file missing');
           break;
         }
+        // Skip zoom if timestamp exceeds current video duration
+        if (smartZoomDuration > 0 && zoom.start >= smartZoomDuration - 0.5) {
+          console.warn(`[Edit] Skipping smart zoom at ${zoom.start}s — exceeds video duration ${smartZoomDuration}s`);
+          continue;
+        }
         const output = nextOutput();
         try {
-          await ffmpeg.runFFmpeg(ffmpeg.addZoom(currentVideo, zoom.start, zoom.end, zoom.zoom_factor, output));
+          const safeEnd = smartZoomDuration > 0 ? Math.min(zoom.end, smartZoomDuration - 0.1) : zoom.end;
+          await ffmpeg.runFFmpeg(ffmpeg.addZoom(currentVideo, zoom.start, safeEnd, zoom.zoom_factor, output));
           currentVideo = verifyStepOutput(output, currentVideo, `Smart zoom at ${zoom.start}s`, warnings);
         } catch (zoomErr: any) {
           console.error(`Smart zoom at ${zoom.start}s failed:`, zoomErr.message);
@@ -1376,15 +1429,29 @@ Rules:
   if (generateResult.sfxMoments.length > 0) {
     try {
       updateProgress(job, 'אפקטי סאונד...');
-      const validSfx = generateResult.sfxMoments.filter(s => fs.existsSync(s.filePath));
+      // Filter to SFX files that exist AND are valid (non-empty)
+      const validSfx = generateResult.sfxMoments.filter(s => {
+        if (!fs.existsSync(s.filePath)) return false;
+        try {
+          const stat = fs.statSync(s.filePath);
+          return stat.size > 100; // Skip obviously corrupt/tiny files
+        } catch {
+          return false;
+        }
+      });
       if (validSfx.length > 0) {
         const output = nextOutput();
-        await ffmpeg.runFFmpeg(ffmpeg.overlaySFX(
-          currentVideo,
-          validSfx.map(s => ({ file: s.filePath, timestamp: s.timestamp, volume: s.volume })),
-          output
-        ));
-        currentVideo = verifyStepOutput(output, currentVideo, 'SFX overlay', warnings);
+        try {
+          await ffmpeg.runFFmpeg(ffmpeg.overlaySFX(
+            currentVideo,
+            validSfx.map(s => ({ file: s.filePath, timestamp: s.timestamp, volume: s.volume })),
+            output
+          ));
+          currentVideo = verifyStepOutput(output, currentVideo, 'SFX overlay', warnings);
+        } catch (sfxErr: any) {
+          // If batch SFX fails (e.g., one corrupt file), try without SFX
+          console.warn(`[SFX] Batch overlay failed, skipping SFX: ${sfxErr.message}`);
+        }
       }
     } catch (error: any) {
       console.error('SFX overlay failed:', error.message);
@@ -1506,9 +1573,21 @@ Rules:
         const output = nextOutput();
         try {
           switch (vfxType) {
-            case 'camera-shake':
+            case 'camera-shake': {
+              // BUG 12: Only apply camera shake when Brain explicitly approved it
+              // Never on talking heads, calm presets, or text overlay segments
+              const category = job.videoIntelligence?.concept?.category || '';
+              const isTalkingHead = category.includes('talking') || category.includes('interview') || category.includes('lecture');
+              const editStyle = (job as any).editStyle || (plan as any).editStyle || '';
+              const isCalm = editStyle.includes('calm') || editStyle.includes('corporate') || editStyle.includes('minimal');
+              if (isTalkingHead || isCalm) {
+                console.log(`[Edit] Skipping camera-shake: not suitable for ${category || editStyle || 'this content'}`);
+                warnings.push('Camera shake skipped: not suitable for talking head / calm style');
+                continue;
+              }
               await ffmpeg.runFFmpeg(ffmpeg.cameraShake(currentVideo, 'small', output));
               break;
+            }
             case 'film-burn':
               await ffmpeg.runFFmpeg(ffmpeg.filmGrain(currentVideo, 15, output));
               break;
