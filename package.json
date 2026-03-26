@@ -9,9 +9,9 @@
     "dev:server": "tsx watch server/index.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "remotion:preview": "npx remotion preview src/remotion/index.ts",
-    "remotion:render": "npx remotion render src/remotion/index.ts MainComposition output/preview.mp4",
-    "remotion:render-vertical": "npx remotion render src/remotion/index.ts VerticalComposition output/preview_vertical.mp4",
+    "remotion:preview": "npx remotion preview src/remotion/index.tsx",
+    "remotion:render": "npx remotion render src/remotion/index.tsx MainComposition output/preview.mp4",
+    "remotion:render-vertical": "npx remotion render src/remotion/index.tsx VerticalComposition output/preview_vertical.mp4",
     "diagnostic": "tsx server/tests/runDiagnostic.ts"
   },
   "dependencies": {

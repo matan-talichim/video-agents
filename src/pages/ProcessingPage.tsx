@@ -183,7 +183,7 @@ export default function ProcessingPage() {
                 </div>
               ))}
             </div>
-            {job.result.viralityScore.tips.length > 0 && (
+            {(job.result.viralityScore.tips?.length ?? 0) > 0 && (
               <div className="space-y-1">
                 <p className="text-xs text-gray-500">טיפים לשיפור:</p>
                 {job.result.viralityScore.tips.map((tip, i) => (
@@ -195,10 +195,21 @@ export default function ProcessingPage() {
         )}
 
         {/* Step Timeline */}
-        {job.steps.length > 0 && (
+        {(job.steps?.length ?? 0) > 0 && (
           <div>
             <h3 className="text-sm font-semibold text-gray-300 mb-3">שלבי עיבוד</h3>
-            <ProgressTimeline steps={job.steps} currentStep={job.currentStep} />
+            <ProgressTimeline steps={job.steps!} currentStep={job.currentStep} />
+          </div>
+        )}
+
+        {/* Processing Steps (when no steps array but currentStep exists) */}
+        {(!job.steps || job.steps.length === 0) && job.currentStep && job.status === 'processing' && (
+          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
+            <h3 className="text-sm font-semibold text-gray-300 mb-3">שלבי עיבוד</h3>
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-accent-purple-light animate-pulse" />
+              <span className="text-sm text-gray-400">{job.currentStep}</span>
+            </div>
           </div>
         )}
 

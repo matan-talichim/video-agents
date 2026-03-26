@@ -13,7 +13,7 @@ export async function renderVideo(
 
   // Bundle the Remotion project
   const bundleLocation = await bundle({
-    entryPoint: path.resolve('./src/remotion/index.ts'),
+    entryPoint: path.resolve('./src/remotion/index.tsx'),
     webpackOverride: (config) => config,
   });
 

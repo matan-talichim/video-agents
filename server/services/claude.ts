@@ -2,6 +2,17 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// Strip markdown code fences (```json ... ```) that Claude often wraps around JSON responses.
+// This prevents JSON.parse failures across the entire codebase.
+export function extractJSON(response: string): string {
+  let cleaned = response.trim();
+  // Remove opening code block: ```json or ``` at the start
+  cleaned = cleaned.replace(/^```(?:json|JSON)?\s*\n?/, '');
+  // Remove closing code block: ``` at the end
+  cleaned = cleaned.replace(/\n?```\s*$/, '');
+  return cleaned.trim();
+}
+
 // Text-only call with retry logic
 export async function askClaude(systemPrompt: string, userMessage: string): Promise<string> {
   const maxRetries = 3;
@@ -30,7 +41,8 @@ export async function askClaude(systemPrompt: string, userMessage: string): Prom
         `estimated cost: $${estimatedCost.toFixed(4)}`
       );
 
-      return response.content[0].type === 'text' ? response.content[0].text : '';
+      const text = response.content[0].type === 'text' ? response.content[0].text : '';
+      return extractJSON(text);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       console.error(`[Claude API] Attempt ${attempt} failed:`, lastError.message);
@@ -75,7 +87,8 @@ export async function askClaudeVision(systemPrompt: string, content: any[]): Pro
         `estimated cost: $${estimatedCost.toFixed(4)}`
       );
 
-      return response.content[0].type === 'text' ? response.content[0].text : '';
+      const text = response.content[0].type === 'text' ? response.content[0].text : '';
+      return extractJSON(text);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       console.error(`[Claude Vision] Attempt ${attempt} failed:`, lastError.message);

@@ -1,4 +1,4 @@
-export type JobStatus = 'pending' | 'planning' | 'preview' | 'approved' | 'processing' | 'done' | 'error';
+export type JobStatus = 'pending' | 'planning' | 'transcribing' | 'analyzing' | 'preview' | 'approved' | 'processing' | 'done' | 'error';
 export type JobMode = 'raw' | 'prompt-only';
 export type BRollModel = string;
 export type PacingMode = 'fast' | 'normal' | 'calm';
@@ -59,6 +59,7 @@ export interface Job {
   originalShakiness?: number;
   freshEyesReview?: import('./services/freshEyesReview.js').FreshEyesResult;
   contentSelection?: import('./services/contentSelector.js').ContentSelectionResult;
+  ingestWarnings?: string[];
   qaResult?: import('./services/qualityCheck.js').QAResult;
   versionPlan?: import('./services/autoVersioning.js').VersionPlan;
   brandCompliance?: import('./services/brandCompliance.js').BrandComplianceResult;
