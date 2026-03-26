@@ -1365,3 +1365,37 @@ Return edge case handling:
     ]
   }
 }`;
+
+// ============================================================
+// B-ROLL COUNT CALCULATOR — Dynamic by duration + pace + speech
+// ============================================================
+// Reference table:
+// Duration    | Fast    | Normal  | Calm    | No-Speech
+// 10-15s      | 2       | 1       | 1       | 3-4
+// 15-30s      | 3       | 2       | 1-2     | 5-7
+// 30-45s      | 4-5     | 3       | 2       | 8-10
+// 45-60s      | 5-6     | 4       | 3       | 10+
+// 60-90s      | 6-8     | 5-6     | 4       | (split into clips)
+
+export function calculateBRollCount(
+  duration: number,
+  paceMode: string,
+  hasSpeech: boolean,
+): { min: number; max: number; recommended: number } {
+  // Base: 1 B-Roll clip per 14 seconds of video
+  let baseCount = Math.ceil(duration / 14);
+
+  // Adjust by pace mode
+  if (paceMode === 'fast') baseCount = Math.ceil(baseCount * 1.5);
+  if (paceMode === 'calm') baseCount = Math.ceil(baseCount * 0.7);
+
+  // No-speech videos need more B-Roll (they ARE the video)
+  if (!hasSpeech) baseCount = Math.ceil(duration / 4);
+
+  // Limits
+  const min = Math.max(1, baseCount - 1);
+  const max = Math.min(10, baseCount + 2);
+  const recommended = Math.min(8, baseCount);
+
+  return { min, max, recommended };
+}
