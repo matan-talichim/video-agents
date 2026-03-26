@@ -121,6 +121,19 @@ export async function runEditAgent(
     if (analysis.colorPlan) {
       (job as any).colorPlan = analysis.colorPlan;
     }
+    if (analysis.platformOptimization) {
+      (job as any).platformOptimization = analysis.platformOptimization;
+    }
+  }
+
+  // === APPLY EDITING BLUEPRINT ===
+  const blueprint = analysis?.editingBlueprint || job.editingBlueprint;
+  if (blueprint) {
+    console.log(`[Edit] Applying editing blueprint: ${blueprint.cuts?.length || 0} cuts, ${blueprint.zooms?.length || 0} zooms, ${blueprint.soundDesign?.sfx?.length || 0} SFX`);
+    console.log(`[Edit] Murch average score: ${blueprint.murchAverageScore || 'N/A'}`);
+
+    // Store blueprint on job for downstream steps
+    job.editingBlueprint = blueprint;
   }
 
   // ========================================================

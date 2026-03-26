@@ -1,7 +1,8 @@
 import fs from 'fs';
 import { askClaude, askClaudeVision } from './claude.js';
 import { runFFmpeg, extractFrame, getVideoDuration } from './ffmpeg.js';
-import { EDITING_RULES_PART1, EDITING_RULES_PART2, EDITING_RULES_PART3 } from './editingRules.js';
+import { MASTER_EDITING_PROMPT } from './editingRules.js';
+import type { EditingBlueprint } from './editingRules.js';
 import type { TranscriptResult } from '../types.js';
 
 export interface ContentAnalysis {
@@ -165,6 +166,20 @@ export interface ContentAnalysis {
     skinToneProtection: boolean;
     matchPrevious: boolean;
   }>;
+
+  // Platform optimization
+  platformOptimization?: {
+    platform: string;
+    hookStrategy: { type: string; text: string; duration: number };
+    safeZone: { top: number; bottom: number; right: number };
+    idealCutFrequency: number;
+    captionPosition: string;
+    loopable: boolean;
+    endStrategy: string;
+  };
+
+  // Complete editing blueprint
+  editingBlueprint?: EditingBlueprint;
 }
 
 export async function analyzeContent(
@@ -426,7 +441,16 @@ Analyze this content and return JSON with ALL of the following fields:
       "skinToneProtection": true,
       "matchPrevious": true
     }
-  ]
+  ],
+  "platformOptimization": {
+    "platform": "instagram-reels",
+    "hookStrategy": { "type": "text-hook", "text": "hook text here", "duration": 1.5 },
+    "safeZone": { "top": 15, "bottom": 15, "right": 15 },
+    "idealCutFrequency": 3,
+    "captionPosition": "center-vertical",
+    "loopable": true,
+    "endStrategy": "cta"
+  }
 }
 
 IMPORTANT:
@@ -445,14 +469,12 @@ IMPORTANT:
 - For hard cuts, add "fakeZoom": true to simulate a camera angle change
 - For crossfades, include "duration" (0.5-1.0s)
 
-${EDITING_RULES_PART1}
+${MASTER_EDITING_PROMPT}
 
-${EDITING_RULES_PART2}
-
-${EDITING_RULES_PART3}
-
-Apply these rules when planning cuts, music sync, sound design, zooms, and color grading in the editingBlueprint.
-Include "musicSync", "soundDesign", "zooms", and "colorPlan" objects in your response JSON.`
+Based on your content analysis, create a complete "editingBlueprint" following ALL the rules above.
+The blueprint should contain: cuts, zooms, brollInsertions, musicSync, soundDesign, colorPlan, platformOptimization.
+Include a murchAverageScore (average of all cut murch scores).
+Also include "musicSync", "soundDesign", "zooms", "colorPlan", and "platformOptimization" as top-level fields in the response.`
     );
 
     const jsonStr = contentResponse
@@ -480,6 +502,8 @@ Include "musicSync", "soundDesign", "zooms", and "colorPlan" objects in your res
       soundDesign: analysis.soundDesign || undefined,
       zooms: analysis.zooms || undefined,
       colorPlan: analysis.colorPlan || undefined,
+      platformOptimization: analysis.platformOptimization || undefined,
+      editingBlueprint: analysis.editingBlueprint || undefined,
     };
   } catch (error: any) {
     console.error('[ContentAnalyzer] Content analysis failed:', error.message);

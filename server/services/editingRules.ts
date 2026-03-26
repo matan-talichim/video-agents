@@ -211,3 +211,128 @@ Return colorPlan: [{
 
 // Combined prompt for Part 3
 export const EDITING_RULES_PART3 = `${ZOOM_RULES_PROMPT}\n\n${COLOR_RULES_PROMPT}`;
+
+// ============================================================
+// CATEGORY 8: PLATFORM OPTIMIZATION
+// ============================================================
+export const PLATFORM_RULES_PROMPT = `Optimize the edit for the TARGET PLATFORM:
+
+THE 3-SECOND RULE (all platforms):
+- Viewer decides to watch or scroll in 3 SECONDS
+- First 3 seconds MUST contain: movement, text hook, surprise, or bold statement
+- NEVER start with a logo, "hi my name is", or silence
+- If no good 3-second hook exists → CREATE one with text overlay
+
+YOUTUBE (16:9):
+- Hook in first 3 seconds, can build — viewers more patient
+- Cut frequency: 4-8 seconds per shot
+- Audio quality matters MORE than video quality
+- Safe zone: text not in bottom 15% (YouTube UI)
+
+INSTAGRAM REELS (9:16):
+- Hook in first 1.5 seconds (faster than YouTube)
+- Cut frequency: 2-4 seconds (fast!)
+- Text centered vertically (top/bottom 20% hidden by UI)
+- Captions MANDATORY (80% watch without sound)
+- End with loop potential — last frame connects to first
+
+TIKTOK (9:16):
+- Hook in first 1 SECOND (fastest platform)
+- Cut frequency: 1.5-3 seconds (very fast!)
+- Text hooks on screen from frame 1
+- Right side 15% covered by like/comment buttons
+- Loop: last word connects to first visual
+
+LINKEDIN (16:9 or 1:1):
+- Professional tone, less flashy
+- Slower pacing: 5-10 seconds per shot
+- Caption-first (many watch at work without sound)
+
+PACING INTELLIGENCE:
+- Average shot length in 2025: 2.5 seconds
+- NEVER stay on one shot >8 seconds without change (zoom, B-Roll, or cut)
+- Vary shot length: 1s, 3s, 2s, 5s, 2s — NOT 3s, 3s, 3s (monotonous)
+- Fast sections should ACCELERATE, not stay constant
+- After fast section, give 1 slow moment to "breathe"
+
+THE "INVISIBLE EDIT" PRINCIPLE:
+- Best edit = one the viewer doesn't notice
+- Every cut should feel natural and motivated
+- Cuts on movement hide the edit (gestures, head turns)
+- Cuts during blinks feel the most natural (Murch's blink theory)
+
+Return platformOptimization:
+{
+  "platform": "instagram-reels",
+  "hookStrategy": { "type": "text-hook", "text": "...", "duration": 1.5 },
+  "safeZone": { "top": 15, "bottom": 15, "right": 15 },
+  "idealCutFrequency": 3,
+  "captionPosition": "center-vertical",
+  "loopable": true,
+  "endStrategy": "loop|cta|question"
+}`;
+
+// ============================================================
+// MASTER EDITING PROMPT (all rules combined)
+// ============================================================
+export const MASTER_EDITING_PROMPT = [
+  EDITING_RULES_PART1,  // Murch + J-Cut/L-Cut + Cut Types
+  EDITING_RULES_PART2,  // Music Sync + Sound Design
+  EDITING_RULES_PART3,  // Zoom + Color
+  PLATFORM_RULES_PROMPT // Platform optimization
+].join('\n\n');
+
+// ============================================================
+// EDITING BLUEPRINT INTERFACE
+// ============================================================
+export interface EditingBlueprint {
+  cuts: Array<{
+    at: number;
+    type: 'hard' | 'lcutBroll' | 'crossfade' | 'smashCut' | 'cutaway' | 'montage';
+    murchScore: number;
+    audioOverlapAfter?: number;
+    fakeZoom?: boolean;
+    duration?: number;
+    reason: string;
+  }>;
+  zooms: Array<{
+    timestamp: number;
+    zoomFrom: number;
+    zoomTo: number;
+    duration: number;
+    easing: string;
+    reason: string;
+  }>;
+  brollInsertions: Array<{
+    at: number;
+    duration: number;
+    audioOverlap: number;
+    cutType: string;
+    prompt: string;
+  }>;
+  musicSync: {
+    ducking: Array<{ start: number; end: number; volume: number; reason: string }>;
+    beatAlignedCuts: number[];
+  };
+  soundDesign: {
+    sfx: Array<{ type: string; at: number; volume: number; reason: string; duration?: number }>;
+    roomTone: { start: number; end: number };
+    voiceProcessing: { highPass: number; compression: boolean; normalize: number };
+  };
+  colorPlan: Array<{
+    segment: { start: number; end: number };
+    temperature: string;
+    lut: string;
+    skinToneProtection: boolean;
+  }>;
+  platformOptimization: {
+    platform: string;
+    hookStrategy: { type: string; text: string; duration: number };
+    safeZone: { top: number; bottom: number; right: number };
+    idealCutFrequency: number;
+    captionPosition: string;
+    loopable: boolean;
+    endStrategy: string;
+  };
+  murchAverageScore: number;
+}
