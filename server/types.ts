@@ -63,6 +63,8 @@ export interface Job {
   abTestResult?: import('./services/abTesting.js').ABTestResult;
   retentionPlan?: import('./services/retentionOptimizer.js').RetentionPlan;
   loopPlan?: import('./services/loopOptimizer.js').LoopPlan;
+  thumbnailPlan?: import('./services/thumbnailOptimizer.js').ThumbnailPlan;
+  platformCuts?: import('./services/multiPlatformCutter.js').PlatformCut[];
 }
 
 export interface FileInfo {

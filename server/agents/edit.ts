@@ -890,6 +890,80 @@ Rules:
     }
   }
 
+  // ========================================================
+  // STEP 11.6: MARKETING PLAN — apply framework, copywriting, colors, sound strategy
+  // ========================================================
+  if (job.videoIntelligence?.marketingPlan) {
+    try {
+      const mp = job.videoIntelligence.marketingPlan;
+
+      // Apply framework-based segment ordering
+      if (mp.framework) {
+        console.log(`[Edit] Applying ${mp.framework.selectedFramework} framework`);
+        // Framework mapping informs Remotion/overlay timing — stored for reference
+      }
+
+      // Apply copywriting text overlays
+      if (mp.copywriting?.textOverlays) {
+        (job as any).kineticTextPlan = (job as any).kineticTextPlan || [];
+
+        for (const overlay of mp.copywriting.textOverlays) {
+          // Special handling for price anchoring
+          if (overlay.type === 'price' && overlay.originalPrice) {
+            (job as any).kineticTextPlan.push({
+              text: overlay.originalPrice,
+              startTime: overlay.timestamp,
+              endTime: overlay.timestamp + 1.5,
+              animation: 'strikethrough',
+              fontSize: 'medium',
+              color: '#EF4444',
+              type: 'price-original',
+            });
+            (job as any).kineticTextPlan.push({
+              text: overlay.salePrice || overlay.text,
+              startTime: overlay.timestamp + 1.5,
+              endTime: overlay.timestamp + overlay.duration,
+              animation: 'scale-up',
+              fontSize: 'large',
+              color: '#22C55E',
+              type: 'price-sale',
+            });
+          } else {
+            (job as any).kineticTextPlan.push({
+              text: overlay.text,
+              startTime: overlay.timestamp,
+              endTime: overlay.timestamp + overlay.duration,
+              animation: overlay.animation || 'slide-up',
+              fontSize: overlay.fontSize === 'xl' ? 'large' : overlay.fontSize === 'lg' ? 'medium' : 'small',
+              color: overlay.color || '#FFFFFF',
+              type: `copywriting-${overlay.type}`,
+            });
+          }
+        }
+
+        console.log(`[Edit] Applied ${mp.copywriting.textOverlays.length} copywriting overlays`);
+      }
+
+      // Apply color strategy to CTA and highlights
+      if (mp.colorStrategy) {
+        if (plan.edit.cta) {
+          (plan.edit as any).ctaBackgroundColor = mp.colorStrategy.primaryCTAColor;
+        }
+        if ((plan.edit as any).subtitleHighlightKeywords) {
+          (plan.edit as any).subtitleHighlightColor = mp.colorStrategy.textHighlightColor;
+        }
+      }
+
+      // Apply sound strategy
+      if (mp.soundStrategy) {
+        plan.generate.musicMood = mp.soundStrategy.genre;
+      }
+    } catch (error: any) {
+      console.error('Marketing plan application failed:', error.message);
+      warnings.push('Marketing plan application failed: ' + error.message);
+    }
+  }
+
   // Apply social proof overlays
   if (job.videoIntelligence?.socialProofPlan && job.videoIntelligence.socialProofPlan.length > 0) {
     try {

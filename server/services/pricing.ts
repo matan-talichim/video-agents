@@ -293,6 +293,17 @@ export function calculateJobCost(plan: ExecutionPlan): JobCostBreakdown {
   });
   total += qaHooksCost;
 
+  // Thumbnail optimization + multi-platform planning + marketing plan
+  // 1 Vision call (thumbnail) = $0.017, 1 text call (multi-platform) = $0.03, 1 text call (marketing) = $0.03
+  const marketingThumbCost = CLAUDE_PRICING.estimatePerVisionCall + CLAUDE_PRICING.estimatePerCall * 2;
+  breakdown.push({
+    service: 'תוכנית שיווק + thumbnail + פלטפורמות',
+    cost: marketingThumbCost,
+    unit: '3 קריאות Claude',
+    free: false,
+  });
+  total += marketingThumbCost;
+
   // FREE services
   breakdown.push({ service: 'FFmpeg (עיבוד וידאו)', cost: 0, unit: 'חינם', free: true });
 

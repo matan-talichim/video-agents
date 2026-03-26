@@ -13,6 +13,7 @@ import BrainRecommendations from '../components/BrainRecommendations';
 import BrainNotes from '../components/BrainNotes';
 import SpeakerVerificationPanel from '../components/SpeakerVerificationPanel';
 import ContentSelectionPanel from '../components/ContentSelectionPanel';
+import MarketingPlanPanel from '../components/MarketingPlanPanel';
 import { calculateLiveCost } from '../utils/costCalculator';
 import type { RecommendedConfig } from '../types';
 
@@ -274,6 +275,15 @@ export default function PreviewPage() {
         {/* Video Intelligence — FIRST section */}
         {videoIntelligence && (
           <ContentIntelligencePanel intelligence={videoIntelligence} />
+        )}
+
+        {/* Marketing Plan — frameworks, copywriting, colors, sound, thumbnail, platforms */}
+        {(videoIntelligence?.marketingPlan || (job as any).thumbnailPlan || (job as any).platformCuts) && (
+          <MarketingPlanPanel
+            marketingPlan={videoIntelligence?.marketingPlan}
+            thumbnailPlan={(job as any).thumbnailPlan}
+            platformCuts={(job as any).platformCuts}
+          />
         )}
 
         {/* Brain Recommendations — auto-selected optimal config */}
