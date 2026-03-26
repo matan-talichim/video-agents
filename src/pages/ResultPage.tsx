@@ -10,6 +10,11 @@ import ProjectDetails from '../components/ProjectDetails';
 import QABadge from '../components/QABadge';
 import RetentionCurve from '../components/RetentionCurve';
 import ABTestViewer from '../components/ABTestViewer';
+import EditingSummary from '../components/EditingSummary';
+import ScoresDashboard from '../components/ScoresDashboard';
+import DownloadOptions from '../components/DownloadOptions';
+import RevisionRequest from '../components/RevisionRequest';
+import FinalApproval from '../components/FinalApproval';
 
 export default function ResultPage() {
   const { id } = useParams<{ id: string }>();
@@ -25,11 +30,20 @@ export default function ResultPage() {
   } = useJobStore();
 
   const [showHistory, setShowHistory] = useState(false);
-  const [exportFormat, setExportFormat] = useState('mp4');
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) fetchJob(id);
   }, [id, fetchJob]);
+
+  // Poll for job updates while processing
+  useEffect(() => {
+    if (!id || !currentJob) return;
+    if (currentJob.status === 'processing' || currentJob.status === 'planning') {
+      const interval = setInterval(() => fetchJob(id), 2000);
+      return () => clearInterval(interval);
+    }
+  }, [id, currentJob?.status, fetchJob]);
 
   const handleRevision = useCallback(
     (revision: Parameters<typeof submitRevision>[1]) => {
@@ -55,8 +69,9 @@ export default function ResultPage() {
 
   if (!currentJob) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3">
         <div className="animate-spin text-4xl">🔄</div>
+        <p className="text-gray-400 text-sm">טוען תוצאות...</p>
       </div>
     );
   }
@@ -65,6 +80,9 @@ export default function ResultPage() {
   const result = job.result;
   const activeVersion = job.versions.find((v) => v.isActive);
   const versionNumber = activeVersion?.versionNumber || job.versions.length || 1;
+
+  // Determine video URL
+  const videoUrl = result?.videoUrl || (id ? `/api/jobs/${id}/video` : undefined);
 
   return (
     <div className="min-h-screen bg-dark-bg pb-20">
@@ -92,66 +110,88 @@ export default function ResultPage() {
         {id && <QABadge jobId={id} />}
 
         {/* Video Player */}
-        <VideoPlayer
-          videoUrl={result?.videoUrl}
-          versionNumber={versionNumber}
-        />
+        <div className="relative">
+          <VideoPlayer
+            videoUrl={videoUrl}
+            versionNumber={versionNumber}
+            onError={(msg) => setVideoError(msg)}
+          />
+          {videoError && (
+            <div className="mt-2 text-center text-sm text-yellow-400 bg-yellow-400/10 rounded-xl px-4 py-2">
+              {videoError}
+            </div>
+          )}
+
+          {/* Download + Share buttons */}
+          {videoUrl && (
+            <div className="flex gap-3 mt-3 justify-center">
+              <a
+                href={videoUrl}
+                download={`video-agents-${id}.mp4`}
+                className="gradient-purple px-6 py-2.5 rounded-xl text-sm font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
+              >
+                הורד סרטון
+              </a>
+              <button
+                onClick={() => navigator.clipboard.writeText(window.location.href)}
+                className="border border-dark-border-light bg-dark-card px-5 py-2.5 rounded-xl text-sm text-gray-300 hover:border-gray-500 transition-colors flex items-center gap-2"
+              >
+                העתק קישור
+              </button>
+              <button
+                onClick={() => setShowHistory(true)}
+                className="border border-dark-border-light bg-dark-card px-5 py-2.5 rounded-xl text-sm text-gray-300 hover:border-gray-500 transition-colors flex items-center gap-2"
+              >
+                היסטוריה ({job.versions.length})
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Timeline */}
-        {result && result.segments.length > 0 && (
+        {result && result.segments && result.segments.length > 0 && (
           <TimelinePreview
             segments={result.segments}
             duration={result.duration}
           />
         )}
 
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-3">
-          {result?.videoUrl && (
-            <button
-              onClick={() => handleDownload(result.videoUrl)}
-              className="gradient-purple px-6 py-2.5 rounded-xl text-sm font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
-            >
-              ⬇️ הורד סרטון
-            </button>
-          )}
-
-          <button
-            onClick={() => setShowHistory(true)}
-            className="border border-dark-border-light bg-dark-card px-5 py-2.5 rounded-xl text-sm text-gray-300 hover:border-gray-500 transition-colors flex items-center gap-2"
-          >
-            📜 היסטוריה ({job.versions.length})
-          </button>
-
-          <div className="flex items-center gap-2 bg-dark-card border border-dark-border-light rounded-xl px-3">
-            <label className="text-xs text-gray-500">פורמט:</label>
-            <select
-              value={exportFormat}
-              onChange={(e) => setExportFormat(e.target.value)}
-              className="bg-transparent text-sm text-white py-2 focus:outline-none cursor-pointer"
-            >
-              <option value="mp4">MP4</option>
-              <option value="mov">MOV</option>
-              <option value="gif">GIF</option>
-              <option value="vertical">אנכי (9:16)</option>
-              <option value="4k">4K</option>
-            </select>
-          </div>
-        </div>
+        {/* Download Options — ALWAYS available */}
+        {id && <DownloadOptions jobId={id} job={job} />}
 
         {/* A/B Test Viewer */}
         {id && <ABTestViewer jobId={id} />}
 
+        {/* Editing Summary */}
+        <EditingSummary job={job} />
+
+        {/* Scores Dashboard */}
+        <ScoresDashboard job={job} />
+
         {/* Retention Curve */}
         {id && <RetentionCurve jobId={id} />}
 
-        {/* Revision Panel */}
+        {/* Revision Request — Smart analysis flow (only if not approved) */}
+        {id && !(job as any).approvedFinal && (
+          <RevisionRequest jobId={id} job={job} />
+        )}
+
+        {/* Classic Revision Panel */}
         <RevisionPanel
           jobId={id || ''}
           onSubmitRevision={handleRevision}
           onChatSend={handleChatSend}
           isLoading={isLoading}
         />
+
+        {/* Final Approval */}
+        {id && (
+          <FinalApproval
+            jobId={id}
+            job={job}
+            onApprove={() => fetchJob(id)}
+          />
+        )}
 
         {/* Project Details */}
         <ProjectDetails job={job} />

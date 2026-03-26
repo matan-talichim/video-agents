@@ -162,6 +162,8 @@ export interface JobResult {
   duration: number;
   segments: Segment[];
   viralityScore?: ViralityScore;
+  exports?: Array<{ format: string; url: string }>;
+  timeline?: Segment[];
 }
 
 export interface JobVersion {
