@@ -48,6 +48,14 @@ export default function ProcessingPage() {
   const [completedStepKeys, setCompletedStepKeys] = useState<Set<string>>(new Set());
   const [currentStepKey, setCurrentStepKey] = useState('uploading');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [shouldNavigate, setShouldNavigate] = useState<string | null>(null);
+
+  // Navigate in a separate effect — only fires once when target is set
+  useEffect(() => {
+    if (shouldNavigate) {
+      navigate(shouldNavigate, { replace: true });
+    }
+  }, [shouldNavigate, navigate]);
 
   // Determine phase: pre-preview or post-approval
   const isPostApproval = !!(currentJob as any)?.approvedAt;
@@ -71,14 +79,20 @@ export default function ProcessingPage() {
     };
   }, [id, fetchJob]);
 
-  // React to job changes
+  // React to job status changes — depend on primitive values only to avoid infinite loops
+  const jobStatus = currentJob?.status;
+  const jobProgress = currentJob?.progress;
+  const jobCurrentStep = currentJob?.currentStep;
+  const jobApprovedAt = (currentJob as any)?.approvedAt;
+  const completedPipelineStepsJson = JSON.stringify((currentJob as any)?.completedPipelineSteps || []);
+
   useEffect(() => {
     if (!currentJob) return;
 
     // If job is in preview status, redirect to preview page
-    if (currentJob.status === 'preview' || (currentJob.status === 'planning' && !(currentJob as any).approvedAt)) {
+    if (jobStatus === 'preview' || (jobStatus === 'planning' && !jobApprovedAt)) {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      navigate(`/jobs/${id}/preview`, { replace: true });
+      setShouldNavigate(`/jobs/${id}/preview`);
       return;
     }
 
@@ -103,13 +117,13 @@ export default function ProcessingPage() {
       });
     }
 
-    if (currentJob.status === 'done') {
+    if (jobStatus === 'done') {
       if (intervalRef.current) clearInterval(intervalRef.current);
       setMaxProgress(100);
-      const timer = setTimeout(() => navigate(`/jobs/${id}/result`), 2000);
+      const timer = setTimeout(() => setShouldNavigate(`/jobs/${id}/result`), 2000);
       return () => clearTimeout(timer);
     }
-  }, [currentJob?.status, currentJob?.progress, currentJob?.currentStep, (currentJob as any)?.completedPipelineSteps, id, navigate]);
+  }, [jobStatus, jobProgress, jobCurrentStep, completedPipelineStepsJson, jobApprovedAt, id]);
 
   // Find current step info
   const currentStep = ALL_STEPS[currentStepKey] || { icon: '⏳', label: currentStepKey };
