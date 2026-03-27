@@ -1,4 +1,3 @@
-console.log('STEP 1: imports starting');
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -17,14 +16,11 @@ import visualDNARouter from './routes/visualDNA.js';
 import { startCleanupSchedule } from './services/cleanup.js';
 import { checkEnvironment } from './checkEnv.js';
 
-console.log('STEP 2: imports done');
-
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
-console.log('STEP 3: before express');
 const app = express();
 const PORT = 3001;
 
