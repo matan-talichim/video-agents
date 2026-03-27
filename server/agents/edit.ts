@@ -1711,6 +1711,31 @@ Rules:
     }
   }
 
+  // Diagnostic: verify the final video has a video stream
+  if (fs.existsSync(finalPath)) {
+    try {
+      const { execSync } = await import('child_process');
+      const probe = execSync(
+        `ffprobe -v error -show_entries stream=codec_type,codec_name,duration -of json "${finalPath}"`,
+        { encoding: 'utf-8', timeout: 10000 }
+      );
+      const probeData = JSON.parse(probe);
+      const streams = probeData.streams || [];
+      const videoStream = streams.find((s: any) => s.codec_type === 'video');
+      const audioStream = streams.find((s: any) => s.codec_type === 'audio');
+      console.log(`[Edit] Final video probe: ${finalPath} — ${(fs.statSync(finalPath).size / 1024 / 1024).toFixed(1)}MB, ` +
+        `video=${videoStream ? videoStream.codec_name : 'NONE'}, ` +
+        `audio=${audioStream ? audioStream.codec_name : 'NONE'}, ` +
+        `duration=${finalDuration.toFixed(1)}s`);
+      if (!videoStream) {
+        console.error('[Edit] ⚠️ Final video has NO video stream — will show black screen in player!');
+        warnings.push('Final video has no video stream — may appear as black screen');
+      }
+    } catch {
+      // Non-critical diagnostic
+    }
+  }
+
   return {
     finalVideoPath: finalPath,
     duration: finalDuration,

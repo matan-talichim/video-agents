@@ -2380,6 +2380,11 @@ Return JSON:
       console.log(`[Pipeline] ✅ Final video copied to: ${finalOutputPath}`);
     }
 
+    // Store finalVideoPath on job so video serving endpoint can find it
+    const resolvedFinalPath = fs.existsSync(finalOutputPath) ? finalOutputPath : mainVideoPath;
+    updateJob(job.id, { finalVideoPath: resolvedFinalPath } as any);
+    console.log(`[Pipeline] Final video path: ${resolvedFinalPath} (${fs.existsSync(resolvedFinalPath) ? (fs.statSync(resolvedFinalPath).size / 1024 / 1024).toFixed(1) + 'MB' : 'MISSING'})`);
+
     // === PIPELINE AUDIT: Material preservation & final report ===
     // These checks run after the main pipeline to verify what was preserved
 

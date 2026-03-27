@@ -205,11 +205,20 @@ router.get('/:id/video', (req, res) => {
   }
 
   if (!fs.existsSync(videoPath)) {
+    console.error(`[Video] No video found for job ${jobId}. Checked all fallback paths.`);
     return res.status(404).json({ error: 'Video not found' });
   }
 
   // Support range requests for video streaming
   const stat = fs.statSync(videoPath);
+
+  if (stat.size === 0) {
+    console.error(`[Video] Video file is empty (0 bytes): ${videoPath}`);
+    return res.status(404).json({ error: 'Video file is empty' });
+  }
+
+  console.log(`[Video] Serving ${videoPath} (${(stat.size / 1024 / 1024).toFixed(1)}MB) for job ${jobId}`);
+
   const range = req.headers.range;
 
   if (range) {
@@ -230,6 +239,7 @@ router.get('/:id/video', (req, res) => {
     res.writeHead(200, {
       'Content-Length': stat.size,
       'Content-Type': 'video/mp4',
+      'Accept-Ranges': 'bytes',
     });
     fs.createReadStream(videoPath).pipe(res);
   }
