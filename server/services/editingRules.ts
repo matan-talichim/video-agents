@@ -1392,10 +1392,11 @@ export function calculateBRollCount(
   // No-speech videos need more B-Roll (they ARE the video)
   if (!hasSpeech) baseCount = Math.ceil(duration / 4);
 
-  // Limits
-  const min = Math.max(1, baseCount - 1);
-  const max = Math.min(10, baseCount + 2);
-  const recommended = Math.min(8, baseCount);
+  // Cap baseCount first to prevent min > max
+  const cappedBase = Math.min(baseCount, 8);
+  const min = Math.max(1, cappedBase - 1);
+  const max = Math.min(10, cappedBase + 2);
+  const recommended = cappedBase;
 
   return { min, max, recommended };
 }
