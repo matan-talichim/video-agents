@@ -49,7 +49,7 @@ function sleep(ms: number): Promise<void> {
 // ========================================
 
 // --- API pattern types ---
-type APIPattern = 'market' | 'veo' | 'runway';
+type APIPattern = 'market' | 'veo' | 'runway' | 'aleph';
 
 interface ModelConfig {
   pattern: APIPattern;
@@ -123,7 +123,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
   // --- RUNWAY (Pattern B: Direct API) ---
   'runway-gen4':                { pattern: 'runway', modelId: 'runway-duration-5-generate' },
   'runway-gen4-10s':            { pattern: 'runway', modelId: 'runway-duration-10-generate' },
-  'runway-aleph':               { pattern: 'runway', modelId: 'runway-aleph-generate' },
+  'runway-aleph':               { pattern: 'aleph', modelId: 'runway-aleph-generate' },
 
   // --- GROK IMAGINE ---
   'grok-imagine':               { pattern: 'market', modelId: 'grok-imagine/text-to-video' },
@@ -203,6 +203,105 @@ const MODEL_DURATIONS: Record<string, number[]> = {
   'grok-imagine': [4, 8],
   'grok-imagine-i2v': [4, 8],
 };
+
+// --- Per-model estimated credit costs ---
+// Credit rate: $0.005 per credit (1 credit = $0.005)
+// Veo 3 confirmed: fast=80 credits ($0.40), quality=400 credits ($2.00)
+// Other models estimated based on similar quality tiers — verify on playground
+const CREDIT_RATE_USD = 0.005;
+
+const MODEL_CREDITS: Record<string, number> = {
+  // Google Veo 3.1 (confirmed pricing)
+  'veo-3.1-fast': 80,
+  'veo-3.1-quality': 400,
+
+  // Kling 3.0 (premium tier)
+  'kling-3.0': 200,
+  'kling-motion-control-v3': 200,
+
+  // Kling 2.6 (mid-high tier)
+  'kling-2.6': 120,
+  'kling-2.6-i2v': 120,
+  'kling-motion-control': 120,
+
+  // Kling 2.5 Turbo (fast/cheaper)
+  'kling-2.5-turbo': 60,
+  'kling-2.5-turbo-t2v': 60,
+  'kling-v2.5-turbo': 60,
+
+  // Kling 2.1 (older, cheaper)
+  'kling-2.1-master': 80,
+  'kling-2.1-master-t2v': 80,
+  'kling-2.1-pro': 60,
+  'kling-2.1-standard': 40,
+
+  // Kling Avatar
+  'kling-avatar-standard': 80,
+  'kling-avatar-pro': 120,
+
+  // ByteDance / Seedance
+  'seedance-1.5-pro': 100,
+  'bytedance-v1-pro-fast': 60,
+  'bytedance-v1-pro': 80,
+  'bytedance-v1-pro-t2v': 80,
+  'bytedance-v1-lite': 40,
+  'bytedance-v1-lite-t2v': 40,
+
+  // Sora 2
+  'sora-2': 200,
+  'sora-2-i2v': 200,
+  'sora-2-pro': 400,
+  'sora-2-pro-i2v': 400,
+  'sora-2-watermark-remover': 40,
+  'sora-2-storyboard': 400,
+  'sora-2-characters': 200,
+  'sora-2-characters-pro': 400,
+
+  // WAN (budget-friendly)
+  'wan-2.6': 40,
+  'wan-2.6-i2v': 40,
+  'wan-2.6-v2v': 40,
+  'wan-2.6-flash': 20,
+  'wan-2.6-flash-v2v': 20,
+  'wan-2.5': 30,
+  'wan-2.5-t2v': 30,
+  'wan-2.2-turbo-i2v': 20,
+  'wan-2.2-turbo-t2v': 20,
+  'wan-2.2-speech': 20,
+  'wan-2.2-animate-move': 30,
+  'wan-2.2-animate-replace': 30,
+
+  // Hailuo
+  'hailuo-2.3-pro': 100,
+  'hailuo-2.3-standard': 60,
+  'hailuo-02-t2v-pro': 100,
+  'hailuo-02-i2v-pro': 100,
+  'hailuo-02-t2v-standard': 60,
+  'hailuo-02-i2v-standard': 60,
+  'hailuo-standard': 60,
+
+  // Runway
+  'runway-gen4': 200,
+  'runway-gen4-10s': 400,
+  'runway-aleph': 200,
+
+  // Grok Imagine
+  'grok-imagine': 80,
+  'grok-imagine-i2v': 80,
+  'grok-imagine-upscale': 40,
+  'grok-imagine-extend': 80,
+
+  // Topaz
+  'topaz-upscale': 40,
+
+  // Infinitalk
+  'infinitalk': 60,
+};
+
+export function estimateCostUSD(model: string): number {
+  const credits = MODEL_CREDITS[model] || 80;
+  return credits * CREDIT_RATE_USD;
+}
 
 // Find the closest allowed duration for a given model
 function clampDuration(requested: number, model: string): number {
@@ -459,6 +558,58 @@ async function pollRunwayTask(taskId: string, timeoutMs: number = 300000): Promi
   throw new Error(`Runway task ${taskId} timed out`);
 }
 
+// --- Pattern B: Aleph (Runway Aleph) task creation ---
+async function createAlephTask(prompt: string, options: {
+  videoUrl?: string;
+  waterMark?: string;
+}): Promise<string> {
+  const body: Record<string, any> = {
+    prompt,
+  };
+
+  if (options.videoUrl) {
+    body.videoUrl = options.videoUrl;
+  }
+  if (options.waterMark) {
+    body.waterMark = options.waterMark;
+  }
+
+  const result = await kiePost('/aleph/generate', body);
+  const taskId = result.data?.taskId || result.taskId;
+  if (!taskId) throw new Error(`Aleph: no taskId in response: ${JSON.stringify(result)}`);
+  return taskId;
+}
+
+// --- Pattern B: Aleph polling (same format as Runway) ---
+async function pollAlephTask(taskId: string, timeoutMs: number = 300000): Promise<string> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const data = await kieGet(`/aleph/record-detail?taskId=${taskId}`);
+      const taskData = data.data || data;
+
+      if (taskData.state === 'success') {
+        const videoUrl = taskData.videoInfo?.videoUrl;
+        if (videoUrl) return videoUrl;
+        throw new Error(`Aleph: completed but no videoUrl in: ${JSON.stringify(taskData)}`);
+      }
+
+      if (taskData.state === 'fail') {
+        throw new Error(`Aleph task failed: ${taskData.failMsg || taskData.failCode || 'unknown'}`);
+      }
+
+      await sleep(3000);
+    } catch (error: any) {
+      if (error.message?.includes('failed')) throw error;
+      console.error('[KIE] Aleph poll error:', error.message);
+      await sleep(5000);
+    }
+  }
+
+  throw new Error(`Aleph task ${taskId} timed out`);
+}
+
 // --- Download result to local file ---
 async function downloadResult(url: string, outputPath: string): Promise<string> {
   const dir = path.dirname(outputPath);
@@ -515,6 +666,14 @@ async function generateAndDownload(
       break;
     }
 
+    case 'aleph': {
+      taskId = await createAlephTask(prompt, {
+        videoUrl: options.imageUrl || options.imageUrls?.[0],
+      });
+      resultUrl = await pollAlephTask(taskId);
+      break;
+    }
+
     case 'market':
     default: {
       const rawDuration = options.duration || 5;
@@ -559,7 +718,8 @@ export async function generateVideo(
 ): Promise<string> {
   await waitForSlot();
   try {
-    console.log(`[KIE] Generating video: "${prompt.slice(0, 50)}..." model=${model} duration=${duration}s`);
+    const costUSD = estimateCostUSD(model);
+    console.log(`[KIE] Generating video: "${prompt.slice(0, 50)}..." model=${model} duration=${duration}s ~$${costUSD.toFixed(2)}`);
     const startTime = Date.now();
 
     await generateAndDownload(model, prompt, outputPath, {
@@ -567,7 +727,7 @@ export async function generateVideo(
       extraInput: negativePrompt ? { negative_prompt: negativePrompt } : undefined,
     });
 
-    console.log(`[KIE] Video generated in ${((Date.now() - startTime) / 1000).toFixed(1)}s → ${outputPath}`);
+    console.log(`[KIE] Video generated in ${((Date.now() - startTime) / 1000).toFixed(1)}s → ${outputPath} (cost ~$${costUSD.toFixed(2)})`);
     return outputPath;
   } finally {
     releaseSlot();
