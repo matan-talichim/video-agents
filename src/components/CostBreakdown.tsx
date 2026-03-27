@@ -5,10 +5,11 @@ interface Props {
   selectedModel?: string;
   hasMusic?: boolean;
   hasFiles?: boolean;
+  brollCount?: number;
 }
 
-export default function CostBreakdown({ blueprint, selectedModel, hasMusic, hasFiles }: Props) {
-  const brollCount = blueprint?.brollInsertions?.length || 0;
+export default function CostBreakdown({ blueprint, selectedModel, hasMusic, hasFiles, brollCount: brollCountOverride }: Props) {
+  const brollCount = brollCountOverride ?? blueprint?.brollInsertions?.length ?? 0;
   const model = getModelById(selectedModel || 'kling-v2.5-turbo') || VIDEO_MODELS.find(m => m.id === 'kling-v2.5-turbo') || VIDEO_MODELS[0];
   const pricePerClip = model.pricePerClip;
   const brollCost = brollCount * pricePerClip;
