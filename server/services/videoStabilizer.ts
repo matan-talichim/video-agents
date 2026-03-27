@@ -20,6 +20,22 @@ export async function detectAndStabilize(
   console.log('[Stabilize] Analyzing footage shakiness...');
 
   try {
+    // Step 0: Check if vidstab filter is available in this FFmpeg build
+    try {
+      const { stderr: helpOut } = await runFFmpeg('ffmpeg -filters 2>&1 | grep vidstab || true');
+      const hasVidstab = (helpOut + '').includes('vidstab');
+      if (!hasVidstab) {
+        // Also check stdout
+        const { stdout: helpOut2 } = await runFFmpeg('ffmpeg -filters 2>&1 | grep vidstab || true');
+        if (!(helpOut2 + '').includes('vidstab')) {
+          console.log('[Stabilize] vidstab filter not available in this FFmpeg build — skipping stabilization');
+          return { wasShaky: false, shakiness: 0, stabilizedPath: videoPath };
+        }
+      }
+    } catch {
+      console.log('[Stabilize] Could not check vidstab availability — attempting anyway');
+    }
+
     // Step 1: Detect shakiness — analyze the video and save transform data
     await runFFmpeg(
       `ffmpeg -i "${videoPath}" -vf "vidstabdetect=shakiness=10:accuracy=15:result=${transformsPath}" -f null -`

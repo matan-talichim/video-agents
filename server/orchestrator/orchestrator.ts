@@ -197,10 +197,18 @@ export async function startJob(job: Job): Promise<void> {
               w.start >= ps.start - 0.1 && w.end <= ps.end + 0.1
             );
           });
-          presenterFilteredTranscript = {
-            words: filteredWords,
-            fullText: speakerResult.presenterText,
-          };
+          // Safety check: if filtering removed >80% of words, detection is likely wrong
+          const filterRatio = job.transcript.words.length > 0
+            ? filteredWords.length / job.transcript.words.length
+            : 1;
+          if (filterRatio < 0.2 && job.transcript.words.length > 20) {
+            console.warn(`[Orchestrator] Speaker filtering too aggressive: ${filteredWords.length}/${job.transcript.words.length} words (${Math.round(filterRatio * 100)}%). Using full transcript.`);
+          } else {
+            presenterFilteredTranscript = {
+              words: filteredWords,
+              fullText: speakerResult.presenterText,
+            };
+          }
 
           console.log(`[Orchestrator] Speaker detection: ${speakerResult.stats.presenterPercent}% presenter speech`);
         }
@@ -643,39 +651,51 @@ export async function runPipeline(job: Job): Promise<void> {
     }
 
     // --- PRESENTER DETECTION + SPEAKER VERIFICATION (3 Layers) ---
+    // OPTIMIZATION: Reuse results from startJob() if already computed (avoids duplicate Vision API calls)
     let presenterTranscript: TranscriptResult | null = null;
 
     if (transcript && job.files.length > 0) {
       try {
-        // Step 1: Basic presenter detection (Layer 1 audio + Layer 2 visual baseline)
-        updateJobStep(job, 'detecting-speakers', 18);
-        updateJob(job.id, { currentStep: 'detecting-speakers' });
-        console.log(`[Pipeline] Running presenter detection for job ${job.id}`);
+        let presenterDetection = job.presenterDetection;
+        let speakerVerification = job.speakerVerification;
 
-        const presenterDetection = await detectPresenter(
-          job.files[0].path,
-          transcript
-        );
+        // Step 1: Basic presenter detection — skip if already done in startJob()
+        if (presenterDetection) {
+          console.log(`[Pipeline] Reusing presenter detection from pre-preview phase (speaker ${presenterDetection.presenterId})`);
+        } else {
+          updateJobStep(job, 'detecting-speakers', 18);
+          updateJob(job.id, { currentStep: 'detecting-speakers' });
+          console.log(`[Pipeline] Running presenter detection for job ${job.id}`);
 
-        job.presenterDetection = presenterDetection;
-        saveJSON(`temp/${job.id}/presenter_detection.json`, presenterDetection);
-        updateJob(job.id, { presenterDetection } as any);
+          presenterDetection = await detectPresenter(
+            job.files[0].path,
+            transcript
+          );
+
+          job.presenterDetection = presenterDetection;
+          saveJSON(`temp/${job.id}/presenter_detection.json`, presenterDetection);
+          updateJob(job.id, { presenterDetection } as any);
+        }
 
         console.log(`[Pipeline] Presenter: speaker ${presenterDetection.presenterId} — ${presenterDetection.presenterDescription}`);
         console.log(`[Pipeline] Non-presenter segments to exclude: ${presenterDetection.nonPresenterSegments.length}`);
 
-        // Step 2: 3-layer speaker verification (cross-validates Deepgram diarization)
-        updateJob(job.id, { currentStep: 'מאמת זהות דוברים (3 שכבות)...' });
-        console.log(`[Pipeline] Running 3-layer speaker verification for job ${job.id}`);
+        // Step 2: 3-layer speaker verification — skip if already done
+        if (speakerVerification) {
+          console.log(`[Pipeline] Reusing speaker verification from pre-preview phase (confidence: ${Math.round(speakerVerification.confidence * 100)}%)`);
+        } else {
+          updateJob(job.id, { currentStep: 'מאמת זהות דוברים (3 שכבות)...' });
+          console.log(`[Pipeline] Running 3-layer speaker verification for job ${job.id}`);
 
-        const speakerVerification = await verifySpeakers(
-          job.files[0].path,
-          transcript
-        );
+          speakerVerification = await verifySpeakers(
+            job.files[0].path,
+            transcript
+          );
 
-        job.speakerVerification = speakerVerification;
-        saveJSON(`temp/${job.id}/speaker_verification.json`, speakerVerification);
-        updateJob(job.id, { speakerVerification } as any);
+          job.speakerVerification = speakerVerification;
+          saveJSON(`temp/${job.id}/speaker_verification.json`, speakerVerification);
+          updateJob(job.id, { speakerVerification } as any);
+        }
 
         // Log corrections
         if (speakerVerification.corrections.length > 0) {
@@ -718,7 +738,17 @@ export async function runPipeline(job: Job): Promise<void> {
           keepIds
         );
 
-        console.log(`[Pipeline] Filtered transcript: ${presenterTranscript.words.length} words (from ${transcript.words.length} original)`);
+        // BUG 3 FIX: Safety check — if filtering removed >80% of words, the detection is likely wrong.
+        // Fall back to the full transcript to avoid losing most of the content.
+        const filterRatio = transcript.words.length > 0
+          ? presenterTranscript.words.length / transcript.words.length
+          : 1;
+        if (filterRatio < 0.2 && transcript.words.length > 20) {
+          console.warn(`[Pipeline] Speaker filtering too aggressive: only ${presenterTranscript.words.length}/${transcript.words.length} words kept (${Math.round(filterRatio * 100)}%). Falling back to full transcript.`);
+          presenterTranscript = transcript;
+        } else {
+          console.log(`[Pipeline] Filtered transcript: ${presenterTranscript.words.length} words (from ${transcript.words.length} original)`);
+        }
         console.log(`[Pipeline] Speaker verification confidence: ${Math.round(speakerVerification.confidence * 100)}%`);
 
         // Extract character reference frame for AI character consistency
@@ -758,16 +788,23 @@ export async function runPipeline(job: Job): Promise<void> {
     }
 
     // --- MULTIMODAL SPEAKER DETECTION (VAD + Lip Motion + NLP Cleanup) ---
+    // OPTIMIZATION: Reuse results from startJob() if already computed
     if (transcript && job.files.length > 0) {
       try {
-        updateJob(job.id, { currentStep: 'מזהה את הדובר (מולטימודאלי)...' });
-        console.log(`[Pipeline] Running multimodal speaker detection for job ${job.id}`);
+        let speakerResult = (job as any).multimodalSpeakerDetection;
 
-        const speakerResult = await detectPresenterSpeech(
-          job.files[0].path,
-          transcript,
-          job.id
-        );
+        if (speakerResult) {
+          console.log(`[Pipeline] Reusing multimodal speaker detection from pre-preview phase (${speakerResult.stats?.presenterPercent || '?'}% presenter)`);
+        } else {
+          updateJob(job.id, { currentStep: 'מזהה את הדובר (מולטימודאלי)...' });
+          console.log(`[Pipeline] Running multimodal speaker detection for job ${job.id}`);
+
+          speakerResult = await detectPresenterSpeech(
+            job.files[0].path,
+            transcript,
+            job.id
+          );
+        }
 
         // Save results
         (job as any).multimodalSpeakerDetection = speakerResult;
@@ -785,13 +822,22 @@ export async function runPipeline(job: Job): Promise<void> {
               w.start >= ps.start - 0.1 && w.end <= ps.end + 0.1
             );
           });
-          presenterTranscript = {
-            words: multimodalFilteredWords,
-            fullText: speakerResult.presenterText,
-          };
+          // BUG 3 FIX: Safety check — if multimodal filtering is too aggressive, keep full transcript
+          const multimodalRatio = transcript.words.length > 0
+            ? multimodalFilteredWords.length / transcript.words.length
+            : 1;
+          if (multimodalRatio < 0.2 && transcript.words.length > 20) {
+            console.warn(`[Pipeline] Multimodal filtering too aggressive: only ${multimodalFilteredWords.length}/${transcript.words.length} words (${Math.round(multimodalRatio * 100)}%). Keeping full transcript.`);
+            // Don't override presenterTranscript — keep previous value or full transcript
+          } else {
+            presenterTranscript = {
+              words: multimodalFilteredWords,
+              fullText: speakerResult.presenterText,
+            };
 
-          // Update subtitle words to only presenter speech
-          (job as any).subtitleWords = multimodalFilteredWords;
+            // Update subtitle words to only presenter speech
+            (job as any).subtitleWords = multimodalFilteredWords;
+          }
 
           console.log(`[Pipeline] Multimodal speaker detection: ${speakerResult.stats.presenterPercent}% presenter, ${speakerResult.stats.filteredWords} words filtered, ${speakerResult.stats.removedDuplicates} duplicates removed`);
         }
@@ -860,25 +906,30 @@ export async function runPipeline(job: Job): Promise<void> {
     }
 
     // --- MICRO-EXPRESSION ANALYSIS ---
+    // OPTIMIZATION: Reuse if already computed in startJob()
     if (job.presenterDetection && job.files.length > 0) {
-      try {
-        updateJob(job.id, { currentStep: 'מנתח הבעות פנים...' });
-        const presenterSegs = job.presenterDetection.presenterSegments;
-        if (presenterSegs.length > 0) {
-          const expressionAnalysis = await analyzeExpressions(
-            job.files[0].path,
-            job.contentAnalysis?.presenter?.totalSpeakingTime || 60,
-            presenterSegs,
-            job.id
-          );
-          job.expressionAnalysis = expressionAnalysis;
-          saveJSON(`temp/${job.id}/expression_analysis.json`, expressionAnalysis);
-          updateJob(job.id, { expressionAnalysis } as any);
-          console.log(`[Pipeline] Expression analysis: ${expressionAnalysis.expressions.length} frames analyzed`);
+      if (job.expressionAnalysis) {
+        console.log(`[Pipeline] Reusing expression analysis from pre-preview phase (${job.expressionAnalysis.expressions?.length || 0} frames)`);
+      } else {
+        try {
+          updateJob(job.id, { currentStep: 'מנתח הבעות פנים...' });
+          const presenterSegs = job.presenterDetection.presenterSegments;
+          if (presenterSegs.length > 0) {
+            const expressionAnalysis = await analyzeExpressions(
+              job.files[0].path,
+              job.contentAnalysis?.presenter?.totalSpeakingTime || 60,
+              presenterSegs,
+              job.id
+            );
+            job.expressionAnalysis = expressionAnalysis;
+            saveJSON(`temp/${job.id}/expression_analysis.json`, expressionAnalysis);
+            updateJob(job.id, { expressionAnalysis } as any);
+            console.log(`[Pipeline] Expression analysis: ${expressionAnalysis.expressions.length} frames analyzed`);
+          }
+        } catch (error: any) {
+          console.error('Expression analysis failed:', error.message);
+          allWarnings.push('Expression analysis failed: ' + error.message);
         }
-      } catch (error: any) {
-        console.error('Expression analysis failed:', error.message);
-        allWarnings.push('Expression analysis failed: ' + error.message);
       }
     }
 
@@ -893,7 +944,13 @@ export async function runPipeline(job: Job): Promise<void> {
     const analysisTranscript = presenterTranscript || transcript;
 
     // --- VIDEO INTELLIGENCE (Deep content understanding) ---
+    // OPTIMIZATION: Reuse if already computed in startJob()
     if (analysisTranscript && job.files.length > 0) {
+      if (job.videoIntelligence) {
+        console.log(`[Pipeline] Reusing video intelligence from pre-preview phase (category=${job.videoIntelligence.concept?.category})`);
+        // Still apply intelligence to plan in case plan was updated after preview
+        try { applyIntelligenceToPlan(job.plan, job.videoIntelligence); } catch {}
+      } else {
       try {
         updateJob(job.id, { currentStep: 'מנתח את התוכן לעומק...' });
         console.log(`[Pipeline] Running video intelligence for job ${job.id}`);
@@ -926,6 +983,7 @@ export async function runPipeline(job: Job): Promise<void> {
         console.error('Video intelligence failed:', error.message);
         allWarnings.push('Video intelligence failed: ' + error.message);
       }
+      } // end else (no cached videoIntelligence)
     }
 
     // Audit: video intelligence

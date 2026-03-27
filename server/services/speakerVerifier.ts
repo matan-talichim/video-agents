@@ -219,11 +219,18 @@ async function visualSpeakerVerification(
   for (const [speakerId, segments] of Object.entries(speakerSegments)) {
     const id = Number(speakerId);
 
-    // Sample up to 5 segments longer than 0.8s
-    const samplesToCheck = segments.filter(s => (s.end - s.start) > 0.8).slice(0, 5);
+    // Sample up to 3 segments longer than 0.8s (reduced from 5 — batched into single Vision call)
+    const samplesToCheck = segments.filter(s => (s.end - s.start) > 0.8).slice(0, 3);
     if (samplesToCheck.length === 0) continue;
 
     const frameAnalyses: FrameAnalysis[] = [];
+
+    // OPTIMIZATION: Extract all frames first, then batch into a single Vision call
+    // instead of one Vision call per frame (saves $0.017 per avoided call)
+    const frameImages: Array<{ type: string; source?: any; text?: string }> = [];
+    const frameMidpoints: number[] = [];
+    const frameTexts: string[] = [];
+    const framePaths: string[] = [];
 
     for (let i = 0; i < samplesToCheck.length; i++) {
       const seg = samplesToCheck[i];
@@ -235,51 +242,69 @@ async function visualSpeakerVerification(
         if (!fs.existsSync(framePath)) continue;
 
         const imageBase64 = fs.readFileSync(framePath).toString('base64');
+        frameImages.push({
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 },
+        });
+        frameMidpoints.push(midpoint);
+        frameTexts.push(seg.text.slice(0, 80));
+        framePaths.push(framePath);
+      } catch (error: any) {
+        console.error(`[Speaker Verify] Frame extraction failed at ${midpoint.toFixed(1)}s:`, error.message);
+      }
+    }
+
+    if (frameImages.length > 0) {
+      try {
+        const frameDescriptions = frameMidpoints.map((mp, i) =>
+          `Frame ${i + 1} (${mp.toFixed(1)}s): Speaker ${id} says "${frameTexts[i]}"`
+        ).join('\n');
 
         const response = await askClaudeVision(
-          'You verify who is speaking in a video frame by analyzing lip movement and face position. Return ONLY valid JSON, no markdown.',
+          'You verify who is speaking in video frames by analyzing lip movement and face position. Return ONLY valid JSON, no markdown.',
           [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 },
-            },
+            ...frameImages,
             {
               type: 'text',
-              text: `At timestamp ${midpoint.toFixed(1)}s, the audio transcript says Speaker ${id} is talking and saying: "${seg.text.slice(0, 80)}"
+              text: `These ${frameImages.length} frames are from moments when Speaker ${id} is talking.
 
-Analyze this frame:
+${frameDescriptions}
+
+For each frame, analyze:
 1. How many people are visible?
-2. Is there someone who appears to be SPEAKING (lips parted/moving, facing camera)?
-3. Is there someone who appears to be LISTENING (lips closed, looking to the side)?
-4. Describe each visible person briefly.
+2. Is someone SPEAKING (lips parted, facing camera)?
+3. Does the visual match the audio speaker?
 
 Return JSON:
 {
-  "peopleCount": 1,
-  "speakingPerson": {
-    "detected": true,
-    "position": "center",
-    "description": "short description in Hebrew",
-    "lipsOpen": true,
-    "facingCamera": true
-  },
-  "otherPeople": [],
-  "matchesAudioSpeaker": true,
-  "confidence": 0.9,
-  "notes": ""
+  "frames": [
+    {
+      "peopleCount": 1,
+      "speakingPerson": { "detected": true, "position": "center", "description": "Hebrew desc", "lipsOpen": true, "facingCamera": true },
+      "otherPeople": [],
+      "matchesAudioSpeaker": true,
+      "confidence": 0.9
+    }
+  ]
 }`,
             },
           ]
         );
 
         const jsonStr = response.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-        const analysis = JSON.parse(jsonStr);
-        frameAnalyses.push({ timestamp: midpoint, ...analysis });
+        const result = JSON.parse(jsonStr);
+        const frames = Array.isArray(result.frames) ? result.frames : [];
+        for (let i = 0; i < frames.length; i++) {
+          frameAnalyses.push({ timestamp: frameMidpoints[i] || 0, ...frames[i] });
+        }
       } catch (error: any) {
-        console.error(`[Speaker Verify] Frame analysis failed at ${midpoint.toFixed(1)}s:`, error.message);
+        console.error(`[Speaker Verify] Batch frame analysis failed for speaker ${id}:`, error.message);
       }
+    }
 
-      try { fs.unlinkSync(framePath); } catch {}
+    // Cleanup extracted frames
+    for (const fp of framePaths) {
+      try { fs.unlinkSync(fp); } catch {}
     }
 
     const onCameraCount = frameAnalyses.filter(

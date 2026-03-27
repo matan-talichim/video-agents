@@ -71,6 +71,11 @@ export async function detectPresenter(
     let onCameraCount = 0;
     let description = '';
 
+    // OPTIMIZATION: Batch all frames for this speaker into a single Vision call
+    // instead of one Vision call per frame (saves $0.017 per avoided call)
+    const frameImages: Array<{ type: string; source?: any; text?: string }> = [];
+    const framePaths: string[] = [];
+
     for (const sample of samplesToCheck) {
       const midpoint = (sample.start + sample.end) / 2;
       const framePath = `${tempDir}/s${speakerId}_${midpoint.toFixed(0)}.jpg`;
@@ -83,42 +88,54 @@ export async function detectPresenter(
         if (!fs.existsSync(framePath)) continue;
 
         const imageBase64 = fs.readFileSync(framePath).toString('base64');
+        frameImages.push({
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 },
+        });
+        framePaths.push(framePath);
+      } catch (error: any) {
+        console.error(`[Presenter] Frame extraction failed for speaker ${speakerId}:`, error.message);
+      }
+    }
 
+    if (frameImages.length > 0) {
+      try {
         const response = await askClaudeVision(
-          'You detect if a person in a video frame is actively speaking (presenting to camera). Return ONLY valid JSON, no markdown.',
+          'You detect if a person in video frames is actively speaking (presenting to camera). Return ONLY valid JSON, no markdown.',
           [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 },
-            },
+            ...frameImages,
             {
               type: 'text',
-              text: `At this moment, speaker ${speakerId} is talking according to the audio transcript.
-Look at this frame and answer:
-1. Is there a person FACING THE CAMERA who appears to be speaking (lips open/moving, looking at camera)?
-2. Or is the speaking voice coming from OFF-CAMERA (no one facing camera has open lips)?
-3. Describe the person on camera briefly (appearance, position).
+              text: `These ${frameImages.length} frames are from moments when Speaker ${speakerId} is talking according to the audio transcript.
+For each frame, answer:
+1. Is there a person FACING THE CAMERA who appears to be speaking?
+2. Or is the voice coming from OFF-CAMERA?
+3. Describe the person on camera briefly.
 
 Return JSON:
 {
-  "isOnCamera": true/false,
-  "isSpeakingToCamera": true/false,
-  "personDescription": "short description in Hebrew",
-  "lipsAppearOpen": true/false,
-  "lookingAtCamera": true/false
+  "frames": [
+    { "isOnCamera": true/false, "isSpeakingToCamera": true/false, "personDescription": "short description in Hebrew" }
+  ]
 }`,
             },
           ]
         );
 
-        const result = parseVisionJSON(response, { isOnCamera: false, isSpeakingToCamera: false, personDescription: '' });
-        if (result.isOnCamera && result.isSpeakingToCamera) onCameraCount++;
-        if (!description && result.personDescription) description = result.personDescription;
-
-        try { fs.unlinkSync(framePath); } catch {}
+        const result = parseVisionJSON(response, { frames: [] });
+        const frames = Array.isArray(result.frames) ? result.frames : [];
+        for (const frame of frames) {
+          if (frame.isOnCamera && frame.isSpeakingToCamera) onCameraCount++;
+          if (!description && frame.personDescription) description = frame.personDescription;
+        }
       } catch (error: any) {
-        console.error(`[Presenter] Frame check failed for speaker ${speakerId}:`, error.message);
+        console.error(`[Presenter] Batch frame check failed for speaker ${speakerId}:`, error.message);
       }
+    }
+
+    // Cleanup extracted frames
+    for (const fp of framePaths) {
+      try { fs.unlinkSync(fp); } catch {}
     }
 
     const totalTime = segments.reduce((sum, s) => sum + (s.end - s.start), 0);
