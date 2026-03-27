@@ -141,8 +141,37 @@ export async function startJob(job: Job): Promise<void> {
     // Step 0: Upload acknowledgement
     updateJobStep(job, 'uploading', 2);
 
-    // Step 1: Transcribe BEFORE preview (so preview shows full editing plan based on transcript)
+    // Step 0.5: Footage Doctor — diagnose & auto-fix BEFORE transcription
+    // This must run before transcription so that all analysis is done on the
+    // final (cropped/upscaled) video, preventing re-analysis after approval.
     const hasVideo = job.files.some(f => f.type.startsWith('video'));
+    if (hasVideo && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מאבחן חומרי גלם...' });
+        const videoPath = job.files[0].path;
+        const diagnosis = await diagnoseFootage(videoPath, job.id);
+        job.footageDiagnosis = diagnosis;
+        updateJob(job.id, { footageDiagnosis: diagnosis } as any);
+
+        // Pass duration category to Brain for edge case handling
+        job.durationCategory = diagnosis.durationCategory;
+        updateJob(job.id, { durationCategory: diagnosis.durationCategory } as any);
+
+        // AUTO-FIX: upscale, crop black bars, remove freeze frames
+        if (diagnosis.fixes.length > 0) {
+          updateJob(job.id, { currentStep: `מתקן ${diagnosis.fixes.length} בעיות בחומר הגלם...` });
+          const fixedPath = await autoFixFootage(videoPath, diagnosis, job.id);
+          if (fixedPath !== videoPath) {
+            job.files[0].path = fixedPath;
+            console.log(`[Orchestrator] Auto-fixed footage: ${diagnosis.fixes.join(', ')}`);
+          }
+        }
+      } catch (error: any) {
+        console.warn('[Orchestrator] Footage doctor failed (non-critical):', error.message);
+      }
+    }
+
+    // Step 1: Transcribe BEFORE preview (so preview shows full editing plan based on transcript)
     const shouldTranscribe = hasVideo && plan.ingest?.transcribe;
 
     if (shouldTranscribe) {
@@ -225,13 +254,22 @@ export async function startJob(job: Job): Promise<void> {
       });
 
       try {
+        const targetDur = plan.export?.targetDuration === 'auto'
+          ? undefined
+          : plan.export?.targetDuration as number;
         const contentAnalysis = await analyzeContent(
           job.files[0].path,
           presenterFilteredTranscript || job.transcript,
-          plan
+          targetDur
         );
         job.contentAnalysis = contentAnalysis;
-        updateJob(job.id, { contentAnalysis } as any);
+        // Extract editing blueprint so it's available for the edit phase
+        if (contentAnalysis.editingBlueprint) {
+          job.editingBlueprint = contentAnalysis.editingBlueprint;
+          updateJob(job.id, { contentAnalysis, editingBlueprint: contentAnalysis.editingBlueprint } as any);
+        } else {
+          updateJob(job.id, { contentAnalysis } as any);
+        }
         console.log(`[Orchestrator] Content analysis complete`);
       } catch (error: any) {
         console.warn('[Orchestrator] Pre-preview content analysis failed (non-critical):', error.message);
@@ -546,7 +584,24 @@ export async function runPipeline(job: Job): Promise<void> {
     }
 
     // --- FOOTAGE DOCTOR: Diagnose & auto-fix before editing ---
+    // OPTIMIZATION: Reuse footage doctor results from startJob() if already computed.
+    // This prevents re-cropping the video and invalidating pre-preview analysis data.
     if (job.files.length > 0) {
+      if (job.footageDiagnosis) {
+        console.log(`[Pipeline] Reusing footage doctor from pre-preview phase (${job.footageDiagnosis.fixes?.length || 0} fixes already applied)`);
+        // Audit still logged from cached results
+        const diagnosis = job.footageDiagnosis;
+        audit.log('resolution-check', 'footageDoctor', diagnosis.resolution?.needsUpscale ? 'passed' : 'skipped',
+          `${diagnosis.resolution?.width || '?'}x${diagnosis.resolution?.height || '?'} — ${diagnosis.resolution?.needsUpscale ? 'upscaled' : 'OK'} (cached)`);
+        audit.log('black-bars', 'footageDoctor', diagnosis.blackBars?.detected ? 'passed' : 'skipped',
+          diagnosis.blackBars?.detected ? 'cropped' : 'none detected');
+        audit.log('stabilization', 'footageDoctor', job.originalShakiness !== undefined ? 'passed' : 'skipped',
+          `shakiness: ${job.originalShakiness || 'not checked'}`);
+        audit.log('flash-frames', 'footageDoctor', diagnosis.flashFrames?.detected ? 'passed' : 'skipped',
+          `${diagnosis.flashFrames?.timestamps?.length || 0} detected`);
+        audit.log('freeze-frames', 'footageDoctor', diagnosis.freezeFrames?.detected ? 'passed' : 'skipped',
+          `${diagnosis.freezeFrames?.count || 0} removed`);
+      } else {
       try {
         updateJob(job.id, { currentStep: 'מאבחן חומרי גלם...' });
         const videoPath = job.files[0].path;
@@ -584,6 +639,7 @@ export async function runPipeline(job: Job): Promise<void> {
         allWarnings.push(`Footage diagnosis skipped: ${error.message}`);
         audit.log('footage-doctor', 'footageDoctor', 'failed', `diagnoseFootage() failed: ${error.message}`);
       }
+      } // end else (no cached footageDiagnosis)
     } else {
       audit.log('footage-doctor', 'footageDoctor', 'skipped', 'No files uploaded');
     }
@@ -1174,10 +1230,42 @@ export async function runPipeline(job: Job): Promise<void> {
     }
 
     // --- CONTENT ANALYSIS (Smart Brain Editor) ---
+    // OPTIMIZATION: Reuse content analysis from startJob() if already computed.
+    // Only re-run if videoIntelligence provides enriched context not available during preview.
     if (analysisTranscript && job.files.length > 0) {
+      const hasEnrichedContext = !!job.videoIntelligence?.concept?.category;
+
+      if (job.contentAnalysis && !hasEnrichedContext) {
+        console.log(`[Pipeline] Reusing content analysis from pre-preview phase (${job.contentAnalysis.recommendedEdit?.totalDuration || '?'}s recommended)`);
+
+        // Ensure editingBlueprint is on the job from cached analysis
+        if (job.contentAnalysis.editingBlueprint && !job.editingBlueprint) {
+          job.editingBlueprint = job.contentAnalysis.editingBlueprint;
+          updateJob(job.id, { editingBlueprint: job.contentAnalysis.editingBlueprint } as any);
+        }
+
+        // Still apply plan updates from cached analysis
+        if (job.contentAnalysis.recommendedEdit) {
+          if (job.contentAnalysis.recommendedEdit.suggestedOrder === 'hook-first') {
+            job.plan.edit.useHookFirst = true;
+          }
+          job.plan.edit.hookSegment = job.contentAnalysis.recommendedEdit.hookSegment || undefined;
+          job.plan.edit.segmentsToKeep = job.contentAnalysis.recommendedEdit.segments;
+
+          if (job.plan.export.targetDuration === 'auto') {
+            job.plan.export.targetDuration = job.contentAnalysis.recommendedEdit.totalDuration;
+          }
+
+          updateJob(job.id, { plan: job.plan });
+        }
+      } else {
       try {
         updateJobStep(job, 'analyzing', 25);
-        console.log(`[Pipeline] Running content analysis for job ${job.id}`);
+        if (job.contentAnalysis && hasEnrichedContext) {
+          console.log(`[Pipeline] Re-running content analysis with enriched context (videoIntelligence: ${job.videoIntelligence!.concept.category})`);
+        } else {
+          console.log(`[Pipeline] Running content analysis for job ${job.id}`);
+        }
 
         const targetDur = job.plan.export.targetDuration === 'auto'
           ? undefined
@@ -1200,6 +1288,11 @@ export async function runPipeline(job: Job): Promise<void> {
 
         job.contentAnalysis = contentAnalysis;
 
+        // Extract editing blueprint so it's available for the edit phase
+        if (contentAnalysis.editingBlueprint) {
+          job.editingBlueprint = contentAnalysis.editingBlueprint;
+        }
+
         // Save analysis to disk
         const analysisDir = `temp/${job.id}`;
         fs.mkdirSync(analysisDir, { recursive: true });
@@ -1208,7 +1301,7 @@ export async function runPipeline(job: Job): Promise<void> {
           JSON.stringify(contentAnalysis, null, 2)
         );
 
-        updateJob(job.id, { contentAnalysis } as any);
+        updateJob(job.id, { contentAnalysis, editingBlueprint: contentAnalysis.editingBlueprint } as any);
 
         // Update the plan based on analysis
         if (contentAnalysis.recommendedEdit) {
@@ -1230,6 +1323,7 @@ export async function runPipeline(job: Job): Promise<void> {
         console.error('Content analysis failed:', error.message);
         allWarnings.push('Content analysis failed: ' + error.message);
       }
+      } // end else (no cached contentAnalysis or enriched context available)
     }
 
     // --- PACE MODE SELECTION ---
@@ -1285,14 +1379,21 @@ export async function runPipeline(job: Job): Promise<void> {
     }
 
     // --- B-ROLL COUNT (dynamic by duration + pace + speech) ---
+    // Use the EDITED target duration (not original footage duration) for B-Roll planning
     try {
       const { calculateBRollCount } = await import('../services/editingRules.js');
-      const videoDuration = job.footageDiagnosis?.duration || job.plan.export.targetDuration as number || 60;
+      const targetDur = job.plan.export.targetDuration === 'auto'
+        ? undefined
+        : job.plan.export.targetDuration as number;
+      const editedDuration = targetDur
+        || job.contentAnalysis?.recommendedEdit?.totalDuration
+        || job.footageDiagnosis?.duration
+        || 60;
       const hasSpeech = job.footageDiagnosis?.hasSpeech !== false;
-      const brollCount = calculateBRollCount(videoDuration, (job as any).paceMode || 'normal', hasSpeech);
+      const brollCount = calculateBRollCount(editedDuration, (job as any).paceMode || 'normal', hasSpeech);
       (job as any).targetBRollCount = brollCount.recommended;
       updateJob(job.id, { targetBRollCount: brollCount.recommended } as any);
-      console.log(`[B-Roll] Target: ${brollCount.recommended} clips (min ${brollCount.min}, max ${brollCount.max}) for ${videoDuration}s video`);
+      console.log(`[B-Roll] Target: ${brollCount.recommended} clips (min ${brollCount.min}, max ${brollCount.max}) for ${editedDuration}s edited video`);
     } catch (error: any) {
       console.warn('[B-Roll] Count calculation failed (non-critical):', error.message);
     }
@@ -2278,6 +2379,11 @@ Return JSON:
       fs.copyFileSync(mainVideoPath, finalOutputPath);
       console.log(`[Pipeline] ✅ Final video copied to: ${finalOutputPath}`);
     }
+
+    // Store finalVideoPath on job so video serving endpoint can find it
+    const resolvedFinalPath = fs.existsSync(finalOutputPath) ? finalOutputPath : mainVideoPath;
+    updateJob(job.id, { finalVideoPath: resolvedFinalPath } as any);
+    console.log(`[Pipeline] Final video path: ${resolvedFinalPath} (${fs.existsSync(resolvedFinalPath) ? (fs.statSync(resolvedFinalPath).size / 1024 / 1024).toFixed(1) + 'MB' : 'MISSING'})`);
 
     // === PIPELINE AUDIT: Material preservation & final report ===
     // These checks run after the main pipeline to verify what was preserved

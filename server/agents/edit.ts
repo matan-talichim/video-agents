@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 import * as ffmpeg from '../services/ffmpeg.js';
 import * as subtitles from '../services/subtitles.js';
 import { askClaude } from '../services/claude.js';
@@ -17,7 +18,20 @@ function updateProgress(job: Job, step: string): void {
   console.log(`[Edit] ${job.id}: ${step}`);
 }
 
-// Safe edit step wrapper: checks input exists, runs operation, verifies output, falls back to input on failure
+// Verify a file contains a video stream (not audio-only)
+function hasVideoStream(filePath: string): boolean {
+  try {
+    const result = execSync(
+      `ffprobe -v error -select_streams v -show_entries stream=codec_type -of csv=p=0 "${filePath}"`,
+      { encoding: 'utf-8', timeout: 10000 }
+    );
+    return result.trim().includes('video');
+  } catch {
+    return false;
+  }
+}
+
+// Safe edit step wrapper: checks input exists, runs operation, verifies output has video stream, falls back to input on failure
 async function runEditStep(
   stepName: string,
   inputPath: string,
@@ -37,6 +51,12 @@ async function runEditStep(
 
     // Verify output was created and is not empty
     if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+      // Verify the output still has a video stream
+      if (!hasVideoStream(outputPath)) {
+        console.error(`[Edit] ❌ ${stepName}: output LOST VIDEO STREAM — reverting to input`);
+        warnings.push(`${stepName}: output lost video stream, reverted`);
+        return inputPath;
+      }
       console.log(`[Edit] ✅ ${stepName}: done`);
       return outputPath;
     }
@@ -51,9 +71,15 @@ async function runEditStep(
   }
 }
 
-// Verify step output exists; if not, keep using previous file
+// Verify step output exists and has video stream; if not, keep using previous file
 function verifyStepOutput(output: string, previous: string, stepName: string, warnings: string[]): string {
   if (fs.existsSync(output) && fs.statSync(output).size > 0) {
+    // Verify the output still has a video stream
+    if (!hasVideoStream(output)) {
+      console.error(`[Edit] ❌ ${stepName}: output LOST VIDEO STREAM: ${output}, keeping previous`);
+      warnings.push(`${stepName}: output lost video stream, kept previous file`);
+      return previous;
+    }
     return output;
   }
   console.error(`[Edit] ❌ ${stepName}: output missing or empty: ${output}, keeping previous`);
@@ -1618,23 +1644,27 @@ Rules:
   const finalPath = `output/${job.id}/final.mp4`;
   fs.mkdirSync(`output/${job.id}`, { recursive: true });
 
-  // If currentVideo doesn't exist, search backwards for last successful step
+  // If currentVideo doesn't exist or has no video stream, search backwards for last successful step
   let lastGoodFile: string | null = null;
-  if (fs.existsSync(currentVideo) && fs.statSync(currentVideo).size > 0) {
+  if (fs.existsSync(currentVideo) && fs.statSync(currentVideo).size > 0 && hasVideoStream(currentVideo)) {
     lastGoodFile = currentVideo;
   } else {
-    console.warn(`[Edit] ⚠️ currentVideo missing: ${currentVideo} — searching for last good step file`);
+    if (fs.existsSync(currentVideo) && fs.statSync(currentVideo).size > 0 && !hasVideoStream(currentVideo)) {
+      console.warn(`[Edit] ⚠️ currentVideo is AUDIO-ONLY: ${currentVideo} — searching for last step with video stream`);
+    } else {
+      console.warn(`[Edit] ⚠️ currentVideo missing: ${currentVideo} — searching for last good step file`);
+    }
     for (let i = stepIndex; i >= 0; i--) {
       const stepPath = `${editDir}/step_${i}.mp4`;
-      if (fs.existsSync(stepPath) && fs.statSync(stepPath).size > 0) {
+      if (fs.existsSync(stepPath) && fs.statSync(stepPath).size > 0 && hasVideoStream(stepPath)) {
         lastGoodFile = stepPath;
-        console.log(`[Edit] Found last good step: step_${i}.mp4`);
+        console.log(`[Edit] Found last good step with video: step_${i}.mp4`);
         break;
       }
     }
   }
 
-  // Fallback to assembled, speed-ramped, or original input
+  // Fallback to assembled, speed-ramped, or original input — must have video stream
   if (!lastGoodFile) {
     const fallbacks = [
       `${editDir}/selected_assembled.mp4`,
@@ -1642,12 +1672,18 @@ Rules:
       cleanVideoPath,
     ];
     for (const f of fallbacks) {
-      if (f && fs.existsSync(f) && fs.statSync(f).size > 0) {
+      if (f && fs.existsSync(f) && fs.statSync(f).size > 0 && hasVideoStream(f)) {
         lastGoodFile = f;
-        console.log(`[Edit] Using fallback: ${f}`);
+        console.log(`[Edit] Using fallback with video stream: ${f}`);
         break;
       }
     }
+  }
+
+  // Ultimate fallback: use cleanVideoPath even without video stream check (better than nothing)
+  if (!lastGoodFile && cleanVideoPath && fs.existsSync(cleanVideoPath) && fs.statSync(cleanVideoPath).size > 0) {
+    lastGoodFile = cleanVideoPath;
+    console.warn(`[Edit] ⚠️ Ultimate fallback to original input: ${cleanVideoPath}`);
   }
 
   if (!lastGoodFile) {
@@ -1708,6 +1744,50 @@ Rules:
       finalDuration = await ffmpeg.getVideoDuration(cleanVideoPath);
     } catch {
       finalDuration = 60;
+    }
+  }
+
+  // CRITICAL: Verify the final video has a video stream — never output audio-only
+  if (fs.existsSync(finalPath)) {
+    if (!hasVideoStream(finalPath)) {
+      console.error('[Edit] ❌ Final video has NO video stream — replacing with original footage');
+      warnings.push('Final video lost video stream during editing — fell back to original footage');
+      // Try fallbacks with video stream
+      const emergencyFallbacks = [
+        `${editDir}/selected_assembled.mp4`,
+        `${editDir}/speed_ramped.mp4`,
+        cleanVideoPath,
+      ];
+      for (const fallback of emergencyFallbacks) {
+        if (fallback && fs.existsSync(fallback) && fs.statSync(fallback).size > 0 && hasVideoStream(fallback)) {
+          console.log(`[Edit] Emergency fallback: copying ${fallback} to ${finalPath}`);
+          fs.copyFileSync(fallback, finalPath);
+          try { finalDuration = await ffmpeg.getVideoDuration(finalPath); } catch { /* keep previous */ }
+          break;
+        }
+      }
+      // If still no video stream after fallbacks, log critical error
+      if (!hasVideoStream(finalPath)) {
+        console.error('[Edit] ❌❌ CRITICAL: No fallback has a video stream. Output may be audio-only.');
+      }
+    } else {
+      // Log diagnostic info for successful output
+      try {
+        const probe = execSync(
+          `ffprobe -v error -show_entries stream=codec_type,codec_name,duration -of json "${finalPath}"`,
+          { encoding: 'utf-8', timeout: 10000 }
+        );
+        const probeData = JSON.parse(probe);
+        const streams = probeData.streams || [];
+        const videoStream = streams.find((s: any) => s.codec_type === 'video');
+        const audioStream = streams.find((s: any) => s.codec_type === 'audio');
+        console.log(`[Edit] ✅ Final video: ${finalPath} — ${(fs.statSync(finalPath).size / 1024 / 1024).toFixed(1)}MB, ` +
+          `video=${videoStream ? videoStream.codec_name : 'NONE'}, ` +
+          `audio=${audioStream ? audioStream.codec_name : 'NONE'}, ` +
+          `duration=${finalDuration.toFixed(1)}s`);
+      } catch {
+        // Non-critical diagnostic
+      }
     }
   }
 

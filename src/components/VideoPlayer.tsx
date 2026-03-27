@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 
 interface Props {
   videoUrl?: string;
@@ -29,9 +29,23 @@ export default function VideoPlayer({ videoUrl, versionNumber = 1, onError }: Pr
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const handleVideoError = () => {
+  const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget;
+    const mediaError = video.error;
+    const errorDetail = mediaError
+      ? `code=${mediaError.code} ${mediaError.message || ''}`
+      : 'unknown';
+    console.error('[VideoPlayer] Load error:', errorDetail, 'src:', videoUrl);
     setHasError(true);
     onError?.('שגיאה בטעינת הסרטון — ייתכן שהעריכה עדיין בתהליך');
+  };
+
+  const handleLoadedMetadata = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    setDuration(video.duration || 0);
+    // Unmute after autoplay starts (browsers require muted for autoplay)
+    video.muted = false;
   };
 
   return (
@@ -43,10 +57,13 @@ export default function VideoPlayer({ videoUrl, versionNumber = 1, onError }: Pr
           src={videoUrl}
           controls
           autoPlay
+          muted
           playsInline
+          loop
           className="w-full h-full object-contain"
+          style={{ maxHeight: '80vh' }}
           onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
-          onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
+          onLoadedMetadata={handleLoadedMetadata}
           onEnded={() => setPlaying(false)}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
