@@ -38,7 +38,7 @@ export async function runSystemTest(): Promise<{
 
   // Test 2: FFmpeg available
   try {
-    execSync('ffmpeg -version', { stdio: 'pipe' });
+    execSync('ffmpeg -version', { stdio: 'pipe', timeout: 10000 });
     results.push({ test: 'FFmpeg installed', passed: true });
   } catch {
     results.push({ test: 'FFmpeg installed', passed: false, error: 'ffmpeg not found in PATH' });

@@ -14,13 +14,13 @@ export async function preprocessForSpeakerDetection(
   // Extract audio as WAV (16kHz mono — optimal for VAD)
   execSync(
     `ffmpeg -i "${videoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 -y "${audioPath}"`,
-    { stdio: 'pipe' }
+    { stdio: 'pipe', timeout: 120000 }
   );
 
   // Downscale video to 480p (speeds up MediaPipe 4x)
   execSync(
     `ffmpeg -i "${videoPath}" -vf "scale=-2:480" -c:v libx264 -preset ultrafast -crf 28 -an -y "${videoLowResPath}"`,
-    { stdio: 'pipe' }
+    { stdio: 'pipe', timeout: 120000 }
   );
 
   console.log(`[SpeakerDetect] Pre-processed: audio=${audioPath}, video=${videoLowResPath}`);

@@ -1,3 +1,4 @@
+console.log('[Server] Loading modules...');
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -139,7 +140,7 @@ async function healthCheck(): Promise<void> {
 
   // Check FFmpeg
   try {
-    await execAsync('ffmpeg -version');
+    await execAsync('ffmpeg -version', { timeout: 10000 });
     checks['ffmpeg'] = true;
   } catch {
     checks['ffmpeg'] = false;
@@ -161,7 +162,7 @@ async function healthCheck(): Promise<void> {
   const pythonDeps = ['onnxruntime', 'numpy', 'mediapipe', 'cv2'];
   for (const dep of pythonDeps) {
     try {
-      await execAsync(`python3 -c "import ${dep}" 2>&1`);
+      await execAsync(`python3 -c "import ${dep}" 2>&1`, { timeout: 10000 });
       checks[`python_${dep}`] = true;
     } catch {
       checks[`python_${dep}`] = false;
