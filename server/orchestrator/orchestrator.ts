@@ -20,6 +20,7 @@ import { analyzeContent } from '../services/contentAnalyzer.js';
 import { extractFrame } from '../services/ffmpeg.js';
 import { detectPresenter, filterTranscriptToPresenter } from '../services/presenterDetector.js';
 import { verifySpeakers } from '../services/speakerVerifier.js';
+import { detectPresenterSpeech } from '../services/speakerDetection/index.js';
 import { analyzeVideoIntelligence, applyIntelligenceToPlan } from '../services/videoIntelligence.js';
 import { runFreshEyesReview, autoApplyFixes } from '../services/freshEyesReview.js';
 import { selectBestContent, applyPresenterQuality } from '../services/contentSelector.js';
@@ -712,6 +713,54 @@ export async function runPipeline(job: Job): Promise<void> {
       audit.log('presenter-detection', 'presenterQuality', 'passed', `speaker ${job.presenterDetection.presenterId} — ${job.presenterDetection.presenterDescription || 'detected'}`);
     } else if (!transcript) {
       audit.log('presenter-detection', 'presenterQuality', 'skipped', 'No transcript for detection');
+    }
+
+    // --- MULTIMODAL SPEAKER DETECTION (VAD + Lip Motion + NLP Cleanup) ---
+    if (transcript && job.files.length > 0) {
+      try {
+        updateJob(job.id, { currentStep: 'מזהה את הדובר (מולטימודאלי)...' });
+        console.log(`[Pipeline] Running multimodal speaker detection for job ${job.id}`);
+
+        const speakerResult = await detectPresenterSpeech(
+          job.files[0].path,
+          transcript,
+          job.id
+        );
+
+        // Save results
+        (job as any).multimodalSpeakerDetection = speakerResult;
+        saveJSON(`temp/${job.id}/multimodal_speaker_detection.json`, speakerResult);
+        updateJob(job.id, { multimodalSpeakerDetection: speakerResult } as any);
+
+        // Use multimodal presenter transcript for all subsequent analysis
+        if (speakerResult.presenterSegments.length > 0) {
+          (job as any).presenterTranscript = speakerResult.presenterText;
+          (job as any).presenterSegments = speakerResult.presenterSegments;
+
+          // Override presenterTranscript for Brain and content analysis
+          const multimodalFilteredWords = transcript.words.filter(w => {
+            return speakerResult.presenterSegments.some(ps =>
+              w.start >= ps.start - 0.1 && w.end <= ps.end + 0.1
+            );
+          });
+          presenterTranscript = {
+            words: multimodalFilteredWords,
+            fullText: speakerResult.presenterText,
+          };
+
+          // Update subtitle words to only presenter speech
+          (job as any).subtitleWords = multimodalFilteredWords;
+
+          console.log(`[Pipeline] Multimodal speaker detection: ${speakerResult.stats.presenterPercent}% presenter, ${speakerResult.stats.filteredWords} words filtered, ${speakerResult.stats.removedDuplicates} duplicates removed`);
+        }
+
+        audit.log('multimodal-speaker-detection', 'presenterQuality', 'passed',
+          `${speakerResult.stats.presenterPercent}% presenter (${speakerResult.stats.presenterWords}/${speakerResult.stats.totalWords} words), ${speakerResult.stats.removedDuplicates} duplicates removed, ${(speakerResult.stats.processingTimeMs / 1000).toFixed(1)}s`);
+      } catch (error: any) {
+        console.error('Multimodal speaker detection failed:', error.message);
+        allWarnings.push('Multimodal speaker detection failed (falling back to basic detection): ' + error.message);
+        audit.log('multimodal-speaker-detection', 'presenterQuality', 'failed', `Failed: ${error.message}`);
+      }
     }
 
     // --- MICRO-EXPRESSION ANALYSIS ---
