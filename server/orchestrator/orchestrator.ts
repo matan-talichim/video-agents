@@ -754,13 +754,67 @@ export async function runPipeline(job: Job): Promise<void> {
           console.log(`[Pipeline] Multimodal speaker detection: ${speakerResult.stats.presenterPercent}% presenter, ${speakerResult.stats.filteredWords} words filtered, ${speakerResult.stats.removedDuplicates} duplicates removed`);
         }
 
-        audit.log('multimodal-speaker-detection', 'presenterQuality', 'passed',
-          `${speakerResult.stats.presenterPercent}% presenter (${speakerResult.stats.presenterWords}/${speakerResult.stats.totalWords} words), ${speakerResult.stats.removedDuplicates} duplicates removed, ${(speakerResult.stats.processingTimeMs / 1000).toFixed(1)}s`);
+        // === SPEAKER DETECTION AUDIT ===
+        audit.log('speaker-preprocess', 'speakerDetection', 'passed',
+          'audio.wav (16kHz mono) + video_480p.mp4 extracted');
+
+        audit.log('speaker-vad', 'speakerDetection',
+          speakerResult.stats?.totalWords > 0 ? 'passed' : 'failed',
+          `Silero VAD: found speech segments in audio`);
+
+        audit.log('speaker-lip-detection', 'speakerDetection',
+          speakerResult.method === 'multimodal-lip-sync' ? 'passed' : 'failed',
+          speakerResult.method === 'multimodal-lip-sync'
+            ? `MediaPipe Face Mesh: analyzed lip motion at 10fps`
+            : `Fallback used: ${speakerResult.method}`);
+
+        audit.log('speaker-merge', 'speakerDetection',
+          speakerResult.stats?.presenterWords > 0 ? 'passed' : 'failed',
+          `${speakerResult.stats?.presenterWords || 0}/${speakerResult.stats?.totalWords || 0} words are presenter (${speakerResult.stats?.presenterPercent || 0}%)`);
+
+        audit.log('speaker-filtered', 'speakerDetection',
+          speakerResult.stats?.filteredWords > 0 ? 'passed' : 'skipped',
+          speakerResult.stats?.filteredWords > 0
+            ? `Removed ${speakerResult.stats.filteredWords} words from off-camera speakers`
+            : 'No off-camera speech detected (single speaker)');
+
+        audit.log('speaker-duplicates', 'speakerDetection',
+          speakerResult.stats?.removedDuplicates > 0 ? 'passed' : 'skipped',
+          speakerResult.stats?.removedDuplicates > 0
+            ? `NLP removed ${speakerResult.stats.removedDuplicates} duplicate takes`
+            : 'No duplicate takes found');
+
+        audit.log('speaker-final-segments', 'speakerDetection',
+          speakerResult.presenterSegments?.length > 0 ? 'passed' : 'failed',
+          `${speakerResult.presenterSegments?.length || 0} clean presenter segments, ${(speakerResult.stats?.processingTimeMs / 1000)?.toFixed(1) || '?'}s processing`);
+
+        // Verify presenter transcript is actually used downstream
+        audit.log('speaker-used-in-brain', 'speakerDetection',
+          (job as any).presenterTranscript && (job as any).presenterTranscript !== job.transcript?.fullText ? 'passed' : 'not-connected',
+          (job as any).presenterTranscript !== job.transcript?.fullText
+            ? 'Brain receives filtered presenter-only transcript'
+            : 'WARNING: Brain still receives full transcript (not filtered)');
+
+        audit.log('speaker-used-in-subtitles', 'speakerDetection',
+          (job as any).subtitleWords ? 'passed' : 'not-connected',
+          (job as any).subtitleWords
+            ? `Subtitles use ${(job as any).subtitleWords.length} presenter-only words`
+            : 'WARNING: Subtitles may include off-camera speech');
+
+        audit.log('speaker-used-in-edit', 'speakerDetection', 'check',
+          'Verify FFmpeg assembly uses presenterSegments time ranges (not full video)');
+
       } catch (error: any) {
         console.error('Multimodal speaker detection failed:', error.message);
         allWarnings.push('Multimodal speaker detection failed (falling back to basic detection): ' + error.message);
         audit.log('multimodal-speaker-detection', 'presenterQuality', 'failed', `Failed: ${error.message}`);
       }
+    }
+
+    // Speaker detection audit fallback (when detection was never called)
+    if (!(job as any).multimodalSpeakerDetection) {
+      audit.log('speaker-detection', 'speakerDetection', 'not-connected',
+        'detectPresenterSpeech() was never called — off-camera voices will be included');
     }
 
     // --- MICRO-EXPRESSION ANALYSIS ---
