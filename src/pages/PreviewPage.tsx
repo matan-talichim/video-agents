@@ -113,8 +113,9 @@ export default function PreviewPage() {
 
   // Derive model and B-Roll count — single source of truth
   const selectedModel = useMemo(() => {
-    return getModelById(currentJob?.videoModel || 'veo-3.1-fast') || VIDEO_MODELS[0];
-  }, [currentJob?.videoModel]);
+    const modelId = currentJob?.videoModel || (currentJob as any)?.model || 'kling-v2.5-turbo';
+    return getModelById(modelId) || VIDEO_MODELS.find(m => m.id === 'kling-v2.5-turbo') || VIDEO_MODELS[0];
+  }, [currentJob?.videoModel, (currentJob as any)?.model]);
 
   const brollCount = preview?.brollPrompts?.length || 0;
   const pricePerClip = selectedModel.pricePerClip;
@@ -164,7 +165,7 @@ export default function PreviewPage() {
               → חזרה
             </button>
             <h1 className="text-lg font-bold">{job.projectName || 'תצוגה מקדימה'}</h1>
-            <span className="text-xs text-gray-500">{job.id.slice(0, 8)}</span>
+            <div className="w-12" />
           </div>
         </header>
 
@@ -232,7 +233,7 @@ export default function PreviewPage() {
             → חזרה
           </button>
           <h1 className="text-lg font-bold">תצוגה מקדימה — {job.projectName || 'הסרטון שלך'}</h1>
-          <span className="text-xs text-gray-500">{job.id.slice(0, 8)}</span>
+          <div className="w-12" />
         </div>
       </header>
 
@@ -265,7 +266,7 @@ export default function PreviewPage() {
         {/* ===== SECTION 4: Cost — one clean summary ===== */}
         <CostBreakdownDetailed
           blueprint={editingBlueprint}
-          selectedModel={currentJob?.videoModel}
+          selectedModel={currentJob?.videoModel || (currentJob as any)?.model}
           hasMusic={hasMusic}
           hasFiles={hasFiles}
         />

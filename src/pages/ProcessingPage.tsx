@@ -88,7 +88,7 @@ export default function ProcessingPage() {
       const timer = setTimeout(() => navigate(`/jobs/${id}/result`), 2000);
       return () => clearTimeout(timer);
     }
-  }, [currentJob?.status, currentJob?.progress, currentJob?.currentStep, id, navigate]);
+  }, [currentJob?.status, currentJob?.progress, currentJob?.currentStep, (currentJob as any)?.completedPipelineSteps, id, navigate]);
 
   // Format elapsed time
   const formatTime = (seconds: number) => {
@@ -184,51 +184,81 @@ export default function ProcessingPage() {
 
         {/* Steps timeline — vertical list */}
         <div style={styles.stepsTimeline}>
-          {PIPELINE_STEPS.map((step, index) => {
-            const isCompleted = completedStepKeys.has(step.key);
-            const isCurrent = step.key === currentStepKey;
-            const isPending = !isCompleted && !isCurrent;
+          {/* Completed steps — always visible */}
+          {PIPELINE_STEPS.filter(step => completedStepKeys.has(step.key)).map((step) => (
+            <div key={step.key} style={{
+              ...styles.stepRow,
+              opacity: 0.7,
+            }}>
+              <div style={{
+                ...styles.stepIndicator,
+                background: '#22c55e',
+              }}>
+                ✓
+              </div>
+              <div style={styles.stepTextBox}>
+                <span style={{
+                  ...styles.stepLabel,
+                  color: '#22c55e',
+                }}>
+                  {step.label}
+                </span>
+              </div>
+            </div>
+          ))}
 
+          {/* Current step — highlighted */}
+          {(() => {
+            const step = PIPELINE_STEPS.find(s => s.key === currentStepKey);
+            if (!step || completedStepKeys.has(step.key)) return null;
             return (
               <div key={step.key} style={{
                 ...styles.stepRow,
-                opacity: isPending ? 0.25 : isCurrent ? 1 : 0.6,
+                opacity: 1,
               }}>
-                {/* Step indicator */}
                 <div style={{
                   ...styles.stepIndicator,
-                  background: isCompleted ? '#22c55e'
-                    : isCurrent ? '#7c3aed'
-                    : 'rgba(255,255,255,0.1)',
-                  boxShadow: isCurrent ? '0 0 20px rgba(124,58,237,0.5)' : 'none',
+                  background: '#7c3aed',
+                  boxShadow: '0 0 20px rgba(124,58,237,0.5)',
                 }}>
-                  {isCompleted ? '✓' : isCurrent ? step.icon : (index + 1)}
+                  {step.icon}
                 </div>
-
-                {/* Connector line */}
-                {index < PIPELINE_STEPS.length - 1 && (
-                  <div style={{
-                    ...styles.connectorLine,
-                    background: isCompleted ? '#22c55e' : 'rgba(255,255,255,0.08)',
-                  }} />
-                )}
-
-                {/* Step text */}
                 <div style={styles.stepTextBox}>
                   <span style={{
                     ...styles.stepLabel,
-                    color: isCurrent ? '#a78bfa' : isCompleted ? '#22c55e' : 'rgba(255,255,255,0.5)',
-                    fontWeight: isCurrent ? 700 : 400,
+                    color: '#a78bfa',
+                    fontWeight: 700,
                   }}>
                     {step.label}
                   </span>
-                  {isCurrent && (
-                    <span style={styles.stepDescription}>{step.description}</span>
-                  )}
+                  <span style={styles.stepDescription}>{step.description}</span>
                 </div>
               </div>
             );
-          })}
+          })()}
+
+          {/* Upcoming steps — dimmed */}
+          {PIPELINE_STEPS.filter(step => !completedStepKeys.has(step.key) && step.key !== currentStepKey).map((step, index) => (
+            <div key={step.key} style={{
+              ...styles.stepRow,
+              opacity: 0.2,
+            }}>
+              <div style={{
+                ...styles.stepIndicator,
+                background: 'rgba(255,255,255,0.1)',
+              }}>
+                {index + 1}
+              </div>
+              <div style={styles.stepTextBox}>
+                <span style={{
+                  ...styles.stepLabel,
+                  color: 'rgba(255,255,255,0.5)',
+                }}>
+                  {step.label}
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

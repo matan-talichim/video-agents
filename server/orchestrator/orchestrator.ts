@@ -167,7 +167,49 @@ export async function startJob(job: Job): Promise<void> {
       }
     }
 
-    // Step 2: Content analysis BEFORE preview (uses transcript)
+    // Step 2: Speaker detection BEFORE content analysis (filter to presenter only)
+    let presenterFilteredTranscript = job.transcript;
+    if (job.transcript && hasVideo && job.files.length > 0) {
+      updateJobStep(job, 'detecting-speakers', 12);
+      updateJob(job.id, {
+        status: 'analyzing',
+        currentStep: 'detecting-speakers',
+      });
+
+      try {
+        console.log(`[Orchestrator] Running speaker detection for job ${job.id}`);
+        const speakerResult = await detectPresenterSpeech(
+          job.files[0].path,
+          job.transcript,
+          job.id
+        );
+
+        (job as any).multimodalSpeakerDetection = speakerResult;
+        updateJob(job.id, { multimodalSpeakerDetection: speakerResult } as any);
+
+        if (speakerResult.presenterSegments.length > 0) {
+          (job as any).presenterTranscript = speakerResult.presenterText;
+          (job as any).presenterSegments = speakerResult.presenterSegments;
+
+          // Build filtered transcript for content analysis
+          const filteredWords = job.transcript.words.filter((w: any) => {
+            return speakerResult.presenterSegments.some((ps: any) =>
+              w.start >= ps.start - 0.1 && w.end <= ps.end + 0.1
+            );
+          });
+          presenterFilteredTranscript = {
+            words: filteredWords,
+            fullText: speakerResult.presenterText,
+          };
+
+          console.log(`[Orchestrator] Speaker detection: ${speakerResult.stats.presenterPercent}% presenter speech`);
+        }
+      } catch (error: any) {
+        console.warn('[Orchestrator] Pre-preview speaker detection failed (non-critical):', error.message);
+      }
+    }
+
+    // Step 3: Content analysis BEFORE preview (uses presenter-filtered transcript)
     if (job.transcript && hasVideo) {
       updateJobStep(job, 'analyzing', 15);
       updateJob(job.id, {
@@ -177,7 +219,7 @@ export async function startJob(job: Job): Promise<void> {
       try {
         const contentAnalysis = await analyzeContent(
           job.files[0].path,
-          job.transcript,
+          presenterFilteredTranscript || job.transcript,
           plan
         );
         job.contentAnalysis = contentAnalysis;

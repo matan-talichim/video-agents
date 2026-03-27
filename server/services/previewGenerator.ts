@@ -13,6 +13,7 @@ import type {
 } from '../types.js';
 import fs from 'fs';
 import crypto from 'crypto';
+import { execSync } from 'child_process';
 
 export async function generatePreview(job: Job, plan: ExecutionPlan): Promise<PreviewData> {
   console.log(`[Preview] Generating preview for job ${job.id}...`);
@@ -119,10 +120,10 @@ export async function generatePreview(job: Job, plan: ExecutionPlan): Promise<Pr
         }
       }
 
-      // Extract 3 candidate frames at 25%, 50%, 75% of the scene
+      // Extract 5 candidate frames spread across the scene and pick the best one
       if (scene.presenterQuality !== 'use-with-broll-cover') {
-        const candidatePositions = [0.25, 0.5, 0.75];
-        let bestFramePath: string | null = null;
+        const candidatePositions = [0.1, 0.25, 0.5, 0.75, 0.9];
+        const candidatePaths: string[] = [];
 
         for (let c = 0; c < candidatePositions.length; c++) {
           const timestamp = sceneStartTime + scene.duration * candidatePositions[c];
@@ -130,22 +131,77 @@ export async function generatePreview(job: Job, plan: ExecutionPlan): Promise<Pr
           const candidatePath = `${previewDir}/scene_${i}_candidate_${c}.jpg`;
 
           try {
-            await runFFmpeg(`ffmpeg -i "${videoFile.path}" -ss ${timestamp} -vframes 1 -q:v 4 -vf "scale=480:-1" -y "${candidatePath}"`);
+            await runFFmpeg(`ffmpeg -i "${videoFile.path}" -ss ${timestamp} -vframes 1 -q:v 2 -vf "scale=480:-1" -y "${candidatePath}"`);
             if (fs.existsSync(candidatePath)) {
-              // Use middle frame as default; if we had vision analysis, we'd pick the best
-              if (c === 1 || !bestFramePath) {
-                bestFramePath = candidatePath;
-                scene.bestFrameIndex = c;
-              }
+              candidatePaths.push(candidatePath);
             }
           } catch {
             // Skip failed extractions
           }
         }
 
+        let bestFramePath: string | null = null;
+        let bestFrameIdx = Math.min(2, candidatePaths.length - 1); // default: middle
+
+        // Use presenter quality scores if eye contact is good
+        if (pqScore?.eyeContact >= 7) {
+          bestFrameIdx = Math.min(2, candidatePaths.length - 1); // middle is fine
+        } else if (candidatePaths.length >= 2) {
+          // Use MediaPipe to find the most forward-facing frame
+          try {
+            const pathArgs = candidatePaths.map(p => `"${p}"`).join(' ');
+            const result = execSync(
+              `python3 -c "
+import cv2, json, sys
+try:
+    import mediapipe as mp
+    mp_face = mp.solutions.face_mesh
+    face_mesh = mp_face.FaceMesh(static_image_mode=True, max_num_faces=1)
+    scores = []
+    for path in sys.argv[1:]:
+        img = cv2.imread(path)
+        if img is None:
+            scores.append(0)
+            continue
+        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        results = face_mesh.process(rgb)
+        if not results.multi_face_landmarks:
+            scores.append(0)
+            continue
+        face = results.multi_face_landmarks[0]
+        nose = face.landmark[1]
+        left_ear = face.landmark[234]
+        right_ear = face.landmark[454]
+        center_x = (left_ear.x + right_ear.x) / 2
+        offset = abs(nose.x - center_x)
+        scores.append(round(1 - min(offset * 10, 1), 3))
+    face_mesh.close()
+    print(json.dumps(scores))
+except Exception:
+    print(json.dumps([]))
+" ${pathArgs}`,
+              { encoding: 'utf-8', timeout: 15000 }
+            ).trim();
+
+            const scores: number[] = JSON.parse(result);
+            if (scores.length > 0) {
+              const maxScore = Math.max(...scores);
+              if (maxScore > 0) {
+                bestFrameIdx = scores.indexOf(maxScore);
+              }
+            }
+          } catch {
+            // MediaPipe not available — use middle frame
+          }
+        }
+
+        if (candidatePaths.length > 0) {
+          bestFramePath = candidatePaths[Math.max(0, Math.min(bestFrameIdx, candidatePaths.length - 1))];
+          scene.bestFrameIndex = bestFrameIdx;
+        }
+
         if (bestFramePath) {
           scene.framePath = bestFramePath;
-          // Also update keyFrames so the frame endpoint serves the right image
           if (keyFrames[i]) {
             keyFrames[i].imagePath = bestFramePath;
           } else {
@@ -173,10 +229,18 @@ export async function generatePreview(job: Job, plan: ExecutionPlan): Promise<Pr
   let brollPrompts: BRollPreviewItem[] = [];
 
   if (plan.generate.brollFromTranscript || plan.generate.broll) {
+    const videoType = (job as any).videoType || 'talking-head';
+    const isTalkingHead = videoType === 'talking-head' || videoType === 'paid-ad' || videoType === 'course';
+    const maxClips = isTalkingHead
+      ? Math.max(1, Math.min(Math.round(targetDuration / 18), 4))
+      : Math.ceil(targetDuration / 5);
+    const transcriptContext = job.transcript
+      ? `\n\nTranscript:\n"${job.transcript.fullText.slice(0, 800)}"\n\nFor each B-Roll, include:\n- "triggerSentence": the FULL sentence the presenter says at that moment\n- "triggerWord": the specific word that triggers the B-Roll\n- "triggerWordTimestamp": the exact timestamp of that word\n- "reason": Hebrew explanation of why this B-Roll connects to the speech`
+      : '';
     try {
       const brollResponse = await askClaude(
         'You plan B-Roll for video editing like a Hollywood cinematographer. Every prompt must include camera movement, shot type, lighting, depth of field, style, and negative prompts. NEVER write vague prompts. Return ONLY valid JSON, no explanations.',
-        `Suggest 3-5 B-Roll clips for this video:\nPrompt: "${job.prompt}"\nDuration: ${targetDuration}s\nStyle: ${plan.edit.editStyle || plan.edit.colorGradingStyle || 'cinematic'}\n\nWrite each prompt as a cinematic director would. Include camera movement (dolly/drone/tracking), shot type (wide/close-up), lighting (golden hour/studio), and negative prompts.\n\nFor each clip, also provide:\n- "userDescription": a simple 3-5 word Hebrew description of what the viewer will SEE (not camera details)\n- "triggerWord": the Hebrew word the speaker says at that moment (if applicable)\n\nReturn JSON:\n[{ "timestamp": 10, "duration": 4, "prompt": "Slow aerial drone shot descending toward..., golden hour warm sunlight, cinematic 4K, shallow depth of field. No text, no watermark.", "reason": "Speaker mentions...", "userDescription": "נוף עירוני מהאוויר", "triggerWord": "העיר" }]`
+        `Suggest B-Roll clips for this video:\nPrompt: "${job.prompt}"\nDuration: ${targetDuration}s\nStyle: ${plan.edit.editStyle || plan.edit.colorGradingStyle || 'cinematic'}\nVideo type: ${videoType}\n\nIMPORTANT B-Roll COUNT: This is a ${targetDuration}s ${isTalkingHead ? 'talking-head' : videoType} video. Suggest EXACTLY ${maxClips} clips (not more). ${isTalkingHead ? 'The viewer wants to see the presenter — B-Roll should cover only 20-30% of the video.' : ''}${transcriptContext}\n\nFor each clip provide:\n- "userDescription": 10-20 word Hebrew description of WHAT the viewer sees AND WHY it connects to the speech. NEVER use generic descriptions.\n- "triggerWord": the Hebrew word that triggers this B-Roll\n\nWrite each "prompt" as a cinematic director: camera movement, shot type, lighting, depth of field, style. Add negative prompts.\n\nReturn JSON:\n[{ "timestamp": 10, "duration": 4, "prompt": "Slow aerial drone shot descending toward..., golden hour warm sunlight, cinematic 4K, shallow depth of field. No text, no watermark.", "triggerSentence": "יותר לקוחות בלי יותר עובדים", "triggerWord": "עובדים", "triggerWordTimestamp": 10.3, "userDescription": "מערכת אוטומטית שמנהלת לקוחות על מסך מחשב — מייצגת עבודה שמתבצעת לבד", "reason": "ממחיש את הרעיון של עבודה אוטומטית" }]`
       );
 
       const jsonStr = brollResponse.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -418,30 +482,36 @@ function createDefaultStoryboard(duration: number, keyFrames: KeyFrame[], plan: 
 }
 
 function estimateRenderTime(featureCount: number, duration: number, plan?: ExecutionPlan): string {
-  let minutes = 0;
+  let seconds = 0;
 
-  // Base: transcription + analysis + planning
-  minutes += 1;
+  // Transcription + speaker detection: ~30s
+  seconds += 30;
 
-  // B-Roll generation (~1.5 min per clip — generation + polling)
+  // Brain analysis + planning: ~20s (Claude calls)
+  seconds += 20;
+
+  // B-Roll generation (depends on model and count)
   const brollEnabled = plan?.generate?.broll || plan?.generate?.brollFromTranscript;
   if (brollEnabled) {
-    const clipCount = Math.min(Math.ceil(duration / 12), 7);
-    minutes += clipCount * 1.5;
+    // Conservative B-Roll count based on video type
+    const maxClips = Math.max(1, Math.min(Math.round(duration / 18), 4));
+    // Most models take 30-90 seconds per clip, running 2 at a time
+    seconds += Math.ceil(maxClips / 2) * 60;
   }
 
   // Music generation
-  if (plan?.generate?.musicGeneration) minutes += 1;
+  if (plan?.generate?.musicGeneration) seconds += 30;
 
-  // FFmpeg editing
-  minutes += 1;
+  // FFmpeg editing: ~30s
+  seconds += 30;
 
-  // QA checks
-  minutes += 0.5;
+  // QA + export: ~15s
+  seconds += 15;
 
-  const totalMin = Math.ceil(minutes);
-  const totalMax = Math.ceil(minutes * 1.3); // +30% buffer
-  return `${totalMin}-${totalMax} דקות`;
+  const minMinutes = Math.ceil(seconds / 60);
+  const maxMinutes = Math.ceil(seconds * 1.3 / 60);
+
+  return `${minMinutes}-${maxMinutes} דקות`;
 }
 
 function estimateCostRange(plan: ExecutionPlan): string {
