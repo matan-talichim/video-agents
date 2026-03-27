@@ -15,6 +15,7 @@ export default function PreviewPage() {
   const navigate = useNavigate();
   const { currentJob, fetchJob, approvePreview, requestPreviewChange, undoPreviewChange, isLoading, error } = useJobStore();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasNavigatedRef = useRef(false);
   const [changeHistory, setChangeHistory] = useState<string[]>([]);
   const [isApproving, setIsApproving] = useState(false);
   const [isChanging, setIsChanging] = useState(false);
@@ -36,26 +37,31 @@ export default function PreviewPage() {
   }, [id, fetchJob]);
 
   // Stop polling when preview is ready, redirect when processing/done
+  const jobStatus = currentJob?.status;
   useEffect(() => {
-    if (!currentJob) return;
+    if (!jobStatus) return;
 
-    if (currentJob.status === 'preview') {
+    if (jobStatus === 'preview') {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
     }
 
-    if (currentJob.status === 'approved' || currentJob.status === 'processing') {
+    if (hasNavigatedRef.current) return;
+
+    if (jobStatus === 'approved' || jobStatus === 'processing') {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      navigate(`/jobs/${id}`);
+      hasNavigatedRef.current = true;
+      navigate(`/jobs/${id}`, { replace: true });
     }
 
-    if (currentJob.status === 'done') {
+    if (jobStatus === 'done') {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      navigate(`/jobs/${id}/result`);
+      hasNavigatedRef.current = true;
+      navigate(`/jobs/${id}/result`, { replace: true });
     }
-  }, [currentJob?.status, id, navigate]);
+  }, [jobStatus, id, navigate]);
 
   const handleApprove = useCallback(async () => {
     if (!id || isApproving) return;
@@ -166,10 +172,11 @@ export default function PreviewPage() {
   const isBusy = isApproving || isChanging || isLoading;
 
   // Redirect during planning/pending status — must be in useEffect, not during render
-  const jobStatus = currentJob?.status;
   const shouldRedirectToProcessing = jobStatus === 'pending' || jobStatus === 'planning' || jobStatus === 'transcribing' || jobStatus === 'analyzing';
   useEffect(() => {
+    if (hasNavigatedRef.current) return;
     if (shouldRedirectToProcessing && id) {
+      hasNavigatedRef.current = true;
       navigate(`/jobs/${id}`, { replace: true });
     }
   }, [shouldRedirectToProcessing, id, navigate]);
