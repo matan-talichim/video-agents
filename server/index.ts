@@ -28,6 +28,9 @@ const rootDir = path.resolve(__dirname, '..');
 const app = express();
 const PORT = 3001;
 
+// Prevent duplicate startup from tsx watch hot-reload
+let serverStarted = false;
+
 // Middleware
 app.use(cors({
   origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
@@ -154,9 +157,27 @@ async function healthCheck(): Promise<void> {
     console.log(`  ${value ? 'OK' : 'MISSING'} ${key}`);
   }
 
+  // Check Python dependencies for speaker detection
+  const pythonDeps = ['onnxruntime', 'numpy', 'mediapipe', 'cv2'];
+  for (const dep of pythonDeps) {
+    try {
+      await execAsync(`python3 -c "import ${dep}" 2>&1`);
+      checks[`python_${dep}`] = true;
+    } catch {
+      checks[`python_${dep}`] = false;
+    }
+  }
+
   const missing = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
   if (missing.length > 0) {
     console.warn(`Missing: ${missing.join(', ')} — some features may not work`);
+  }
+
+  const missingPython = missing.filter(k => k.startsWith('python_'));
+  if (missingPython.length > 0) {
+    const pkgNames = missingPython.map(k => k.replace('python_', '').replace('cv2', 'opencv-python'));
+    console.warn(`\nTo install missing Python deps: pip3 install ${pkgNames.join(' ')}`);
+    console.warn('Or run: npm run setup\n');
   }
 }
 
@@ -168,12 +189,18 @@ if (!envCheck.valid) {
 }
 
 app.listen(PORT, () => {
+  if (serverStarted) {
+    console.log(`[Hot-reload] Server restarted on port ${PORT}`);
+    return;
+  }
+  serverStarted = true;
+
   console.log(`Video Agents server running on http://localhost:${PORT}`);
   console.log(`Uploads: ${path.join(rootDir, 'uploads')}`);
   console.log(`Output: ${path.join(rootDir, 'output')}`);
   console.log(`Temp: ${path.join(rootDir, 'temp')}`);
 
-  // Run health check
+  // Run health check (includes Python dependency check)
   healthCheck();
 
   // Verify Brain knowledge base at startup

@@ -49,12 +49,23 @@ export interface LiveCostSelections {
 
 // === B-Roll clip count calculator ===
 
-export function estimateBRollClips(durationSeconds: number): number {
-  if (durationSeconds <= 15) return 2;
-  if (durationSeconds <= 30) return 3;
-  if (durationSeconds <= 60) return 5;
-  if (durationSeconds <= 90) return 7;
-  return Math.ceil(durationSeconds / 12); // roughly 1 clip per 12 seconds
+export function estimateBRollClips(durationSeconds: number, videoType?: string): number {
+  if (videoType === 'talking-head' || videoType === 'paid-ad' || videoType === 'course') {
+    // Conservative: viewer wants to see the presenter
+    // ~1 clip per 15-20 seconds, max 4
+    const base = Math.round(durationSeconds / 18);
+    return Math.max(1, Math.min(base, 4));
+  }
+  if (videoType === 'no-speech' || videoType === 'product-demo') {
+    // B-Roll IS the video — need more
+    return Math.ceil(durationSeconds / 5);
+  }
+  // Default: moderate
+  if (durationSeconds <= 15) return 1;
+  if (durationSeconds <= 30) return 2;
+  if (durationSeconds <= 60) return 3;
+  if (durationSeconds <= 90) return 4;
+  return Math.max(1, Math.min(Math.round(durationSeconds / 20), 5));
 }
 
 // === Calculator ===
@@ -102,7 +113,7 @@ export function calculateLiveCost(s: LiveCostSelections): { items: CostItem[]; t
   // --- B-Roll (uses selected model pricing) ---
   if (s.options.addBRoll) {
     const modelInfo = getModelById(s.model);
-    const fallback = VIDEO_MODELS[0]; // veo-3.1-fast
+    const fallback = VIDEO_MODELS.find(m => m.id === 'kling-v2.5-turbo') || VIDEO_MODELS[0];
     const model = modelInfo || fallback;
     const clipCount = s.blueprintBRollCount ?? estimateBRollClips(dur);
     const cost = clipCount * model.pricePerClip;

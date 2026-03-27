@@ -12,7 +12,8 @@
     "remotion:preview": "npx remotion preview src/remotion/index.tsx",
     "remotion:render": "npx remotion render src/remotion/index.tsx MainComposition output/preview.mp4",
     "remotion:render-vertical": "npx remotion render src/remotion/index.tsx VerticalComposition output/preview_vertical.mp4",
-    "diagnostic": "tsx server/tests/runDiagnostic.ts"
+    "diagnostic": "tsx server/tests/runDiagnostic.ts",
+    "setup": "pip3 install onnxruntime numpy mediapipe opencv-python scipy && echo 'Python dependencies installed successfully'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

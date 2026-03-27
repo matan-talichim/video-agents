@@ -28,13 +28,24 @@ export async function diagnoseFootage(videoPath: string, jobId: string): Promise
   let height = 1080;
   let duration = 0;
   try {
-    const probeResult = await runFFmpeg(
-      `ffprobe -v error -select_streams v:0 -show_entries stream=width,height,duration -of csv=p=0 "${videoPath}" 2>&1`
+    const { stdout, stderr } = await runFFmpeg(
+      `ffprobe -v error -select_streams v:0 -show_entries stream=width,height,duration -of csv=p=0 "${videoPath}"`
     );
-    const parts = probeResult.trim().split(',');
+    const probeOutput = (stdout || stderr || '').trim();
+    const parts = probeOutput.split(',');
     width = parseInt(parts[0]) || 1920;
     height = parseInt(parts[1]) || 1080;
     duration = parseFloat(parts[2]) || 0;
+
+    // If stream duration is missing (common with some containers), try format duration
+    if (duration === 0) {
+      try {
+        const { stdout: durOut } = await runFFmpeg(
+          `ffprobe -v error -show_entries format=duration -of csv=p=0 "${videoPath}"`
+        );
+        duration = parseFloat((durOut || '').trim()) || 0;
+      } catch {}
+    }
   } catch (err: any) {
     console.warn('[Doctor] Probe failed, using defaults:', err.message);
   }
@@ -46,9 +57,10 @@ export async function diagnoseFootage(videoPath: string, jobId: string): Promise
   let cropValues: string | null = null;
   let blackBarsDetected = false;
   try {
-    const cropResult = await runFFmpeg(
-      `ffmpeg -ss 2 -i "${videoPath}" -vframes 10 -vf cropdetect=24:16:0 -f null - 2>&1`
+    const cropRes = await runFFmpeg(
+      `ffmpeg -ss 2 -i "${videoPath}" -vframes 10 -vf cropdetect=24:16:0 -f null -`
     );
+    const cropResult = cropRes.stderr || cropRes.stdout || '';
     const cropMatch = cropResult.match(/crop=(\d+:\d+:\d+:\d+)/g);
     if (cropMatch && cropMatch.length > 0) {
       const lastCrop = cropMatch[cropMatch.length - 1].replace('crop=', '');
@@ -64,9 +76,10 @@ export async function diagnoseFootage(videoPath: string, jobId: string): Promise
   // === 3. DETECT FLASH/BLACK FRAMES ===
   const flashTimestamps: number[] = [];
   try {
-    const blackResult = await runFFmpeg(
-      `ffmpeg -i "${videoPath}" -vf "blackdetect=d=0.04:pix_th=0.1" -f null - 2>&1`
+    const blackRes = await runFFmpeg(
+      `ffmpeg -i "${videoPath}" -vf "blackdetect=d=0.04:pix_th=0.1" -f null -`
     );
+    const blackResult = blackRes.stderr || blackRes.stdout || '';
     const flashMatches = blackResult.match(/black_start:([\d.]+)/g);
     if (flashMatches) {
       for (const match of flashMatches) {
@@ -80,9 +93,10 @@ export async function diagnoseFootage(videoPath: string, jobId: string): Promise
   // === 4. DETECT FREEZE/DUPLICATE FRAMES ===
   let freezeCount = 0;
   try {
-    const freezeResult = await runFFmpeg(
-      `ffmpeg -i "${videoPath}" -vf "mpdecimate=hi=64*12:lo=64*5:frac=0.1" -loglevel debug -f null - 2>&1`
+    const freezeRes = await runFFmpeg(
+      `ffmpeg -i "${videoPath}" -vf "mpdecimate=hi=64*12:lo=64*5:frac=0.1" -loglevel debug -f null -`
     );
+    const freezeResult = freezeRes.stderr || freezeRes.stdout || '';
     const dropMatches = freezeResult.match(/drop_count:(\d+)/g);
     if (dropMatches && dropMatches.length > 0) {
       freezeCount = parseInt(dropMatches[dropMatches.length - 1].replace('drop_count:', '')) || 0;

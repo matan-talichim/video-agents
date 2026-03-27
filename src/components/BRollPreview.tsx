@@ -18,29 +18,33 @@ export default function BRollPreview({ prompts, pricePerClip }: Props) {
         קליפים שייווצרו ב-AI ויוכנסו ברגעים המתאימים
       </p>
       <div className="space-y-2">
-        {prompts.map((item, i) => (
+        {prompts.map((item: any, i: number) => (
           <div
             key={i}
-            className="bg-dark-card border border-dark-border-light rounded-xl p-3 flex items-center justify-between gap-3"
+            className="bg-dark-card border border-dark-border-light rounded-xl p-3.5 space-y-1.5"
           >
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex-shrink-0 text-xs font-mono text-accent-purple-light">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono text-accent-purple-light font-bold">
                 🎞️ שנייה {Math.round(item.timestamp)}
-              </div>
-              <span className="text-gray-600">|</span>
-              <span className="text-xs text-gray-200 truncate">
-                {item.userDescription || item.reason || 'קליפ AI'}
               </span>
-              {item.triggerWord && (
-                <span className="text-[11px] text-gray-500 flex-shrink-0">
-                  (כשנאמר: &quot;{item.triggerWord}&quot;)
+              {pricePerClip != null && (
+                <span className="text-amber-400 font-mono text-xs font-bold">
+                  ${pricePerClip.toFixed(2)}
                 </span>
               )}
             </div>
-            {pricePerClip != null && (
-              <span className="text-amber-400 font-mono text-xs font-bold flex-shrink-0">
-                ${pricePerClip.toFixed(2)}
-              </span>
+            {(item.triggerSentence || item.triggerWord) && (
+              <div className="text-[13px] text-gray-400">
+                💬 <span className="italic">&quot;{item.triggerSentence || item.triggerWord}&quot;</span>
+              </div>
+            )}
+            <div className="text-sm text-gray-200">
+              🎬 {item.userDescription || item.reason || 'קליפ AI'}
+            </div>
+            {item.reason && item.userDescription && (
+              <div className="text-[12px] text-gray-500">
+                {item.reason}
+              </div>
             )}
           </div>
         ))}

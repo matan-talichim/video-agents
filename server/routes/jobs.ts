@@ -20,7 +20,7 @@ const router = Router();
 router.post('/', upload.array('files', 20), async (req, res) => {
   try {
     const prompt: string = req.body.prompt || '';
-    const model: BRollModel = req.body.model || 'kling-v2.5-turbo';
+    const model: BRollModel = req.body.videoModel || req.body.model || 'kling-v2.5-turbo';
     const projectName: string = req.body.projectName || '';
 
     // Parse options from JSON string

@@ -9,7 +9,7 @@ interface Props {
 
 export default function CostBreakdown({ blueprint, selectedModel, hasMusic, hasFiles }: Props) {
   const brollCount = blueprint?.brollInsertions?.length || 0;
-  const model = getModelById(selectedModel || 'veo-3.1-fast') || VIDEO_MODELS[0];
+  const model = getModelById(selectedModel || 'kling-v2.5-turbo') || VIDEO_MODELS.find(m => m.id === 'kling-v2.5-turbo') || VIDEO_MODELS[0];
   const pricePerClip = model.pricePerClip;
   const brollCost = brollCount * pricePerClip;
   const claudeCost = 0.06;
