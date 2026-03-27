@@ -17,6 +17,7 @@ export function getEnabledSteps(plan: ExecutionPlan): StepInfo[] {
   if (plan.ingest.shotSelection) steps.push({ key: 'shotSelection', name: 'בחירת שוטים', stage: 'ingest' });
   if (plan.ingest.smartVariety) steps.push({ key: 'smartVariety', name: 'גיוון חכם', stage: 'ingest' });
   if (plan.ingest.speakerClassification) steps.push({ key: 'speakerClassification', name: 'זיהוי דוברים', stage: 'ingest' });
+  steps.push({ key: 'multimodalSpeakerDetection', name: 'זיהוי דובר מולטימודאלי', stage: 'ingest' });
 
   // Stage 2: Clean
   if (plan.clean.removeSilences) steps.push({ key: 'removeSilences', name: 'הסרת שקטים', stage: 'clean' });
