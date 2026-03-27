@@ -49,7 +49,7 @@ function sleep(ms: number): Promise<void> {
 // ========================================
 
 // --- API pattern types ---
-type APIPattern = 'market' | 'veo' | 'runway';
+type APIPattern = 'market' | 'veo' | 'runway' | 'aleph';
 
 interface ModelConfig {
   pattern: APIPattern;
@@ -123,7 +123,7 @@ const MODEL_CONFIG: Record<string, ModelConfig> = {
   // --- RUNWAY (Pattern B: Direct API) ---
   'runway-gen4':                { pattern: 'runway', modelId: 'runway-duration-5-generate' },
   'runway-gen4-10s':            { pattern: 'runway', modelId: 'runway-duration-10-generate' },
-  'runway-aleph':               { pattern: 'runway', modelId: 'runway-aleph-generate' },
+  'runway-aleph':               { pattern: 'aleph', modelId: 'runway-aleph-generate' },
 
   // --- GROK IMAGINE ---
   'grok-imagine':               { pattern: 'market', modelId: 'grok-imagine/text-to-video' },
@@ -203,6 +203,123 @@ const MODEL_DURATIONS: Record<string, number[]> = {
   'grok-imagine': [4, 8],
   'grok-imagine-i2v': [4, 8],
 };
+
+// --- Per-model credit costs (from KIE pricing page) ---
+// Credit rate: $0.005 per credit
+// Two pricing models:
+//   - per_second: credits charged per second of output (× duration)
+//   - per_video: flat credits per generation
+// Prices below are for 720p resolution by default.
+// Higher resolutions (1080p) typically cost ~1.5-2× more.
+const CREDIT_RATE_USD = 0.005;
+
+interface ModelPricing {
+  credits: number;
+  unit: 'per_second' | 'per_video';
+}
+
+const MODEL_PRICING: Record<string, ModelPricing> = {
+  // --- Google Veo 3.1 ---
+  'veo-3.1-fast':               { credits: 60,    unit: 'per_video' },   // $0.30
+  'veo-3.1-quality':            { credits: 250,   unit: 'per_video' },   // $1.25
+
+  // --- Kling 3.0 (per second, 720p with audio) ---
+  'kling-3.0':                  { credits: 20,    unit: 'per_second' },  // $0.10/s — 14/s no audio, 27/s 1080p
+  'kling-motion-control-v3':    { credits: 20,    unit: 'per_second' },  // $0.10/s
+
+  // --- Kling 2.6 (per video) ---
+  'kling-2.6':                  { credits: 55,    unit: 'per_video' },   // 5s no audio; 110 with audio/10s
+  'kling-2.6-i2v':              { credits: 55,    unit: 'per_video' },   // 5s no audio; 110 with audio/10s
+  'kling-motion-control':       { credits: 6,     unit: 'per_second' },  // $0.03/s — 9/s at 1080p
+
+  // --- Kling 2.5 Turbo (per video) ---
+  'kling-2.5-turbo':            { credits: 42,    unit: 'per_video' },   // 5s; 84 for 10s
+  'kling-2.5-turbo-t2v':        { credits: 42,    unit: 'per_video' },   // 5s; 84 for 10s
+  'kling-v2.5-turbo':           { credits: 42,    unit: 'per_video' },   // legacy alias
+
+  // --- Kling 2.1 (per video) ---
+  'kling-2.1-master':           { credits: 160,   unit: 'per_video' },   // 5s; 320 for 10s
+  'kling-2.1-master-t2v':       { credits: 160,   unit: 'per_video' },   // 5s; 320 for 10s
+  'kling-2.1-pro':              { credits: 50,    unit: 'per_video' },   // 5s; 100 for 10s
+  'kling-2.1-standard':         { credits: 25,    unit: 'per_video' },   // 5s; 50 for 10s
+
+  // --- Kling Avatar (per second) ---
+  'kling-avatar-standard':      { credits: 8,     unit: 'per_second' },  // 720p
+  'kling-avatar-pro':           { credits: 16,    unit: 'per_second' },  // 1080p
+
+  // --- ByteDance / Seedance (estimated — not on pricing page yet) ---
+  'seedance-1.5-pro':           { credits: 100,   unit: 'per_video' },   // estimated
+  'bytedance-v1-pro-fast':      { credits: 60,    unit: 'per_video' },   // estimated
+  'bytedance-v1-pro':           { credits: 80,    unit: 'per_video' },   // estimated
+  'bytedance-v1-pro-t2v':       { credits: 80,    unit: 'per_video' },   // estimated
+  'bytedance-v1-lite':          { credits: 40,    unit: 'per_video' },   // estimated
+  'bytedance-v1-lite-t2v':      { credits: 40,    unit: 'per_video' },   // estimated
+
+  // --- Sora 2 (per video) ---
+  'sora-2':                     { credits: 30,    unit: 'per_video' },   // standard 10s; 35 for 15s
+  'sora-2-i2v':                 { credits: 30,    unit: 'per_video' },   // standard 10s; 35 for 15s
+  'sora-2-pro':                 { credits: 150,   unit: 'per_video' },   // Pro Standard 10s; 330 Pro High 10s
+  'sora-2-pro-i2v':             { credits: 150,   unit: 'per_video' },   // Pro Standard 10s; 330 Pro High 10s
+  'sora-2-watermark-remover':   { credits: 10,    unit: 'per_video' },   // per removal
+  'sora-2-storyboard':          { credits: 150,   unit: 'per_video' },   // Pro 10s; 270 for 15-25s
+  'sora-2-characters':          { credits: 30,    unit: 'per_video' },   // estimated same as sora-2
+  'sora-2-characters-pro':      { credits: 150,   unit: 'per_video' },   // estimated same as sora-2-pro
+
+  // --- WAN 2.6 (per video, 720p) ---
+  'wan-2.6':                    { credits: 70,    unit: 'per_video' },   // 5s; 140 for 10s; 210 for 15s
+  'wan-2.6-i2v':                { credits: 70,    unit: 'per_video' },   // 5s; 140 for 10s; 210 for 15s
+  'wan-2.6-v2v':                { credits: 70,    unit: 'per_video' },   // 5s; 140 for 10s
+  'wan-2.6-flash':              { credits: 35,    unit: 'per_video' },   // estimated ~half of wan-2.6
+  'wan-2.6-flash-v2v':          { credits: 35,    unit: 'per_video' },   // estimated ~half of wan-2.6
+
+  // --- WAN 2.5 (per video, 720p) ---
+  'wan-2.5':                    { credits: 60,    unit: 'per_video' },   // 5s; 120 for 10s
+  'wan-2.5-t2v':                { credits: 60,    unit: 'per_video' },   // 5s; 120 for 10s
+
+  // --- WAN 2.2 (mixed pricing) ---
+  'wan-2.2-turbo-i2v':          { credits: 80,    unit: 'per_video' },   // 5s 720p
+  'wan-2.2-turbo-t2v':          { credits: 80,    unit: 'per_video' },   // 5s 720p
+  'wan-2.2-speech':             { credits: 24,    unit: 'per_second' },  // 720p; 12/s at 480p
+  'wan-2.2-animate-move':       { credits: 12.5,  unit: 'per_video' },   // per generation 720p
+  'wan-2.2-animate-replace':    { credits: 12.5,  unit: 'per_video' },   // per generation 720p
+
+  // --- Hailuo 2.3 (per video) ---
+  'hailuo-2.3-pro':             { credits: 45,    unit: 'per_video' },   // 6s 768p; 80 at 1080p; 90 for 10s
+  'hailuo-2.3-standard':        { credits: 30,    unit: 'per_video' },   // 6s 768p; 50 for 10s/1080p
+
+  // --- Hailuo 02 (per video) ---
+  'hailuo-02-t2v-pro':          { credits: 57,    unit: 'per_video' },   // 6s 1080p
+  'hailuo-02-i2v-pro':          { credits: 57,    unit: 'per_video' },   // 6s 1080p
+  'hailuo-02-t2v-standard':     { credits: 30,    unit: 'per_video' },   // 6s 768p; 50 for 10s
+  'hailuo-02-i2v-standard':     { credits: 20,    unit: 'per_video' },   // 10s 512p; 50 at 768p
+  'hailuo-standard':            { credits: 30,    unit: 'per_video' },   // alias for 02-t2v-standard
+
+  // --- Runway (per video) ---
+  'runway-gen4':                { credits: 12,    unit: 'per_video' },   // 5s 720p; 30 for 10s/1080p
+  'runway-gen4-10s':            { credits: 30,    unit: 'per_video' },   // 10s 720p
+  'runway-aleph':               { credits: 110,   unit: 'per_video' },   // per video
+
+  // --- Grok Imagine (per video) ---
+  'grok-imagine':               { credits: 20,    unit: 'per_video' },   // 6s 720p; 30 for 10s 720p
+  'grok-imagine-i2v':           { credits: 20,    unit: 'per_video' },   // 6s 720p; 30 for 10s 720p
+  'grok-imagine-upscale':       { credits: 10,    unit: 'per_video' },   // 360p→720p
+  'grok-imagine-extend':        { credits: 20,    unit: 'per_video' },   // 6s 720p; 30 for 10s 720p
+
+  // --- Topaz (per second) ---
+  'topaz-upscale':              { credits: 12,    unit: 'per_second' },  // 1x/2x/4x upscale
+
+  // --- Infinitalk (per second) ---
+  'infinitalk':                 { credits: 12,    unit: 'per_second' },  // 720p; 3/s at 480p
+};
+
+export function estimateCostUSD(model: string, durationSeconds: number = 5): number {
+  const pricing = MODEL_PRICING[model];
+  if (!pricing) return 0.40; // unknown model fallback ~$0.40
+  const totalCredits = pricing.unit === 'per_second'
+    ? pricing.credits * durationSeconds
+    : pricing.credits;
+  return totalCredits * CREDIT_RATE_USD;
+}
 
 // Find the closest allowed duration for a given model
 function clampDuration(requested: number, model: string): number {
@@ -459,6 +576,58 @@ async function pollRunwayTask(taskId: string, timeoutMs: number = 300000): Promi
   throw new Error(`Runway task ${taskId} timed out`);
 }
 
+// --- Pattern B: Aleph (Runway Aleph) task creation ---
+async function createAlephTask(prompt: string, options: {
+  videoUrl?: string;
+  waterMark?: string;
+}): Promise<string> {
+  const body: Record<string, any> = {
+    prompt,
+  };
+
+  if (options.videoUrl) {
+    body.videoUrl = options.videoUrl;
+  }
+  if (options.waterMark) {
+    body.waterMark = options.waterMark;
+  }
+
+  const result = await kiePost('/aleph/generate', body);
+  const taskId = result.data?.taskId || result.taskId;
+  if (!taskId) throw new Error(`Aleph: no taskId in response: ${JSON.stringify(result)}`);
+  return taskId;
+}
+
+// --- Pattern B: Aleph polling (same format as Runway) ---
+async function pollAlephTask(taskId: string, timeoutMs: number = 300000): Promise<string> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const data = await kieGet(`/aleph/record-detail?taskId=${taskId}`);
+      const taskData = data.data || data;
+
+      if (taskData.state === 'success') {
+        const videoUrl = taskData.videoInfo?.videoUrl;
+        if (videoUrl) return videoUrl;
+        throw new Error(`Aleph: completed but no videoUrl in: ${JSON.stringify(taskData)}`);
+      }
+
+      if (taskData.state === 'fail') {
+        throw new Error(`Aleph task failed: ${taskData.failMsg || taskData.failCode || 'unknown'}`);
+      }
+
+      await sleep(3000);
+    } catch (error: any) {
+      if (error.message?.includes('failed')) throw error;
+      console.error('[KIE] Aleph poll error:', error.message);
+      await sleep(5000);
+    }
+  }
+
+  throw new Error(`Aleph task ${taskId} timed out`);
+}
+
 // --- Download result to local file ---
 async function downloadResult(url: string, outputPath: string): Promise<string> {
   const dir = path.dirname(outputPath);
@@ -515,6 +684,14 @@ async function generateAndDownload(
       break;
     }
 
+    case 'aleph': {
+      taskId = await createAlephTask(prompt, {
+        videoUrl: options.imageUrl || options.imageUrls?.[0],
+      });
+      resultUrl = await pollAlephTask(taskId);
+      break;
+    }
+
     case 'market':
     default: {
       const rawDuration = options.duration || 5;
@@ -559,7 +736,8 @@ export async function generateVideo(
 ): Promise<string> {
   await waitForSlot();
   try {
-    console.log(`[KIE] Generating video: "${prompt.slice(0, 50)}..." model=${model} duration=${duration}s`);
+    const costUSD = estimateCostUSD(model, duration);
+    console.log(`[KIE] Generating video: "${prompt.slice(0, 50)}..." model=${model} duration=${duration}s ~$${costUSD.toFixed(2)}`);
     const startTime = Date.now();
 
     await generateAndDownload(model, prompt, outputPath, {
@@ -567,7 +745,7 @@ export async function generateVideo(
       extraInput: negativePrompt ? { negative_prompt: negativePrompt } : undefined,
     });
 
-    console.log(`[KIE] Video generated in ${((Date.now() - startTime) / 1000).toFixed(1)}s → ${outputPath}`);
+    console.log(`[KIE] Video generated in ${((Date.now() - startTime) / 1000).toFixed(1)}s → ${outputPath} (cost ~$${costUSD.toFixed(2)})`);
     return outputPath;
   } finally {
     releaseSlot();
