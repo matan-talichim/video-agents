@@ -55,15 +55,23 @@ export function parseVisionJSON<T>(response: string, fallback: T): T {
   }
 }
 
+// Classify prompt size for logging — helps verify Master Brain isn't sent unnecessarily
+function classifyPrompt(systemPrompt: string): { type: string; tokens: number } {
+  const tokens = Math.round(systemPrompt.length / 4);
+  const type = tokens > 5000 ? 'MASTER_BRAIN' : 'FOCUSED';
+  return { type, tokens };
+}
+
 // Text-only call with retry logic
 export async function askClaude(systemPrompt: string, userMessage: string): Promise<string> {
   const maxRetries = 3;
   let lastError: Error | null = null;
+  const promptInfo = classifyPrompt(systemPrompt);
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const startTime = Date.now();
-      console.log(`[Claude API] Request attempt ${attempt}/${maxRetries} — start`);
+      console.log(`[Claude API] ${promptInfo.type} prompt (~${promptInfo.tokens} tokens) — attempt ${attempt}/${maxRetries}`);
 
       const response = await client.messages.create({
         model: 'claude-sonnet-4-20250514',
@@ -112,11 +120,12 @@ export async function askClaude(systemPrompt: string, userMessage: string): Prom
 export async function askClaudeVision(systemPrompt: string, content: any[]): Promise<string> {
   const maxRetries = 3;
   let lastError: Error | null = null;
+  const promptInfo = classifyPrompt(systemPrompt);
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const startTime = Date.now();
-      console.log(`[Claude Vision] Request attempt ${attempt}/${maxRetries} — start`);
+      console.log(`[Claude Vision] ${promptInfo.type} prompt (~${promptInfo.tokens} tokens) — attempt ${attempt}/${maxRetries}`);
 
       const response = await client.messages.create({
         model: 'claude-sonnet-4-20250514',
