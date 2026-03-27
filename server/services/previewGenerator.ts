@@ -176,7 +176,7 @@ export async function generatePreview(job: Job, plan: ExecutionPlan): Promise<Pr
     try {
       const brollResponse = await askClaude(
         'You plan B-Roll for video editing like a Hollywood cinematographer. Every prompt must include camera movement, shot type, lighting, depth of field, style, and negative prompts. NEVER write vague prompts. Return ONLY valid JSON, no explanations.',
-        `Suggest 3-5 B-Roll clips for this video:\nPrompt: "${job.prompt}"\nDuration: ${targetDuration}s\nStyle: ${plan.edit.editStyle || plan.edit.colorGradingStyle || 'cinematic'}\n\nWrite each prompt as a cinematic director would. Include camera movement (dolly/drone/tracking), shot type (wide/close-up), lighting (golden hour/studio), and negative prompts.\n\nReturn JSON:\n[{ "timestamp": 10, "duration": 4, "prompt": "Slow aerial drone shot descending toward..., golden hour warm sunlight, cinematic 4K, shallow depth of field. No text, no watermark.", "reason": "Speaker mentions..." }]`
+        `Suggest 3-5 B-Roll clips for this video:\nPrompt: "${job.prompt}"\nDuration: ${targetDuration}s\nStyle: ${plan.edit.editStyle || plan.edit.colorGradingStyle || 'cinematic'}\n\nWrite each prompt as a cinematic director would. Include camera movement (dolly/drone/tracking), shot type (wide/close-up), lighting (golden hour/studio), and negative prompts.\n\nFor each clip, also provide:\n- "userDescription": a simple 3-5 word Hebrew description of what the viewer will SEE (not camera details)\n- "triggerWord": the Hebrew word the speaker says at that moment (if applicable)\n\nReturn JSON:\n[{ "timestamp": 10, "duration": 4, "prompt": "Slow aerial drone shot descending toward..., golden hour warm sunlight, cinematic 4K, shallow depth of field. No text, no watermark.", "reason": "Speaker mentions...", "userDescription": "נוף עירוני מהאוויר", "triggerWord": "העיר" }]`
       );
 
       const jsonStr = brollResponse.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -205,7 +205,7 @@ export async function generatePreview(job: Job, plan: ExecutionPlan): Promise<Pr
 
   // === 6. CALCULATE ESTIMATES ===
   const enabledFeatures = getEnabledFeatureNames(plan);
-  const estimatedRenderTime = estimateRenderTime(enabledFeatures.length, targetDuration);
+  const estimatedRenderTime = estimateRenderTime(enabledFeatures.length, targetDuration, plan);
   const estimatedCost = estimateCostRange(plan);
   const viralityEstimate = plan.analyze.viralityScore
     ? Math.floor(60 + Math.random() * 25)
@@ -417,11 +417,31 @@ function createDefaultStoryboard(duration: number, keyFrames: KeyFrame[], plan: 
   return scenes;
 }
 
-function estimateRenderTime(featureCount: number, duration: number): string {
-  const baseMinutes = Math.ceil(duration / 30);
-  const featureMultiplier = 1 + (featureCount / 95) * 2;
-  const estimated = Math.ceil(baseMinutes * featureMultiplier);
-  return `~${estimated} דקות`;
+function estimateRenderTime(featureCount: number, duration: number, plan?: ExecutionPlan): string {
+  let minutes = 0;
+
+  // Base: transcription + analysis + planning
+  minutes += 1;
+
+  // B-Roll generation (~1.5 min per clip — generation + polling)
+  const brollEnabled = plan?.generate?.broll || plan?.generate?.brollFromTranscript;
+  if (brollEnabled) {
+    const clipCount = Math.min(Math.ceil(duration / 12), 7);
+    minutes += clipCount * 1.5;
+  }
+
+  // Music generation
+  if (plan?.generate?.musicGeneration) minutes += 1;
+
+  // FFmpeg editing
+  minutes += 1;
+
+  // QA checks
+  minutes += 0.5;
+
+  const totalMin = Math.ceil(minutes);
+  const totalMax = Math.ceil(minutes * 1.3); // +30% buffer
+  return `${totalMin}-${totalMax} דקות`;
 }
 
 function estimateCostRange(plan: ExecutionPlan): string {

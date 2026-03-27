@@ -78,7 +78,7 @@ export default function BrainSuggestionsChecklist({ brollPrompts, editingBluepri
         const z = editingBlueprint.zooms[i];
         suggestions.push({
           id: `zoom-${i}`,
-          description: `זום x${z.zoomTo || z.zoomLevel || 1.15} בשנייה ${Math.round(z.timestamp)} — ${z.reason}`,
+          description: `זום x${(z.zoomTo || z.zoomLevel || 1.15).toFixed(2)} בשנייה ${Math.round(z.timestamp)} — ${z.reason}`,
           cost: 0,
           enabled: true,
           category: 'zoom',

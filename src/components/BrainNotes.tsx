@@ -4,7 +4,19 @@ interface Props {
 }
 
 export default function BrainNotes({ notes, onAcceptSuggestion }: Props) {
-  if (!notes || notes.length === 0) return null;
+  // Filter out "removed"/"disabled"/"declined" messages — only show active items
+  const activeNotes = (notes || []).filter(note => {
+    const lower = note.toLowerCase();
+    return !lower.includes('הסיר') &&
+      !lower.includes('ביטל') &&
+      !lower.includes('הסירה') &&
+      !lower.includes('removed') &&
+      !lower.includes('disabled') &&
+      !lower.includes('declined') &&
+      !lower.includes('המשתמש הסיר');
+  });
+
+  if (activeNotes.length === 0) return null;
 
   return (
     <div className="bg-dark-card border border-teal-500/30 rounded-xl p-4">
@@ -13,7 +25,7 @@ export default function BrainNotes({ notes, onAcceptSuggestion }: Props) {
         הערות המוח
       </h3>
       <div className="space-y-2">
-        {notes.map((note, i) => {
+        {activeNotes.map((note, i) => {
           const isPositive = note.includes('מתאים') || note.includes('👍');
           return (
             <div
