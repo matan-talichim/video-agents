@@ -82,11 +82,17 @@ def run_vad_onnx(audio_path, threshold=0.5):
 def run_vad_torch(audio_path, threshold=0.5):
     """Original Silero VAD using PyTorch"""
     import torch
-    model, utils = torch.hub.load(
-        repo_or_dir='snakers4/silero-vad',
-        model='silero_vad',
-        force_reload=False
-    )
+    import io
+    old_stdout = sys.stdout
+    sys.stdout = io.StringIO()  # suppress torch.hub output
+    try:
+        model, utils = torch.hub.load(
+            repo_or_dir='snakers4/silero-vad',
+            model='silero_vad',
+            force_reload=False
+        )
+    finally:
+        sys.stdout = old_stdout  # restore stdout
     (get_speech_timestamps, _, read_audio, _, _) = utils
     wav = read_audio(audio_path, sampling_rate=16000)
     speech_timestamps = get_speech_timestamps(

@@ -120,6 +120,60 @@ export default function PreviewPage() {
   const brollCount = preview?.brollPrompts?.length || 0;
   const pricePerClip = selectedModel.pricePerClip;
 
+  // Content analysis data (must be before useMemo that depends on it)
+  const job = currentJob;
+  const contentAnalysis = (job as any)?.contentAnalysis;
+  const contentSelection = (job as any)?.contentSelection;
+
+  // Recalculate B-Roll timestamps relative to the edited (shorter) timeline
+  const adjustedBrollPrompts = useMemo(() => {
+    if (!preview?.brollPrompts?.length) return [];
+    if (!contentSelection?.segments?.length) return preview.brollPrompts;
+
+    // Get kept segments sorted by start time
+    const keptSegments = contentSelection.segments
+      .filter((seg: any) => seg.decision === 'must-keep' || seg.decision === 'keep' || seg.decision === 'maybe')
+      .sort((a: any, b: any) => a.start - b.start);
+
+    if (!keptSegments.length) return preview.brollPrompts;
+
+    // Map original timestamp → edited timeline position
+    const mapTimestamp = (originalTs: number): number => {
+      let editedTime = 0;
+      for (const seg of keptSegments) {
+        const segStart = seg.trimStart != null ? seg.start + seg.trimStart : seg.start;
+        const segEnd = seg.trimEnd != null ? seg.end - seg.trimEnd : seg.end;
+        const segDuration = Math.max(0, segEnd - segStart);
+
+        if (originalTs <= segStart) {
+          return editedTime;
+        }
+        if (originalTs <= segEnd) {
+          return editedTime + (originalTs - segStart);
+        }
+        editedTime += segDuration;
+      }
+      return editedTime;
+    };
+
+    return preview.brollPrompts.map((item: any) => ({
+      ...item,
+      timestamp: mapTimestamp(item.timestamp),
+    }));
+  }, [preview?.brollPrompts, contentSelection?.segments]);
+
+  const canUndo = (job?.previewHistory?.length || 0) > 0;
+  const isBusy = isApproving || isChanging || isLoading;
+
+  // Redirect during planning/pending status — must be in useEffect, not during render
+  const jobStatus = currentJob?.status;
+  const shouldRedirectToProcessing = jobStatus === 'pending' || jobStatus === 'planning' || jobStatus === 'transcribing' || jobStatus === 'analyzing';
+  useEffect(() => {
+    if (shouldRedirectToProcessing && id) {
+      navigate(`/jobs/${id}`, { replace: true });
+    }
+  }, [shouldRedirectToProcessing, id, navigate]);
+
   // Loading state
   if (!currentJob && !error) {
     return (
@@ -150,11 +204,8 @@ export default function PreviewPage() {
     );
   }
 
-  const job = currentJob!;
-
-  // Planning/generating preview — redirect to ProcessingPage (same premium design)
-  if (job.status === 'pending' || job.status === 'planning' || job.status === 'transcribing' || job.status === 'analyzing') {
-    navigate(`/jobs/${id}`, { replace: true });
+  // Redirecting to processing page
+  if (shouldRedirectToProcessing) {
     return null;
   }
 
@@ -169,62 +220,16 @@ export default function PreviewPage() {
       </div>
     );
   }
-
-  // Recalculate B-Roll timestamps relative to the edited (shorter) timeline
-  const adjustedBrollPrompts = useMemo(() => {
-    if (!preview?.brollPrompts?.length) return [];
-    if (!contentSelection?.segments?.length) return preview.brollPrompts;
-
-    // Get kept segments sorted by start time
-    const keptSegments = contentSelection.segments
-      .filter((seg: any) => seg.decision === 'must-keep' || seg.decision === 'keep' || seg.decision === 'maybe')
-      .sort((a: any, b: any) => a.start - b.start);
-
-    if (!keptSegments.length) return preview.brollPrompts;
-
-    // Map original timestamp → edited timeline position
-    const mapTimestamp = (originalTs: number): number => {
-      let editedTime = 0;
-      for (const seg of keptSegments) {
-        const segStart = seg.trimStart != null ? seg.start + seg.trimStart : seg.start;
-        const segEnd = seg.trimEnd != null ? seg.end - seg.trimEnd : seg.end;
-        const segDuration = Math.max(0, segEnd - segStart);
-
-        if (originalTs <= segStart) {
-          // Timestamp is before or at this segment start → snap to current edited position
-          return editedTime;
-        }
-        if (originalTs <= segEnd) {
-          // Timestamp falls within this kept segment
-          return editedTime + (originalTs - segStart);
-        }
-        editedTime += segDuration;
-      }
-      // Past all segments → clamp to end
-      return editedTime;
-    };
-
-    return preview.brollPrompts.map((item: any) => ({
-      ...item,
-      timestamp: mapTimestamp(item.timestamp),
-    }));
-  }, [preview?.brollPrompts, contentSelection?.segments]);
-
-  const canUndo = (job.previewHistory?.length || 0) > 0;
-  const isBusy = isApproving || isChanging || isLoading;
-
-  // Content analysis data
-  const contentAnalysis = (job as any).contentAnalysis;
-  const contentSelection = (job as any).contentSelection;
+  // After early returns, job and preview are guaranteed non-null
   const editingBlueprint = contentAnalysis?.editingBlueprint;
   const emotionalArc = contentAnalysis?.detailedEmotionalArc || contentAnalysis?.emotionalArc;
-  const retentionPlan = (job as any).retentionPlan;
-  const paceMode: string = (job as any).paceMode || 'balanced';
-  const subtitleStyleData = (job as any).subtitleStyle;
-  const beatMap = (job as any).beatMap;
-  const marketingPlan = (job as any).videoIntelligence?.marketingPlan;
-  const hasMusic = !!(job.options as any)?.backgroundMusic || !!(job.options as any)?.energeticMusic || !!(job.options as any)?.calmMusic;
-  const hasFiles = job.mode === 'upload' && (job.files?.length ?? 0) > 0;
+  const retentionPlan = (job as any)?.retentionPlan;
+  const paceMode: string = (job as any)?.paceMode || 'balanced';
+  const subtitleStyleData = (job as any)?.subtitleStyle;
+  const beatMap = (job as any)?.beatMap;
+  const marketingPlan = (job as any)?.videoIntelligence?.marketingPlan;
+  const hasMusic = !!(job?.options as any)?.backgroundMusic || !!(job?.options as any)?.energeticMusic || !!(job?.options as any)?.calmMusic;
+  const hasFiles = job?.mode === 'upload' && (job?.files?.length ?? 0) > 0;
 
   return (
     <div className="min-h-screen bg-dark-bg pb-20">
@@ -237,7 +242,7 @@ export default function PreviewPage() {
           >
             → חזרה
           </button>
-          <h1 className="text-lg font-bold">תצוגה מקדימה — {job.projectName || 'הסרטון שלך'}</h1>
+          <h1 className="text-lg font-bold">תצוגה מקדימה — {job?.projectName || 'הסרטון שלך'}</h1>
           <div className="w-12" />
         </div>
       </header>
@@ -245,7 +250,7 @@ export default function PreviewPage() {
       <div className="max-w-4xl mx-auto px-4 mt-6 space-y-8" dir="rtl">
 
         {/* ===== SECTION 1: Storyboard ===== */}
-        <StoryboardGrid scenes={preview.storyboard} jobId={job.id} />
+        <StoryboardGrid scenes={preview.storyboard} jobId={job!.id} />
 
         {/* ===== SECTION 2: Editing Plan — simple stats ===== */}
         {editingBlueprint && (
@@ -258,7 +263,7 @@ export default function PreviewPage() {
             paceMode={paceMode}
             subtitleStyle={subtitleStyleData}
             beatMap={beatMap}
-            brandKit={job.brandKit}
+            brandKit={job?.brandKit}
           />
         )}
 

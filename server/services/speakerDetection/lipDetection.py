@@ -6,6 +6,88 @@ import mediapipe as mp
 import math
 
 
+def _create_face_mesh():
+    """Create FaceMesh using legacy solutions API (mediapipe<=0.10.14)
+    or new tasks API (mediapipe>=0.10.33)."""
+    # Try legacy API first (mp.solutions.face_mesh)
+    try:
+        mp_face_mesh = mp.solutions.face_mesh
+        return mp_face_mesh.FaceMesh(
+            static_image_mode=False,
+            max_num_faces=3,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+        ), 'legacy'
+    except AttributeError:
+        pass
+
+    # New tasks API (mediapipe>=0.10.33)
+    import os
+    import urllib.request
+
+    model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'face_landmarker.task')
+    if not os.path.exists(model_path):
+        url = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task'
+        urllib.request.urlretrieve(url, model_path)
+
+    base_options = mp.tasks.BaseOptions(model_asset_path=model_path)
+    options = mp.tasks.vision.FaceLandmarkerOptions(
+        base_options=base_options,
+        running_mode=mp.tasks.vision.RunningMode.VIDEO,
+        num_faces=3,
+        min_face_detection_confidence=0.5,
+        min_face_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+        output_face_blendshapes=False,
+        output_facial_transformation_matrixes=False,
+    )
+    landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(options)
+    return landmarker, 'tasks'
+
+
+class _TasksAPIWrapper:
+    """Wraps the new tasks API to match the legacy FaceMesh interface."""
+
+    def __init__(self, landmarker):
+        self._landmarker = landmarker
+        self._timestamp_ms = 0
+
+    def process(self, rgb_frame):
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        self._timestamp_ms += 33  # ~30fps increment
+        result = self._landmarker.detect_for_video(mp_image, self._timestamp_ms)
+        return _TasksResult(result, rgb_frame.shape)
+
+    def close(self):
+        self._landmarker.close()
+
+
+class _TasksResult:
+    """Adapts tasks API result to look like legacy FaceMesh result."""
+
+    def __init__(self, result, frame_shape):
+        self.multi_face_landmarks = None
+        if result.face_landmarks:
+            self.multi_face_landmarks = []
+            for face in result.face_landmarks:
+                self.multi_face_landmarks.append(_LandmarkList(face, frame_shape))
+
+
+class _LandmarkList:
+    """Adapts normalized landmarks from tasks API."""
+
+    def __init__(self, landmarks, frame_shape):
+        self.landmark = [_Landmark(lm) for lm in landmarks]
+
+
+class _Landmark:
+    def __init__(self, lm):
+        self.x = lm.x
+        self.y = lm.y
+        self.z = lm.z
+
+
 def analyze_lip_motion(video_path: str, speech_segments: list, fps: int = 10) -> list:
     """
     For each speech segment, analyze lip motion at 10 FPS using MediaPipe Face Mesh.
@@ -17,14 +99,11 @@ def analyze_lip_motion(video_path: str, speech_segments: list, fps: int = 10) ->
     - Smile = lip corners move but vertical distance stays small
     """
 
-    mp_face_mesh = mp.solutions.face_mesh
-    face_mesh = mp_face_mesh.FaceMesh(
-        static_image_mode=False,
-        max_num_faces=3,           # Detect up to 3 faces
-        refine_landmarks=True,     # More precise lip landmarks
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
-    )
+    detector, api_mode = _create_face_mesh()
+    if api_mode == 'tasks':
+        face_mesh = _TasksAPIWrapper(detector)
+    else:
+        face_mesh = detector
 
     cap = cv2.VideoCapture(video_path)
     video_fps = cap.get(cv2.CAP_PROP_FPS)
