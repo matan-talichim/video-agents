@@ -204,103 +204,121 @@ const MODEL_DURATIONS: Record<string, number[]> = {
   'grok-imagine-i2v': [4, 8],
 };
 
-// --- Per-model estimated credit costs ---
-// Credit rate: $0.005 per credit (1 credit = $0.005)
-// Veo 3 confirmed: fast=80 credits ($0.40), quality=400 credits ($2.00)
-// Other models estimated based on similar quality tiers — verify on playground
+// --- Per-model credit costs (from KIE pricing page) ---
+// Credit rate: $0.005 per credit
+// Two pricing models:
+//   - per_second: credits charged per second of output (× duration)
+//   - per_video: flat credits per generation
+// Prices below are for 720p resolution by default.
+// Higher resolutions (1080p) typically cost ~1.5-2× more.
 const CREDIT_RATE_USD = 0.005;
 
-const MODEL_CREDITS: Record<string, number> = {
-  // Google Veo 3.1 (confirmed pricing)
-  'veo-3.1-fast': 80,
-  'veo-3.1-quality': 400,
+interface ModelPricing {
+  credits: number;
+  unit: 'per_second' | 'per_video';
+}
 
-  // Kling 3.0 (premium tier)
-  'kling-3.0': 200,
-  'kling-motion-control-v3': 200,
+const MODEL_PRICING: Record<string, ModelPricing> = {
+  // --- Google Veo 3.1 ---
+  'veo-3.1-fast':               { credits: 60,    unit: 'per_video' },   // $0.30
+  'veo-3.1-quality':            { credits: 250,   unit: 'per_video' },   // $1.25
 
-  // Kling 2.6 (mid-high tier)
-  'kling-2.6': 120,
-  'kling-2.6-i2v': 120,
-  'kling-motion-control': 120,
+  // --- Kling 3.0 (per second, 720p with audio) ---
+  'kling-3.0':                  { credits: 20,    unit: 'per_second' },  // $0.10/s — 14/s no audio, 27/s 1080p
+  'kling-motion-control-v3':    { credits: 20,    unit: 'per_second' },  // $0.10/s
 
-  // Kling 2.5 Turbo (fast/cheaper)
-  'kling-2.5-turbo': 60,
-  'kling-2.5-turbo-t2v': 60,
-  'kling-v2.5-turbo': 60,
+  // --- Kling 2.6 (per video) ---
+  'kling-2.6':                  { credits: 55,    unit: 'per_video' },   // 5s no audio; 110 with audio/10s
+  'kling-2.6-i2v':              { credits: 55,    unit: 'per_video' },   // 5s no audio; 110 with audio/10s
+  'kling-motion-control':       { credits: 6,     unit: 'per_second' },  // $0.03/s — 9/s at 1080p
 
-  // Kling 2.1 (older, cheaper)
-  'kling-2.1-master': 80,
-  'kling-2.1-master-t2v': 80,
-  'kling-2.1-pro': 60,
-  'kling-2.1-standard': 40,
+  // --- Kling 2.5 Turbo (per video) ---
+  'kling-2.5-turbo':            { credits: 42,    unit: 'per_video' },   // 5s; 84 for 10s
+  'kling-2.5-turbo-t2v':        { credits: 42,    unit: 'per_video' },   // 5s; 84 for 10s
+  'kling-v2.5-turbo':           { credits: 42,    unit: 'per_video' },   // legacy alias
 
-  // Kling Avatar
-  'kling-avatar-standard': 80,
-  'kling-avatar-pro': 120,
+  // --- Kling 2.1 (per video) ---
+  'kling-2.1-master':           { credits: 160,   unit: 'per_video' },   // 5s; 320 for 10s
+  'kling-2.1-master-t2v':       { credits: 160,   unit: 'per_video' },   // 5s; 320 for 10s
+  'kling-2.1-pro':              { credits: 50,    unit: 'per_video' },   // 5s; 100 for 10s
+  'kling-2.1-standard':         { credits: 25,    unit: 'per_video' },   // 5s; 50 for 10s
 
-  // ByteDance / Seedance
-  'seedance-1.5-pro': 100,
-  'bytedance-v1-pro-fast': 60,
-  'bytedance-v1-pro': 80,
-  'bytedance-v1-pro-t2v': 80,
-  'bytedance-v1-lite': 40,
-  'bytedance-v1-lite-t2v': 40,
+  // --- Kling Avatar (per second) ---
+  'kling-avatar-standard':      { credits: 8,     unit: 'per_second' },  // 720p
+  'kling-avatar-pro':           { credits: 16,    unit: 'per_second' },  // 1080p
 
-  // Sora 2
-  'sora-2': 200,
-  'sora-2-i2v': 200,
-  'sora-2-pro': 400,
-  'sora-2-pro-i2v': 400,
-  'sora-2-watermark-remover': 40,
-  'sora-2-storyboard': 400,
-  'sora-2-characters': 200,
-  'sora-2-characters-pro': 400,
+  // --- ByteDance / Seedance (estimated — not on pricing page yet) ---
+  'seedance-1.5-pro':           { credits: 100,   unit: 'per_video' },   // estimated
+  'bytedance-v1-pro-fast':      { credits: 60,    unit: 'per_video' },   // estimated
+  'bytedance-v1-pro':           { credits: 80,    unit: 'per_video' },   // estimated
+  'bytedance-v1-pro-t2v':       { credits: 80,    unit: 'per_video' },   // estimated
+  'bytedance-v1-lite':          { credits: 40,    unit: 'per_video' },   // estimated
+  'bytedance-v1-lite-t2v':      { credits: 40,    unit: 'per_video' },   // estimated
 
-  // WAN (budget-friendly)
-  'wan-2.6': 40,
-  'wan-2.6-i2v': 40,
-  'wan-2.6-v2v': 40,
-  'wan-2.6-flash': 20,
-  'wan-2.6-flash-v2v': 20,
-  'wan-2.5': 30,
-  'wan-2.5-t2v': 30,
-  'wan-2.2-turbo-i2v': 20,
-  'wan-2.2-turbo-t2v': 20,
-  'wan-2.2-speech': 20,
-  'wan-2.2-animate-move': 30,
-  'wan-2.2-animate-replace': 30,
+  // --- Sora 2 (per video) ---
+  'sora-2':                     { credits: 30,    unit: 'per_video' },   // standard 10s; 35 for 15s
+  'sora-2-i2v':                 { credits: 30,    unit: 'per_video' },   // standard 10s; 35 for 15s
+  'sora-2-pro':                 { credits: 150,   unit: 'per_video' },   // Pro Standard 10s; 330 Pro High 10s
+  'sora-2-pro-i2v':             { credits: 150,   unit: 'per_video' },   // Pro Standard 10s; 330 Pro High 10s
+  'sora-2-watermark-remover':   { credits: 10,    unit: 'per_video' },   // per removal
+  'sora-2-storyboard':          { credits: 150,   unit: 'per_video' },   // Pro 10s; 270 for 15-25s
+  'sora-2-characters':          { credits: 30,    unit: 'per_video' },   // estimated same as sora-2
+  'sora-2-characters-pro':      { credits: 150,   unit: 'per_video' },   // estimated same as sora-2-pro
 
-  // Hailuo
-  'hailuo-2.3-pro': 100,
-  'hailuo-2.3-standard': 60,
-  'hailuo-02-t2v-pro': 100,
-  'hailuo-02-i2v-pro': 100,
-  'hailuo-02-t2v-standard': 60,
-  'hailuo-02-i2v-standard': 60,
-  'hailuo-standard': 60,
+  // --- WAN 2.6 (per video, 720p) ---
+  'wan-2.6':                    { credits: 70,    unit: 'per_video' },   // 5s; 140 for 10s; 210 for 15s
+  'wan-2.6-i2v':                { credits: 70,    unit: 'per_video' },   // 5s; 140 for 10s; 210 for 15s
+  'wan-2.6-v2v':                { credits: 70,    unit: 'per_video' },   // 5s; 140 for 10s
+  'wan-2.6-flash':              { credits: 35,    unit: 'per_video' },   // estimated ~half of wan-2.6
+  'wan-2.6-flash-v2v':          { credits: 35,    unit: 'per_video' },   // estimated ~half of wan-2.6
 
-  // Runway
-  'runway-gen4': 200,
-  'runway-gen4-10s': 400,
-  'runway-aleph': 200,
+  // --- WAN 2.5 (per video, 720p) ---
+  'wan-2.5':                    { credits: 60,    unit: 'per_video' },   // 5s; 120 for 10s
+  'wan-2.5-t2v':                { credits: 60,    unit: 'per_video' },   // 5s; 120 for 10s
 
-  // Grok Imagine
-  'grok-imagine': 80,
-  'grok-imagine-i2v': 80,
-  'grok-imagine-upscale': 40,
-  'grok-imagine-extend': 80,
+  // --- WAN 2.2 (mixed pricing) ---
+  'wan-2.2-turbo-i2v':          { credits: 80,    unit: 'per_video' },   // 5s 720p
+  'wan-2.2-turbo-t2v':          { credits: 80,    unit: 'per_video' },   // 5s 720p
+  'wan-2.2-speech':             { credits: 24,    unit: 'per_second' },  // 720p; 12/s at 480p
+  'wan-2.2-animate-move':       { credits: 12.5,  unit: 'per_video' },   // per generation 720p
+  'wan-2.2-animate-replace':    { credits: 12.5,  unit: 'per_video' },   // per generation 720p
 
-  // Topaz
-  'topaz-upscale': 40,
+  // --- Hailuo 2.3 (per video) ---
+  'hailuo-2.3-pro':             { credits: 45,    unit: 'per_video' },   // 6s 768p; 80 at 1080p; 90 for 10s
+  'hailuo-2.3-standard':        { credits: 30,    unit: 'per_video' },   // 6s 768p; 50 for 10s/1080p
 
-  // Infinitalk
-  'infinitalk': 60,
+  // --- Hailuo 02 (per video) ---
+  'hailuo-02-t2v-pro':          { credits: 57,    unit: 'per_video' },   // 6s 1080p
+  'hailuo-02-i2v-pro':          { credits: 57,    unit: 'per_video' },   // 6s 1080p
+  'hailuo-02-t2v-standard':     { credits: 30,    unit: 'per_video' },   // 6s 768p; 50 for 10s
+  'hailuo-02-i2v-standard':     { credits: 20,    unit: 'per_video' },   // 10s 512p; 50 at 768p
+  'hailuo-standard':            { credits: 30,    unit: 'per_video' },   // alias for 02-t2v-standard
+
+  // --- Runway (per video) ---
+  'runway-gen4':                { credits: 12,    unit: 'per_video' },   // 5s 720p; 30 for 10s/1080p
+  'runway-gen4-10s':            { credits: 30,    unit: 'per_video' },   // 10s 720p
+  'runway-aleph':               { credits: 110,   unit: 'per_video' },   // per video
+
+  // --- Grok Imagine (per video) ---
+  'grok-imagine':               { credits: 20,    unit: 'per_video' },   // 6s 720p; 30 for 10s 720p
+  'grok-imagine-i2v':           { credits: 20,    unit: 'per_video' },   // 6s 720p; 30 for 10s 720p
+  'grok-imagine-upscale':       { credits: 10,    unit: 'per_video' },   // 360p→720p
+  'grok-imagine-extend':        { credits: 20,    unit: 'per_video' },   // 6s 720p; 30 for 10s 720p
+
+  // --- Topaz (per second) ---
+  'topaz-upscale':              { credits: 12,    unit: 'per_second' },  // 1x/2x/4x upscale
+
+  // --- Infinitalk (per second) ---
+  'infinitalk':                 { credits: 12,    unit: 'per_second' },  // 720p; 3/s at 480p
 };
 
-export function estimateCostUSD(model: string): number {
-  const credits = MODEL_CREDITS[model] || 80;
-  return credits * CREDIT_RATE_USD;
+export function estimateCostUSD(model: string, durationSeconds: number = 5): number {
+  const pricing = MODEL_PRICING[model];
+  if (!pricing) return 0.40; // unknown model fallback ~$0.40
+  const totalCredits = pricing.unit === 'per_second'
+    ? pricing.credits * durationSeconds
+    : pricing.credits;
+  return totalCredits * CREDIT_RATE_USD;
 }
 
 // Find the closest allowed duration for a given model
@@ -718,7 +736,7 @@ export async function generateVideo(
 ): Promise<string> {
   await waitForSlot();
   try {
-    const costUSD = estimateCostUSD(model);
+    const costUSD = estimateCostUSD(model, duration);
     console.log(`[KIE] Generating video: "${prompt.slice(0, 50)}..." model=${model} duration=${duration}s ~$${costUSD.toFixed(2)}`);
     const startTime = Date.now();
 
