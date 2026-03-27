@@ -1,31 +1,30 @@
-console.log('[Server] Loading modules...');
+console.log('STEP 1: imports starting');
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
-import jobsRouter from './routes/jobs.js';
+// Lightweight imports — no heavy transitive deps
 import modelsRouter from './routes/models.js';
 import effectsRouter from './routes/effects.js';
 import brandKitRouter from './routes/brandKit.js';
 import chatEditorRouter from './routes/chatEditor.js';
 import visualDNARouter from './routes/visualDNA.js';
-import previewRouter from './routes/preview.js';
 import { startCleanupSchedule } from './services/cleanup.js';
 import { checkEnvironment } from './checkEnv.js';
-import { countBrainRules } from './services/masterBrain.js';
-import { getMasterPromptContext } from './services/masterPromptOptimizer.js';
-import { loadMemory } from './services/editorBrain.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+
+console.log('STEP 2: imports done');
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
+console.log('STEP 3: before express');
 const app = express();
 const PORT = 3001;
 
@@ -52,13 +51,33 @@ for (const dir of dirs) {
   }
 }
 
-// Routes
-app.use('/api/jobs', jobsRouter);
+// Lightweight routes (no heavy deps)
 app.use('/api/models', modelsRouter);
 app.use('/api', effectsRouter);
 app.use('/api/brand-kit', brandKitRouter);
 app.use('/api/jobs', chatEditorRouter);
 app.use('/api/visual-dna', visualDNARouter);
+
+// Load heavy routes via top-level await BEFORE server starts listening.
+// Dynamic import() inside app.listen() callback deadlocks in Node ESM,
+// so we must resolve these imports at the module top level.
+console.log('[Server] Loading heavy modules (orchestrator, brain, agents)...');
+const [jobsMod, previewMod, masterBrainMod, masterPromptMod, editorBrainMod] = await Promise.all([
+  import('./routes/jobs.js'),
+  import('./routes/preview.js'),
+  import('./services/masterBrain.js'),
+  import('./services/masterPromptOptimizer.js'),
+  import('./services/editorBrain.js'),
+]);
+console.log('[Server] Heavy modules loaded');
+
+const jobsRouter = jobsMod.default;
+const previewRouter = previewMod.default;
+const { countBrainRules } = masterBrainMod;
+const { getMasterPromptContext } = masterPromptMod;
+const { loadMemory } = editorBrainMod;
+
+app.use('/api/jobs', jobsRouter);
 app.use('/api/jobs', previewRouter);
 
 // Health check
@@ -93,7 +112,7 @@ app.get('/api/diagnostic', async (_req, res) => {
   }
 });
 
-// Brain status endpoint — verify all editing rules reach Claude
+// Brain status endpoint
 app.get('/api/brain-status', (_req, res) => {
   const brainRules = countBrainRules();
   const masterContext = getMasterPromptContext();
@@ -208,10 +227,10 @@ app.listen(PORT, () => {
   try {
     const brainCheck = countBrainRules();
     if (brainCheck.totalPrompts < 10) {
-      console.warn(`⚠️ Brain only has ${brainCheck.totalPrompts} rule sets — expected 15+. Some prompts may be undefined.`);
+      console.warn(`Brain only has ${brainCheck.totalPrompts} rule sets — expected 15+. Some prompts may be undefined.`);
     }
     if (brainCheck.missing.length > 0) {
-      console.warn(`⚠️ Missing brain rules: ${brainCheck.missing.join(', ')}`);
+      console.warn(`Missing brain rules: ${brainCheck.missing.join(', ')}`);
     }
   } catch (error: any) {
     console.warn('Brain knowledge check failed (non-critical):', error.message);
