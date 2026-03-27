@@ -225,10 +225,13 @@ export async function startJob(job: Job): Promise<void> {
       });
 
       try {
+        const targetDur = plan.export?.targetDuration === 'auto'
+          ? undefined
+          : plan.export?.targetDuration as number;
         const contentAnalysis = await analyzeContent(
           job.files[0].path,
           presenterFilteredTranscript || job.transcript,
-          plan
+          targetDur
         );
         job.contentAnalysis = contentAnalysis;
         updateJob(job.id, { contentAnalysis } as any);
@@ -1174,10 +1177,36 @@ export async function runPipeline(job: Job): Promise<void> {
     }
 
     // --- CONTENT ANALYSIS (Smart Brain Editor) ---
+    // OPTIMIZATION: Reuse content analysis from startJob() if already computed.
+    // Only re-run if videoIntelligence provides enriched context not available during preview.
     if (analysisTranscript && job.files.length > 0) {
+      const hasEnrichedContext = !!job.videoIntelligence?.concept?.category;
+
+      if (job.contentAnalysis && !hasEnrichedContext) {
+        console.log(`[Pipeline] Reusing content analysis from pre-preview phase (${job.contentAnalysis.recommendedEdit?.totalDuration || '?'}s recommended)`);
+
+        // Still apply plan updates from cached analysis
+        if (job.contentAnalysis.recommendedEdit) {
+          if (job.contentAnalysis.recommendedEdit.suggestedOrder === 'hook-first') {
+            job.plan.edit.useHookFirst = true;
+          }
+          job.plan.edit.hookSegment = job.contentAnalysis.recommendedEdit.hookSegment || undefined;
+          job.plan.edit.segmentsToKeep = job.contentAnalysis.recommendedEdit.segments;
+
+          if (job.plan.export.targetDuration === 'auto') {
+            job.plan.export.targetDuration = job.contentAnalysis.recommendedEdit.totalDuration;
+          }
+
+          updateJob(job.id, { plan: job.plan });
+        }
+      } else {
       try {
         updateJobStep(job, 'analyzing', 25);
-        console.log(`[Pipeline] Running content analysis for job ${job.id}`);
+        if (job.contentAnalysis && hasEnrichedContext) {
+          console.log(`[Pipeline] Re-running content analysis with enriched context (videoIntelligence: ${job.videoIntelligence!.concept.category})`);
+        } else {
+          console.log(`[Pipeline] Running content analysis for job ${job.id}`);
+        }
 
         const targetDur = job.plan.export.targetDuration === 'auto'
           ? undefined
@@ -1230,6 +1259,7 @@ export async function runPipeline(job: Job): Promise<void> {
         console.error('Content analysis failed:', error.message);
         allWarnings.push('Content analysis failed: ' + error.message);
       }
+      } // end else (no cached contentAnalysis or enriched context available)
     }
 
     // --- PACE MODE SELECTION ---

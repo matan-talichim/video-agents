@@ -41,13 +41,16 @@ router.post('/:id/preview/approve', async (req, res) => {
   const approvedSuggestions = req.body.approvedSuggestions || {};
 
   // Update job status to 'processing' BEFORE starting pipeline
-  // so the frontend can navigate to ProcessingPage immediately
+  // so the frontend can navigate to ProcessingPage immediately.
+  // Analysis (transcription, speaker detection, content analysis) was already done
+  // in startJob() before preview — skip straight to generation phase.
+  const analysisAlreadyDone = !!(job as any).transcript || !!(job as any).contentAnalysis;
   updateJob(job.id, {
     status: 'processing',
     approvedAt: new Date().toISOString(),
     plan: job.previewData.plan,
-    currentStep: 'transcribing',
-    progress: 0,
+    currentStep: analysisAlreadyDone ? 'generating-broll' : 'transcribing',
+    progress: analysisAlreadyDone ? 35 : 0,
   } as any);
 
   // Get the updated job
