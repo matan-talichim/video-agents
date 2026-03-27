@@ -138,15 +138,17 @@ export async function startJob(job: Job): Promise<void> {
       throw new Error('No execution plan found');
     }
 
+    // Step 0: Upload acknowledgement
+    updateJobStep(job, 'uploading', 2);
+
     // Step 1: Transcribe BEFORE preview (so preview shows full editing plan based on transcript)
     const hasVideo = job.files.some(f => f.type.startsWith('video'));
     const shouldTranscribe = hasVideo && plan.ingest?.transcribe;
 
     if (shouldTranscribe) {
+      updateJobStep(job, 'transcribing', 8);
       updateJob(job.id, {
         status: 'transcribing',
-        currentStep: 'מתמלל את הסרטון...',
-        progress: 2,
       });
 
       try {
@@ -167,10 +169,9 @@ export async function startJob(job: Job): Promise<void> {
 
     // Step 2: Content analysis BEFORE preview (uses transcript)
     if (job.transcript && hasVideo) {
+      updateJobStep(job, 'analyzing', 15);
       updateJob(job.id, {
         status: 'analyzing',
-        currentStep: 'מנתח את התוכן...',
-        progress: 5,
       });
 
       try {
@@ -188,10 +189,9 @@ export async function startJob(job: Job): Promise<void> {
     }
 
     // Step 3: Generate preview (NOT render — just plan + frames)
+    updateJobStep(job, 'planning', 20);
     updateJob(job.id, {
       status: 'planning',
-      currentStep: 'מכין תצוגה מקדימה...',
-      progress: 8,
     });
 
     const preview = await generatePreview(job, plan);
@@ -221,11 +221,10 @@ export async function startJob(job: Job): Promise<void> {
 // Completed steps must ONLY be added, never removed.
 function updateJobStep(job: Job, stepKey: string, progress: number) {
   const stepOrder = [
-    'transcribing', 'analyzing', 'planning',
-    'generating-broll', 'generating-music',
-    'editing-cuts', 'editing-effects', 'editing-broll',
-    'editing-subtitles', 'editing-music', 'editing-color',
-    'quality-check', 'finalizing',
+    'uploading', 'detecting-speakers', 'transcribing', 'analyzing',
+    'planning', 'generating-broll', 'generating-music',
+    'editing-cuts', 'editing-effects', 'editing-subtitles',
+    'editing-audio', 'quality-check', 'finalizing',
   ];
 
   // Track completed steps — only ADD, never replace
@@ -399,7 +398,7 @@ export async function runPipeline(job: Job): Promise<void> {
         let editResult: EditResult | null = null;
 
         if (hasEditSteps) {
-          updateJob(job.id, { currentStep: 'עריכה והרכבה...' });
+          updateJobStep(job, 'editing-cuts', 65);
           editResult = await runEditAgent(
             job,
             job.plan,
@@ -416,7 +415,7 @@ export async function runPipeline(job: Job): Promise<void> {
 
         if (editResult) {
           try {
-            updateJob(job.id, { currentStep: 'ייצוא פורמטים...' });
+            updateJobStep(job, 'finalizing', 98);
             const exportResult = await runExportAgent(job, job.plan, editResult.finalVideoPath);
             if (exportResult.duration) exportDuration = exportResult.duration;
             if (exportResult.mainVideoPath) {
@@ -607,7 +606,8 @@ export async function runPipeline(job: Job): Promise<void> {
     if (transcript && job.files.length > 0) {
       try {
         // Step 1: Basic presenter detection (Layer 1 audio + Layer 2 visual baseline)
-        updateJob(job.id, { currentStep: 'מזהה את הפרזנטור...' });
+        updateJobStep(job, 'detecting-speakers', 18);
+        updateJob(job.id, { currentStep: 'detecting-speakers' });
         console.log(`[Pipeline] Running presenter detection for job ${job.id}`);
 
         const presenterDetection = await detectPresenter(
@@ -1076,7 +1076,7 @@ export async function runPipeline(job: Job): Promise<void> {
     // --- CONTENT ANALYSIS (Smart Brain Editor) ---
     if (analysisTranscript && job.files.length > 0) {
       try {
-        updateJob(job.id, { currentStep: 'מנתח תוכן ובוחר קטעים...' });
+        updateJobStep(job, 'analyzing', 25);
         console.log(`[Pipeline] Running content analysis for job ${job.id}`);
 
         const targetDur = job.plan.export.targetDuration === 'auto'
@@ -1201,6 +1201,7 @@ export async function runPipeline(job: Job): Promise<void> {
     let generateResult: GenerateResult | null = null;
 
     if (hasAnyGenerateFeature(job.plan)) {
+      updateJobStep(job, 'generating-broll', 45);
       console.log(`[Pipeline] Running real generate agent for job ${job.id}`);
       generateResult = await runGenerateAgent(job, job.plan, analysisTranscript || transcript);
 
@@ -1215,7 +1216,7 @@ export async function runPipeline(job: Job): Promise<void> {
     // --- BEAT-SYNC: Detect beats in music and snap cuts ---
     if (generateResult?.musicPath && job.plan.edit.beatSyncCuts) {
       try {
-        updateJob(job.id, { currentStep: 'מנתח ביטים במוזיקה...' });
+        updateJobStep(job, 'generating-music', 55);
         const beatMap = await detectBeatSync(generateResult.musicPath, job.id);
         job.beatMap = beatMap;
         updateJob(job.id, { beatMap } as any);
@@ -1261,7 +1262,7 @@ export async function runPipeline(job: Job): Promise<void> {
     // --- SCENE-AWARE AMBIENT SOUND ---
     if (job.editingBlueprint?.brollInsertions && job.editingBlueprint.brollInsertions.length > 0) {
       try {
-        updateJob(job.id, { currentStep: 'מתכנן צלילי אווירה לקטעי B-Roll...' });
+        updateJobStep(job, 'editing-effects', 72);
         const videoDuration = job.contentAnalysis?.presenter?.totalSpeakingTime || 60;
         const ambientSoundPlan = await planAmbientSound(
           job.editingBlueprint.brollInsertions,
@@ -1279,7 +1280,7 @@ export async function runPipeline(job: Job): Promise<void> {
     // --- SUBTITLE STYLE INTELLIGENCE (before rendering) ---
     if (job.plan.edit.subtitles) {
       try {
-        updateJob(job.id, { currentStep: 'בוחר סגנון כתוביות...' });
+        updateJobStep(job, 'editing-subtitles', 78);
         const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
         const videoCategory = job.videoIntelligence?.concept?.category || 'talking-head';
         const emotionalTone = job.emotionalArc?.[0]?.phase || 'neutral';
@@ -1311,7 +1312,7 @@ export async function runPipeline(job: Job): Promise<void> {
     // --- FRESH EYES REVIEW (last check before rendering) ---
     if (job.editingBlueprint) {
       try {
-        updateJob(job.id, { currentStep: 'סקירת "עיניים רעננות" — בדיקה אחרונה...' });
+        updateJobStep(job, 'editing-audio', 85);
 
         const videoFile = job.files.find(f => f.type.startsWith('video'));
         const videoDuration = job.contentAnalysis?.duration || 60;
@@ -1495,7 +1496,7 @@ export async function runPipeline(job: Job): Promise<void> {
 
     if (hasEditSteps) {
       console.log(`[Pipeline] Running real edit agent for job ${job.id}`);
-      updateJob(job.id, { currentStep: 'עריכה והרכבה...' });
+      updateJobStep(job, 'editing-cuts', 65);
 
       const cleanVideoPath = job.cleanVideoPath || (job.files[0]?.path || '');
       const emptyGenerateResult: GenerateResult = {
@@ -1547,7 +1548,7 @@ export async function runPipeline(job: Job): Promise<void> {
     // --- CONTENT SAFETY CHECK (before export — last chance to catch issues) ---
     if (analysisTranscript || transcript) {
       try {
-        updateJob(job.id, { currentStep: 'בודק בטיחות תוכן...' });
+        updateJobStep(job, 'quality-check', 92);
         const platformGuess = job.plan.export?.formats?.includes('9:16') ? 'instagram-reels' : 'youtube';
         const transcriptText = (analysisTranscript || transcript)?.fullText || '';
         const musicSource = job.generateResult?.musicPath ? 'suno-ai' : 'none';
@@ -1587,7 +1588,7 @@ export async function runPipeline(job: Job): Promise<void> {
     if (editResult) {
       try {
         console.log(`[Pipeline] Running export agent for job ${job.id}`);
-        updateJob(job.id, { currentStep: 'ייצוא פורמטים...' });
+        updateJobStep(job, 'finalizing', 98);
 
         const exportResult = await runExportAgent(job, job.plan, editResult.finalVideoPath);
 
@@ -2079,10 +2080,7 @@ Return JSON:
       fs.existsSync(finalPath) ? `final video exists at ${finalPath}` : 'NO FINAL VIDEO');
 
     // Phase 3: Finalize
-    updateJob(job.id, {
-      currentStep: 'מסיים עיבוד...',
-      progress: 95,
-    });
+    updateJobStep(job, 'finalizing', 98);
     await delay(500);
 
     const videoUrl = job.abTestResult
