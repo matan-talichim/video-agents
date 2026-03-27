@@ -49,7 +49,7 @@ import { filterBRollQuality } from '../services/brollQualityFilter.js';
 import { planAutoReframe, applyAutoReframe } from '../services/autoReframe.js';
 import { rememberProject, getBrainContext } from '../services/editorBrain.js';
 import { getMasterPromptContext } from '../services/masterPromptOptimizer.js';
-import { assembleMasterBrainPrompt, countBrainRules } from '../services/masterBrain.js';
+import { FOCUSED_PROMPTS } from '../services/focusedPrompts.js';
 import { planAmbientSound } from '../services/ambientSound.js';
 import { generateThumbnails } from '../services/thumbnailGenerator.js';
 import { PipelineAudit } from '../services/pipelineAudit.js';
@@ -1767,19 +1767,9 @@ export async function runPipeline(job: Job): Promise<void> {
         const uniquePlatforms = [...new Set(platforms)];
         const category = job.videoIntelligence?.concept?.category || 'talking-head';
         const prompt = job.prompt;
-        const platformGuess = uniquePlatforms[0] || 'youtube';
-
-        const strategySystemPrompt = assembleMasterBrainPrompt(
-          category,
-          platformGuess,
-          job.paceMode || 'normal',
-          job.durationCategory || 'normal',
-          job.footageDiagnosis?.hasSpeech !== false,
-          job.footageDiagnosis?.speakerCount || 1
-        );
 
         const strategyResponse = await askClaudeForStrategy(
-          strategySystemPrompt,
+          FOCUSED_PROMPTS.platformStrategy,
           `Generate platform-specific content strategy for this video:
 Category: ${category}
 Prompt: "${prompt}"
@@ -1816,18 +1806,8 @@ Return ONLY valid JSON: { "tiktok": {...}, "instagram": {...}, ... }`
         updateJob(job.id, { currentStep: 'מתכנן לוקליזציה...' });
         const { askClaude: askClaudeForLocale } = await import('../services/claude.js');
 
-        const localeCategory = job.videoIntelligence?.concept?.category || 'general';
-        const localeSystemPrompt = assembleMasterBrainPrompt(
-          localeCategory,
-          'multi-platform',
-          job.paceMode || 'normal',
-          job.durationCategory || 'normal',
-          job.footageDiagnosis?.hasSpeech !== false,
-          job.footageDiagnosis?.speakerCount || 1
-        );
-
         const localeResponse = await askClaudeForLocale(
-          localeSystemPrompt + '\n\nYou plan ad localization for international markets. Return ONLY valid JSON.',
+          FOCUSED_PROMPTS.adLocalization,
           `Plan localization for this video:
 Prompt: "${job.prompt}"
 Category: ${job.videoIntelligence?.concept?.category || 'general'}
