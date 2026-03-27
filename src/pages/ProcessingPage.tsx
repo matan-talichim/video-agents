@@ -2,22 +2,39 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useJobStore from '../store/useJobStore';
 
-// Step definitions — user-friendly labels, NO technical jargon
-const PIPELINE_STEPS = [
-  { key: 'uploading',          icon: '📤', label: 'מעלה סרטון',           description: 'מכין את הקובץ לעיבוד' },
-  { key: 'detecting-speakers', icon: '👤', label: 'מזהה את הדובר',        description: 'מסנן רעשי רקע ועוזרי הפקה' },
-  { key: 'transcribing',       icon: '🎙️', label: 'מקשיב לסרטון',        description: 'מבין כל מילה ומזהה את הרגעים החשובים' },
-  { key: 'analyzing',          icon: '🧠', label: 'מנתח את הסיפור',       description: 'בוחר את הקטעים הכי טובים' },
-  { key: 'planning',           icon: '🎬', label: 'מתכנן עריכה',         description: 'בונה תוכנית עריכה קולנועית מותאמת' },
-  { key: 'generating-broll',   icon: '🎨', label: 'יוצר קליפים',          description: 'מייצר תוכן ויזואלי מקורי' },
-  { key: 'generating-music',   icon: '🎵', label: 'מתאים מוזיקה',         description: 'בוחר פסקול שמחזק את המסר' },
-  { key: 'editing-cuts',       icon: '✂️', label: 'עורך וחותך',           description: 'מרכיב את הסרטון מהקטעים הטובים' },
-  { key: 'editing-effects',    icon: '✨', label: 'אפקטים ויזואליים',     description: 'זומים, מעברים, ודינמיקה' },
-  { key: 'editing-subtitles',  icon: '📝', label: 'כתוביות מעוצבות',      description: 'טקסט מסונכרן לדיבור' },
-  { key: 'editing-audio',      icon: '🔊', label: 'עיבוד שמע',           description: 'איזון מוזיקה, דיבור ואפקטים' },
-  { key: 'quality-check',      icon: '🔍', label: 'בדיקת איכות',          description: 'וידוא שהכל מושלם' },
-  { key: 'finalizing',         icon: '🏁', label: 'ממלא נגיעות אחרונות',  description: 'מכין את הסרטון להצגה' },
+// ============ STEP DEFINITIONS ============
+
+// Pre-preview (analysis) steps
+const PRE_PREVIEW_STEPS = [
+  { key: 'classifying',        icon: '📋', label: 'מסווג סרטון' },
+  { key: 'uploading',          icon: '📤', label: 'מעלה סרטון' },
+  { key: 'stabilizing',        icon: '📷', label: 'מייצב תמונה' },
+  { key: 'transcribing',       icon: '🎙️', label: 'מקשיב לסרטון' },
+  { key: 'detecting-speakers', icon: '👤', label: 'מזהה את הדובר' },
+  { key: 'analyzing',          icon: '🧠', label: 'מנתח את הסיפור' },
+  { key: 'planning',           icon: '🎬', label: 'מתכנן עריכה' },
 ];
+
+// Post-approval (rendering) steps
+const POST_APPROVAL_STEPS = [
+  { key: 'generating-broll',   icon: '🎨', label: 'יוצר קליפים' },
+  { key: 'generating-music',   icon: '🎵', label: 'בוחר מוזיקה' },
+  { key: 'editing-cuts',       icon: '✂️', label: 'חותך ומעצב' },
+  { key: 'editing-effects',    icon: '✨', label: 'מוסיף אפקטים' },
+  { key: 'editing-broll',      icon: '🎞️', label: 'משלב קליפים' },
+  { key: 'editing-subtitles',  icon: '📝', label: 'כתוביות' },
+  { key: 'editing-music',      icon: '🎵', label: 'מערבב שמע' },
+  { key: 'editing-audio',      icon: '🔊', label: 'עיבוד שמע' },
+  { key: 'editing-color',      icon: '🎨', label: 'צביעה קולנועית' },
+  { key: 'quality-check',      icon: '🔍', label: 'בודק איכות' },
+  { key: 'finalizing',         icon: '🏁', label: 'מסיים' },
+];
+
+// All steps combined for lookup
+const ALL_STEPS: Record<string, { icon: string; label: string }> = {};
+[...PRE_PREVIEW_STEPS, ...POST_APPROVAL_STEPS].forEach(s => {
+  ALL_STEPS[s.key] = { icon: s.icon, label: s.label };
+});
 
 // Steps that are internal/technical — don't show to user
 const HIDDEN_STEPS = ['content-safety', 'brand-compliance', 'device-preview', 'text-readability'];
@@ -31,6 +48,10 @@ export default function ProcessingPage() {
   const [completedStepKeys, setCompletedStepKeys] = useState<Set<string>>(new Set());
   const [currentStepKey, setCurrentStepKey] = useState('uploading');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Determine phase: pre-preview or post-approval
+  const isPostApproval = !!(currentJob as any)?.approvedAt;
+  const phaseSteps = isPostApproval ? POST_APPROVAL_STEPS : PRE_PREVIEW_STEPS;
 
   // Timer
   useEffect(() => {
@@ -90,23 +111,23 @@ export default function ProcessingPage() {
     }
   }, [currentJob?.status, currentJob?.progress, currentJob?.currentStep, (currentJob as any)?.completedPipelineSteps, id, navigate]);
 
-  // Format elapsed time
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
-
   // Find current step info
-  const currentStep = PIPELINE_STEPS.find(s => s.key === currentStepKey) || PIPELINE_STEPS[0];
+  const currentStep = ALL_STEPS[currentStepKey] || { icon: '⏳', label: currentStepKey };
+
+  // Categorize steps for display
+  const completedPhaseSteps = phaseSteps.filter(s => completedStepKeys.has(s.key));
+  const currentPhaseStep = phaseSteps.find(s => s.key === currentStepKey && !completedStepKeys.has(s.key));
+  const upcomingPhaseSteps = phaseSteps.filter(s => !completedStepKeys.has(s.key) && s.key !== currentStepKey);
 
   // Loading state
   if (!currentJob && !error) {
     return (
       <div dir="rtl" style={styles.container}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '56px', marginBottom: '16px', animation: 'pulse 2s ease-in-out infinite' }}>🎬</div>
-          <p style={{ opacity: 0.4, fontFamily: "'Heebo', sans-serif" }}>טוען פרויקט...</p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '100px', marginBottom: '24px', animation: 'pulse 2.5s ease-in-out infinite', filter: 'drop-shadow(0 0 30px rgba(124,58,237,0.4))' }}>🎬</div>
+            <p style={{ opacity: 0.4, fontFamily: "'Heebo', sans-serif", fontSize: '18px' }}>טוען פרויקט...</p>
+          </div>
         </div>
         <style>{animationCSS}</style>
       </div>
@@ -118,13 +139,14 @@ export default function ProcessingPage() {
     return (
       <div dir="rtl" style={styles.container}>
         <div style={styles.errorBox}>
-          <div style={{ fontSize: '56px', marginBottom: '16px' }}>⚠️</div>
-          <h2 style={{ marginBottom: '8px', fontFamily: "'Heebo', sans-serif" }}>שגיאה בעריכה</h2>
-          <p style={{ opacity: 0.6, marginBottom: '24px', fontFamily: "'Heebo', sans-serif" }}>{error}</p>
+          <div style={{ fontSize: '80px', marginBottom: '24px' }}>❌</div>
+          <h1 style={{ fontSize: '32px', marginBottom: '12px', fontFamily: "'Heebo', sans-serif" }}>שגיאה בעריכה</h1>
+          <p style={{ opacity: 0.5, fontSize: '16px', maxWidth: '400px', textAlign: 'center', fontFamily: "'Heebo', sans-serif" }}>{error}</p>
           <button onClick={() => navigate('/')} style={styles.errorButton}>
             חזרה לדף הבית
           </button>
         </div>
+        <style>{animationCSS}</style>
       </div>
     );
   }
@@ -136,13 +158,14 @@ export default function ProcessingPage() {
     return (
       <div dir="rtl" style={styles.container}>
         <div style={styles.errorBox}>
-          <div style={{ fontSize: '56px', marginBottom: '16px' }}>⚠️</div>
-          <h2 style={{ marginBottom: '8px', fontFamily: "'Heebo', sans-serif" }}>שגיאה בעריכה</h2>
-          <p style={{ opacity: 0.6, marginBottom: '24px', fontFamily: "'Heebo', sans-serif" }}>{job.error || 'Pipeline failed'}</p>
+          <div style={{ fontSize: '80px', marginBottom: '24px' }}>❌</div>
+          <h1 style={{ fontSize: '32px', marginBottom: '12px', fontFamily: "'Heebo', sans-serif" }}>שגיאה בעריכה</h1>
+          <p style={{ opacity: 0.5, fontSize: '16px', maxWidth: '400px', textAlign: 'center', fontFamily: "'Heebo', sans-serif" }}>{job.error || 'שגיאה בעיבוד'}</p>
           <button onClick={() => navigate('/')} style={styles.errorButton}>
             חזרה לדף הבית
           </button>
         </div>
+        <style>{animationCSS}</style>
       </div>
     );
   }
@@ -150,125 +173,96 @@ export default function ProcessingPage() {
   return (
     <div dir="rtl" style={styles.container}>
 
-      {/* Animated background gradient */}
-      <div style={styles.bgGlow} />
-      <div style={styles.bgGlow2} />
+      {/* Background animated gradient orbs */}
+      <div style={styles.bgOrb1} />
+      <div style={styles.bgOrb2} />
 
-      {/* Top bar — elapsed time */}
-      <div style={styles.topBar}>
-        <span style={{ opacity: 0.4, fontSize: '13px', fontFamily: "'Heebo', sans-serif" }}>⏱️ {formatTime(elapsedSeconds)}</span>
-        <span style={{ opacity: 0.4, fontSize: '13px', fontFamily: "'Heebo', sans-serif" }}>{maxProgress}%</span>
-      </div>
-
-      {/* Main content */}
+      {/* Main content — centered */}
       <div style={styles.mainContent}>
 
-        {/* Current step — big animated display */}
-        <div style={styles.currentStepBox}>
-          <div style={styles.currentIcon}>{currentStep.icon}</div>
-          <h1 style={styles.currentLabel}>{currentStep.label}</h1>
-          <p style={styles.currentDescription}>{currentStep.description}</p>
+        {/* Project name */}
+        <h2 style={styles.projectName}>
+          {job.projectName || ''}
+        </h2>
+
+        {/* Main animated icon — LARGE */}
+        <div style={styles.mainIcon}>
+          {currentStep.icon}
         </div>
 
-        {/* Progress bar — full width, glowing */}
-        <div style={styles.progressContainer}>
+        {/* Current step label — LARGE with gradient shimmer */}
+        <h1 style={styles.mainLabel}>
+          {currentStep.label}
+        </h1>
+
+        {/* Progress percentage — LARGE */}
+        <div style={styles.percentage}>
+          {maxProgress}%
+        </div>
+
+        {/* Progress bar — WIDE */}
+        <div style={styles.progressOuter}>
           <div style={styles.progressTrack}>
             <div style={{
               ...styles.progressFill,
               width: `${maxProgress}%`,
-            }}>
-              <div style={styles.progressGlow} />
-            </div>
+            }} />
           </div>
         </div>
 
-        {/* Steps timeline — vertical list */}
-        <div style={styles.stepsTimeline}>
-          {/* Completed steps — always visible */}
-          {PIPELINE_STEPS.filter(step => completedStepKeys.has(step.key)).map((step) => (
+        {/* Steps timeline — glass card */}
+        <div style={styles.stepsCard}>
+          {/* Completed steps */}
+          {completedPhaseSteps.map((step, i) => (
             <div key={step.key} style={{
               ...styles.stepRow,
-              opacity: 0.7,
+              borderBottom: '1px solid rgba(255,255,255,0.04)',
+              animation: `fadeSlideIn 0.4s ease ${i * 0.05}s both`,
             }}>
-              <div style={{
-                ...styles.stepIndicator,
-                background: '#22c55e',
-              }}>
-                ✓
-              </div>
-              <div style={styles.stepTextBox}>
-                <span style={{
-                  ...styles.stepLabel,
-                  color: '#22c55e',
-                }}>
-                  {step.label}
-                </span>
-              </div>
+              <span style={styles.stepCheckmark}>✓</span>
+              <span style={styles.stepCompletedLabel}>{step.label}</span>
             </div>
           ))}
 
           {/* Current step — highlighted */}
-          {(() => {
-            const step = PIPELINE_STEPS.find(s => s.key === currentStepKey);
-            if (!step || completedStepKeys.has(step.key)) return null;
-            return (
-              <div key={step.key} style={{
-                ...styles.stepRow,
-                opacity: 1,
-              }}>
-                <div style={{
-                  ...styles.stepIndicator,
-                  background: '#7c3aed',
-                  boxShadow: '0 0 20px rgba(124,58,237,0.5)',
-                }}>
-                  {step.icon}
-                </div>
-                <div style={styles.stepTextBox}>
-                  <span style={{
-                    ...styles.stepLabel,
-                    color: '#a78bfa',
-                    fontWeight: 700,
-                  }}>
-                    {step.label}
-                  </span>
-                  <span style={styles.stepDescription}>{step.description}</span>
-                </div>
-              </div>
-            );
-          })()}
+          {currentPhaseStep && (
+            <div style={{
+              ...styles.stepRow,
+              borderBottom: upcomingPhaseSteps.length > 0 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+            }}>
+              <span style={styles.stepSpinner}>⏳</span>
+              <span style={styles.stepCurrentLabel}>
+                {currentPhaseStep.label}...
+              </span>
+            </div>
+          )}
 
-          {/* Upcoming steps — dimmed */}
-          {PIPELINE_STEPS.filter(step => !completedStepKeys.has(step.key) && step.key !== currentStepKey).map((step, index) => (
+          {/* Future steps — numbered, very faded */}
+          {upcomingPhaseSteps.map((step, i) => (
             <div key={step.key} style={{
               ...styles.stepRow,
-              opacity: 0.2,
+              opacity: 0.25,
+              borderBottom: i < upcomingPhaseSteps.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
             }}>
-              <div style={{
-                ...styles.stepIndicator,
-                background: 'rgba(255,255,255,0.1)',
-              }}>
-                {index + 1}
-              </div>
-              <div style={styles.stepTextBox}>
-                <span style={{
-                  ...styles.stepLabel,
-                  color: 'rgba(255,255,255,0.5)',
-                }}>
-                  {step.label}
-                </span>
-              </div>
+              <span style={styles.stepNumber}>{completedPhaseSteps.length + (currentPhaseStep ? 1 : 0) + i + 1}</span>
+              <span style={styles.stepFutureLabel}>{step.label}</span>
             </div>
           ))}
+        </div>
+
+        {/* Elapsed time — subtle at bottom */}
+        <div style={styles.elapsedTime}>
+          ⏱️ {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, '0')}
         </div>
       </div>
 
       {/* Completion animation */}
       {maxProgress >= 100 && (
         <div style={styles.completionOverlay}>
-          <div style={styles.completionContent}>
-            <div style={{ fontSize: '72px', marginBottom: '16px' }}>🎬</div>
-            <h2 style={{ fontSize: '28px', fontFamily: "'Heebo', sans-serif" }}>הסרטון מוכן!</h2>
-            <p style={{ opacity: 0.6, fontFamily: "'Heebo', sans-serif" }}>מעביר לתצוגה...</p>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '100px', marginBottom: '24px', animation: 'pulse 2.5s ease-in-out infinite' }}>🎬</div>
+            <h2 style={{ fontSize: '32px', fontFamily: "'Heebo', sans-serif", marginBottom: '8px' }}>הסרטון מוכן!</h2>
+            <p style={{ opacity: 0.5, fontFamily: "'Heebo', sans-serif", fontSize: '16px' }}>מעביר לתצוגה...</p>
           </div>
         </div>
       )}
@@ -287,30 +281,32 @@ const animationCSS = `
     50% { transform: scale(1.08); }
   }
   @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-8px); }
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-30px); }
   }
   @keyframes shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(200%); }
+    0% { background-position: 200% center; }
+    100% { background-position: -200% center; }
   }
-  @keyframes glowPulse {
-    0%, 100% { opacity: 0.4; }
-    50% { opacity: 0.8; }
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
   }
-  @keyframes bgMove {
-    0% { transform: translate(0, 0) scale(1); }
-    33% { transform: translate(30px, -20px) scale(1.05); }
-    66% { transform: translate(-20px, 15px) scale(0.95); }
-    100% { transform: translate(0, 0) scale(1); }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
-  @keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(12px); }
-    to { opacity: 1; transform: translateY(0); }
+  @keyframes bgFloat {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-30px); }
   }
   @keyframes completionZoom {
     from { opacity: 0; transform: scale(0.8); }
     to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes progressGlow {
+    0% { background-position: 200% center; }
+    100% { background-position: -200% center; }
   }
 `;
 
@@ -319,184 +315,199 @@ const animationCSS = `
 const styles: Record<string, React.CSSProperties> = {
   container: {
     minHeight: '100vh',
-    background: '#08080f',
+    background: 'linear-gradient(135deg, #0a0a1a 0%, #1a0a2a 50%, #0a0a1a 100%)',
     color: 'white',
-    position: 'relative',
-    overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
-  },
-
-  bgGlow: {
-    position: 'absolute',
-    top: '-30%',
-    right: '-20%',
-    width: '600px',
-    height: '600px',
-    borderRadius: '50%',
-    background: 'radial-gradient(circle, rgba(124,58,237,0.12) 0%, transparent 70%)',
-    animation: 'bgMove 15s ease-in-out infinite',
-    pointerEvents: 'none' as const,
-  },
-
-  bgGlow2: {
-    position: 'absolute',
-    bottom: '-20%',
-    left: '-15%',
-    width: '500px',
-    height: '500px',
-    borderRadius: '50%',
-    background: 'radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%)',
-    animation: 'bgMove 20s ease-in-out infinite reverse',
-    pointerEvents: 'none' as const,
-  },
-
-  topBar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    padding: '16px 24px',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '40px 20px',
     position: 'relative',
-    zIndex: 1,
+    overflow: 'hidden',
+  },
+
+  bgOrb1: {
+    position: 'absolute',
+    top: '20%',
+    right: '10%',
+    width: '400px',
+    height: '400px',
+    borderRadius: '50%',
+    background: 'radial-gradient(circle, rgba(124,58,237,0.15) 0%, transparent 70%)',
+    animation: 'bgFloat 8s ease-in-out infinite',
+    pointerEvents: 'none' as const,
+  },
+
+  bgOrb2: {
+    position: 'absolute',
+    bottom: '10%',
+    left: '15%',
+    width: '300px',
+    height: '300px',
+    borderRadius: '50%',
+    background: 'radial-gradient(circle, rgba(59,130,246,0.1) 0%, transparent 70%)',
+    animation: 'bgFloat 6s ease-in-out infinite reverse',
+    pointerEvents: 'none' as const,
   },
 
   mainContent: {
-    flex: 1,
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: '0 24px',
     position: 'relative',
     zIndex: 1,
+    width: '100%',
     maxWidth: '600px',
-    margin: '0 auto',
-    width: '100%',
   },
 
-  currentStepBox: {
+  projectName: {
+    fontSize: '20px',
+    fontWeight: 500,
+    opacity: 0.4,
+    marginBottom: '60px',
+    letterSpacing: '2px',
+    fontFamily: "'Heebo', sans-serif",
+  },
+
+  mainIcon: {
+    fontSize: '100px',
+    marginBottom: '32px',
+    animation: 'pulse 2.5s ease-in-out infinite',
+    filter: 'drop-shadow(0 0 30px rgba(124,58,237,0.4))',
+  },
+
+  mainLabel: {
+    fontSize: '36px',
+    fontWeight: 'bold',
+    marginBottom: '12px',
+    fontFamily: "'Heebo', sans-serif",
+    background: 'linear-gradient(90deg, #a78bfa, #818cf8, #a78bfa)',
+    backgroundSize: '200% auto',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    animation: 'shimmer 3s linear infinite',
     textAlign: 'center' as const,
+  },
+
+  percentage: {
+    fontSize: '64px',
+    fontWeight: 200,
     marginBottom: '40px',
-    animation: 'fadeInUp 0.5s ease',
+    opacity: 0.3,
+    fontFamily: 'system-ui, sans-serif',
   },
 
-  currentIcon: {
-    fontSize: '56px',
-    marginBottom: '16px',
-    animation: 'float 3s ease-in-out infinite',
-    filter: 'drop-shadow(0 0 20px rgba(124,58,237,0.3))',
-  },
-
-  currentLabel: {
-    fontSize: '26px',
-    fontWeight: 700,
-    margin: '0 0 8px 0',
-    fontFamily: "'Heebo', sans-serif",
-    letterSpacing: '-0.5px',
-  },
-
-  currentDescription: {
-    fontSize: '15px',
-    margin: 0,
-    opacity: 0.45,
-    fontFamily: "'Heebo', sans-serif",
-  },
-
-  progressContainer: {
+  progressOuter: {
     width: '100%',
-    marginBottom: '48px',
+    maxWidth: '600px',
+    marginBottom: '60px',
   },
 
   progressTrack: {
-    width: '100%',
-    height: '6px',
     background: 'rgba(255,255,255,0.06)',
-    borderRadius: '10px',
+    borderRadius: '12px',
+    height: '12px',
     overflow: 'hidden',
-    position: 'relative' as const,
+    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.3)',
   },
 
   progressFill: {
     height: '100%',
-    background: 'linear-gradient(90deg, #7c3aed, #a78bfa, #c4b5fd)',
-    borderRadius: '10px',
-    transition: 'width 1s cubic-bezier(0.4, 0, 0.2, 1)',
-    position: 'relative' as const,
-    overflow: 'hidden',
+    background: 'linear-gradient(90deg, #7c3aed, #818cf8, #a78bfa)',
+    backgroundSize: '200% auto',
+    borderRadius: '12px',
+    transition: 'width 0.8s ease',
+    animation: 'progressGlow 2s linear infinite',
+    boxShadow: '0 0 20px rgba(124,58,237,0.5)',
   },
 
-  progressGlow: {
-    position: 'absolute' as const,
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
-    animation: 'shimmer 2s ease-in-out infinite',
-  },
-
-  stepsTimeline: {
+  stepsCard: {
     width: '100%',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '0',
+    maxWidth: '500px',
+    background: 'rgba(255,255,255,0.03)',
+    borderRadius: '16px',
+    padding: '24px',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(255,255,255,0.06)',
   },
 
   stepRow: {
     display: 'flex',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: '14px',
-    position: 'relative' as const,
-    paddingBottom: '6px',
-    transition: 'opacity 0.4s ease',
+    padding: '10px 0',
   },
 
-  stepIndicator: {
+  stepCheckmark: {
+    fontSize: '18px',
     width: '28px',
     height: '28px',
-    borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: '12px',
-    fontWeight: 700,
+    background: 'rgba(34,197,94,0.15)',
+    borderRadius: '8px',
     flexShrink: 0,
-    transition: 'all 0.4s ease',
-    position: 'relative' as const,
-    zIndex: 1,
   },
 
-  connectorLine: {
-    position: 'absolute' as const,
-    right: '13px',
-    top: '28px',
-    width: '2px',
-    height: '16px',
-    transition: 'background 0.4s ease',
-  },
-
-  stepTextBox: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    paddingTop: '4px',
-  },
-
-  stepLabel: {
-    fontSize: '14px',
-    transition: 'color 0.3s ease',
+  stepCompletedLabel: {
+    fontSize: '15px',
+    opacity: 0.5,
     fontFamily: "'Heebo', sans-serif",
   },
 
-  stepDescription: {
+  stepSpinner: {
+    fontSize: '20px',
+    width: '28px',
+    height: '28px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    animation: 'spin 2s linear infinite',
+    flexShrink: 0,
+  },
+
+  stepCurrentLabel: {
+    fontSize: '16px',
+    fontWeight: 'bold',
+    color: '#a78bfa',
+    fontFamily: "'Heebo', sans-serif",
+  },
+
+  stepNumber: {
     fontSize: '12px',
-    opacity: 0.4,
-    marginTop: '2px',
+    fontWeight: 700,
+    width: '28px',
+    height: '28px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(255,255,255,0.06)',
+    borderRadius: '8px',
+    color: 'rgba(255,255,255,0.4)',
+    flexShrink: 0,
+  },
+
+  stepFutureLabel: {
+    fontSize: '15px',
+    color: 'rgba(255,255,255,0.5)',
+    fontFamily: "'Heebo', sans-serif",
+  },
+
+  elapsedTime: {
+    marginTop: '32px',
+    opacity: 0.3,
+    fontSize: '14px',
     fontFamily: "'Heebo', sans-serif",
   },
 
   completionOverlay: {
     position: 'fixed' as const,
-    top: 0, left: 0, right: 0, bottom: 0,
-    background: 'rgba(8,8,15,0.95)',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    background: 'linear-gradient(135deg, rgba(10,10,26,0.97) 0%, rgba(26,10,42,0.97) 50%, rgba(10,10,26,0.97) 100%)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -504,29 +515,23 @@ const styles: Record<string, React.CSSProperties> = {
     animation: 'completionZoom 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
   },
 
-  completionContent: {
-    textAlign: 'center' as const,
-    fontFamily: "'Heebo', sans-serif",
-  },
-
   errorBox: {
     textAlign: 'center' as const,
-    padding: '40px',
-    fontFamily: "'Heebo', sans-serif",
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: '100vh',
+    flex: 1,
   },
 
   errorButton: {
-    padding: '12px 32px',
+    marginTop: '32px',
+    padding: '14px 32px',
     background: '#7c3aed',
     color: 'white',
     border: 'none',
-    borderRadius: '10px',
-    fontSize: '15px',
+    borderRadius: '12px',
+    fontSize: '16px',
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: "'Heebo', sans-serif",
