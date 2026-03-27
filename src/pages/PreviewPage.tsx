@@ -2,24 +2,13 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useJobStore from '../store/useJobStore';
 import StoryboardGrid from '../components/StoryboardGrid';
-import PreviewTimelineBar from '../components/PreviewTimelineBar';
-import EstimatesCard from '../components/EstimatesCard';
 import BRollPreview from '../components/BRollPreview';
 import ScriptPreviewPanel from '../components/ScriptPreviewPanel';
 import PreviewChat from '../components/PreviewChat';
 import ApproveButton from '../components/ApproveButton';
-import ContentIntelligencePanel from '../components/ContentIntelligencePanel';
-import BrainRecommendations from '../components/BrainRecommendations';
-import BrainNotes from '../components/BrainNotes';
-import SpeakerVerificationPanel from '../components/SpeakerVerificationPanel';
-import ContentSelectionPanel from '../components/ContentSelectionPanel';
-import MarketingPlanPanel from '../components/MarketingPlanPanel';
 import EditingPlanPreview from '../components/EditingPlanPreview';
 import CostBreakdownDetailed from '../components/CostBreakdown';
-import TranscriptPreview from '../components/TranscriptPreview';
-import BrainSuggestionsChecklist from '../components/BrainSuggestionsChecklist';
-import { calculateLiveCost } from '../utils/costCalculator';
-import type { RecommendedConfig } from '../types';
+import { getModelById, VIDEO_MODELS } from '../data/videoModels';
 
 export default function PreviewPage() {
   const { id } = useParams<{ id: string }>();
@@ -30,9 +19,6 @@ export default function PreviewPage() {
   const [isApproving, setIsApproving] = useState(false);
   const [isChanging, setIsChanging] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
-  const [showRecommendationBanner, setShowRecommendationBanner] = useState(false);
-  const [recommendationApplied, setRecommendationApplied] = useState(false);
-  const [enabledSuggestionIds, setEnabledSuggestionIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -54,7 +40,6 @@ export default function PreviewPage() {
     if (!currentJob) return;
 
     if (currentJob.status === 'preview') {
-      // Preview is ready — stop polling
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -107,7 +92,6 @@ export default function PreviewPage() {
       setChatError('שגיאה בחיבור לשרת');
     } finally {
       setIsChanging(false);
-      // Stop polling after change completes
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -124,48 +108,16 @@ export default function PreviewPage() {
     }
   }, [id, undoPreviewChange, fetchJob]);
 
-  // Detect Brain recommendations
-  useEffect(() => {
-    if (currentJob?.videoIntelligence?.recommendedConfig && !recommendationApplied) {
-      setShowRecommendationBanner(true);
-    }
-  }, [currentJob?.videoIntelligence?.recommendedConfig, recommendationApplied]);
-
-  const handleApplyRecommendations = useCallback(() => {
-    setRecommendationApplied(true);
-    setShowRecommendationBanner(false);
-  }, []);
-
-  const handleEditManually = useCallback(() => {
-    if (!id) return;
-    // Navigate to editor with recommendations pre-filled via query param
-    const config = currentJob?.videoIntelligence?.recommendedConfig;
-    if (config) {
-      sessionStorage.setItem(`brain-config-${id}`, JSON.stringify(config));
-    }
-    navigate(`/editor/upload?jobId=${id}&fromBrain=true`);
-  }, [id, currentJob, navigate]);
-
-  // Compute cost breakdown from job selections (must be before early returns to respect Rules of Hooks)
+  // Compute preview data (must be before early returns for Rules of Hooks)
   const preview = currentJob?.status === 'preview' ? currentJob.previewData : null;
-  const previewCost = useMemo(() => {
-    if (!currentJob || !preview) return null;
-    // Use actual B-Roll count from blueprint as single source of truth
-    const blueprintBRollCount = preview.brollPrompts?.length || undefined;
-    return calculateLiveCost({
-      model: currentJob.videoModel || 'veo-3.1-fast',
-      duration: preview.estimatedDuration || 60,
-      options: (currentJob.options || {}) as unknown as Record<string, boolean>,
-      editStyle: currentJob.editStyle,
-      voiceoverStyle: currentJob.voiceoverStyle,
-      preset: currentJob.preset,
-      aiTwin: currentJob.options?.aiTwin || false,
-      aiDubbing: currentJob.preset === 'dubbing',
-      voiceClone: false,
-      hasFiles: currentJob.mode === 'upload' && (currentJob.files?.length ?? 0) > 0,
-      blueprintBRollCount,
-    });
-  }, [currentJob, preview]);
+
+  // Derive model and B-Roll count — single source of truth
+  const selectedModel = useMemo(() => {
+    return getModelById(currentJob?.videoModel || 'veo-3.1-fast') || VIDEO_MODELS[0];
+  }, [currentJob?.videoModel]);
+
+  const brollCount = preview?.brollPrompts?.length || 0;
+  const pricePerClip = selectedModel.pricePerClip;
 
   // Loading state
   if (!currentJob && !error) {
@@ -199,7 +151,7 @@ export default function PreviewPage() {
 
   const job = currentJob!;
 
-  // Planning/generating preview — show loading (including new transcribing/analyzing states)
+  // Planning/generating preview — show loading
   if (job.status === 'pending' || job.status === 'planning' || job.status === 'transcribing' || job.status === 'analyzing') {
     return (
       <div className="min-h-screen bg-dark-bg">
@@ -255,28 +207,18 @@ export default function PreviewPage() {
   const canUndo = (job.previewHistory?.length || 0) > 0;
   const isBusy = isApproving || isChanging || isLoading;
 
-  // Features list
-  const enabledFeatures = preview.enabledFeatures || [];
-
   // Content analysis data
   const contentAnalysis = (job as any).contentAnalysis;
-  const presenterDetection = (job as any).presenterDetection;
-  const videoIntelligence = (job as any).videoIntelligence;
-  const brainNotes: string[] = (job as any).brainNotes || [];
-  const speakerVerification = (job as any).speakerVerification;
-  const stabilized = (job as any).stabilized;
-  const originalShakiness = (job as any).originalShakiness;
-  const freshEyesReview = (job as any).freshEyesReview;
   const contentSelection = (job as any).contentSelection;
-  const footageDiagnosis = (job as any).footageDiagnosis;
-  const transcriptText: string = (job as any).transcript?.fullText || '';
   const editingBlueprint = contentAnalysis?.editingBlueprint;
   const emotionalArc = contentAnalysis?.detailedEmotionalArc || contentAnalysis?.emotionalArc;
   const retentionPlan = (job as any).retentionPlan;
   const paceMode: string = (job as any).paceMode || 'balanced';
   const subtitleStyleData = (job as any).subtitleStyle;
   const beatMap = (job as any).beatMap;
-  const marketingPlan = videoIntelligence?.marketingPlan;
+  const marketingPlan = (job as any).videoIntelligence?.marketingPlan;
+  const hasMusic = !!(job.options as any)?.backgroundMusic || !!(job.options as any)?.energeticMusic || !!(job.options as any)?.calmMusic;
+  const hasFiles = job.mode === 'upload' && (job.files?.length ?? 0) > 0;
 
   return (
     <div className="min-h-screen bg-dark-bg pb-20">
@@ -294,659 +236,12 @@ export default function PreviewPage() {
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-4 mt-6 space-y-8">
-        {/* Video Intelligence — FIRST section */}
-        {videoIntelligence && (
-          <ContentIntelligencePanel intelligence={videoIntelligence} />
-        )}
+      <div className="max-w-4xl mx-auto px-4 mt-6 space-y-8" dir="rtl">
 
-        {/* Marketing Plan — frameworks, copywriting, colors, sound, thumbnail, platforms */}
-        {(videoIntelligence?.marketingPlan || (job as any).thumbnailPlan || (job as any).platformCuts) && (
-          <MarketingPlanPanel
-            marketingPlan={videoIntelligence?.marketingPlan}
-            thumbnailPlan={(job as any).thumbnailPlan}
-            platformCuts={(job as any).platformCuts}
-          />
-        )}
-
-        {/* Brain Recommendations — auto-selected optimal config */}
-        {videoIntelligence?.recommendedConfig && (
-          <BrainRecommendations
-            config={videoIntelligence.recommendedConfig as RecommendedConfig}
-            onApply={handleApplyRecommendations}
-            onEditManually={handleEditManually}
-            applied={recommendationApplied}
-          />
-        )}
-
-        {/* Brain Notes — override suggestions */}
-        {brainNotes.length > 0 && (
-          <BrainNotes notes={brainNotes} />
-        )}
-
-        {/* Recommendation banner */}
-        {showRecommendationBanner && (
-          <div className="bg-accent-purple/10 border border-accent-purple/30 rounded-xl p-4 text-center animate-pulse">
-            <p className="text-sm text-accent-purple-light font-medium">
-              המוח בחר את ההגדרות הטובות ביותר לסרטון שלך
-            </p>
-          </div>
-        )}
-
-        {/* Storyboard */}
+        {/* ===== SECTION 1: Storyboard ===== */}
         <StoryboardGrid scenes={preview.storyboard} jobId={job.id} />
 
-        {/* Timeline */}
-        <PreviewTimelineBar timeline={preview.timeline} />
-
-        {/* Estimates */}
-        <EstimatesCard
-          enabledFeaturesCount={preview.enabledFeaturesCount}
-          totalFeatures={preview.totalFeatures}
-          estimatedDuration={preview.estimatedDuration}
-          estimatedRenderTime={preview.estimatedRenderTime}
-          estimatedCost={previewCost ? `$${previewCost.total.toFixed(2)}` : preview.estimatedCost}
-          viralityEstimate={preview.viralityEstimate}
-          costItems={previewCost?.items}
-        />
-
-        {/* Cost comparison */}
-        <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-          <div className="flex items-center justify-between text-sm">
-            <div className="text-center flex-1">
-              <div className="text-gray-500 text-xs mb-1">עורך אנושי</div>
-              <div className="text-gray-400 line-through text-lg font-mono">₪500+</div>
-            </div>
-            <div className="text-gray-700 text-lg">vs</div>
-            <div className="text-center flex-1">
-              <div className="text-gray-500 text-xs mb-1">עלות AI</div>
-              <div className="text-amber-400 text-lg font-bold font-mono">{previewCost ? `$${previewCost.total.toFixed(2)}` : preview.estimatedCost}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Enabled features */}
-        {enabledFeatures.length > 0 && (
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-              <span className="text-lg">⚡</span>
-              פיצ׳רים שיופעלו ({enabledFeatures.length} מתוך {preview.totalFeatures})
-            </h3>
-            <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-              <div className="flex flex-wrap gap-1.5">
-                {enabledFeatures.map((feature, i) => (
-                  <span
-                    key={i}
-                    className="text-[10px] px-2 py-1 rounded-full bg-accent-purple/10 text-accent-purple-light border border-accent-purple/20"
-                  >
-                    {feature}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Subtitle preview */}
-        {preview.subtitlePreview && (
-          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-            <h3 className="text-xs text-gray-500 mb-2 flex items-center gap-1">
-              <span>💬</span> כתוביות
-            </h3>
-            <div className="bg-gray-800 rounded-lg p-3 text-center">
-              <span className="text-sm text-white font-medium">{preview.subtitlePreview}</span>
-            </div>
-          </div>
-        )}
-
-        {/* B-Roll prompts */}
-        <BRollPreview prompts={preview.brollPrompts} />
-
-        {/* Script (prompt-only) */}
-        {preview.script && <ScriptPreviewPanel script={preview.script} />}
-
-        {/* Edit style & music info */}
-        {(preview.editStyle || preview.musicMood || preview.voiceoverStyle) && (
-          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-            <h3 className="text-xs text-gray-500 mb-2">הגדרות סגנון</h3>
-            <div className="flex flex-wrap gap-3 text-xs text-gray-300">
-              {preview.editStyle && (
-                <span>🎨 סגנון: <strong>{preview.editStyle}</strong></span>
-              )}
-              {preview.musicMood && (
-                <span>🎵 מוזיקה: <strong>{preview.musicMood}</strong></span>
-              )}
-              {preview.voiceoverStyle && (
-                <span>🎙️ קריינות: <strong>{preview.voiceoverStyle}</strong></span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Video Stabilization Result */}
-        {stabilized && (
-          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-gray-300 mb-2 flex items-center gap-2">
-              <span className="text-lg">📹</span>
-              ייצוב וידאו
-            </h3>
-            <p className="text-xs text-green-400">
-              הצילום היה רועד (רמה {originalShakiness?.toFixed(1) || '?'}) — יוצב אוטומטית ✅
-            </p>
-          </div>
-        )}
-
-        {/* Fresh Eyes Review */}
-        {freshEyesReview && (
-          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-              <span className="text-lg">👀</span>
-              סקירת &quot;עיניים רעננות&quot;
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full mr-auto ${
-                freshEyesReview.overallConfidence >= 8
-                  ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                  : freshEyesReview.overallConfidence >= 5
-                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
-              }`}>
-                ביטחון: {freshEyesReview.overallConfidence}/10 {freshEyesReview.wouldApprove ? '✅' : '⚠️'}
-              </span>
-            </h3>
-            {freshEyesReview.improvements.length > 0 ? (
-              <div className="space-y-2">
-                {freshEyesReview.improvements.map((imp: any, i: number) => (
-                  <div key={i} className={`text-xs p-2 rounded-lg border ${
-                    imp.priority === 'critical'
-                      ? 'bg-red-500/5 border-red-500/20 text-red-300'
-                      : imp.priority === 'important'
-                        ? 'bg-amber-500/5 border-amber-500/20 text-amber-300'
-                        : 'bg-green-500/5 border-green-500/20 text-green-300'
-                  }`}>
-                    <span className="font-medium">
-                      {imp.priority === 'critical' ? '🔴' : imp.priority === 'important' ? '🟡' : '🟢'}
-                      {' '}{imp.area}:
-                    </span>
-                    {' '}{imp.issue}
-                    {imp.autoFixable && imp.priority === 'critical' && (
-                      <span className="text-green-400 mr-1"> — תוקן אוטומטית ✅</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-green-400">לא נמצאו בעיות — התוכנית נראית מצוינת!</p>
-            )}
-          </div>
-        )}
-
-        {/* Speaker Verification Section (3-Layer) */}
-        {speakerVerification && (
-          <SpeakerVerificationPanel verification={speakerVerification} />
-        )}
-
-        {/* Presenter Detection Section (legacy — hidden when verification is available) */}
-        {!speakerVerification && presenterDetection && presenterDetection.allSpeakers?.length > 1 && (
-          <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-              <span className="text-lg">🎙️</span>
-              זיהוי דוברים
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full mr-auto ${
-                presenterDetection.confidence >= 0.8
-                  ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-              }`}>
-                ביטחון: {Math.round(presenterDetection.confidence * 100)}%
-              </span>
-            </h3>
-
-            {/* Presenter info */}
-            <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-3 mb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
-                  <span className="text-green-400 text-sm">🎬</span>
-                </div>
-                <div>
-                  <p className="text-xs text-white font-medium">
-                    זיהינו את הפרזנטור: {presenterDetection.presenterDescription}
-                  </p>
-                  <p className="text-[10px] text-gray-500 mt-0.5">
-                    דובר #{presenterDetection.presenterId}
-                    {' — '}
-                    {presenterDetection.presenterSegments?.length || 0} קטעי דיבור
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Other speakers */}
-            {presenterDetection.allSpeakers.filter((s: any) => s.speakerId !== presenterDetection.presenterId).length > 0 && (
-              <div>
-                <p className="text-[11px] text-gray-400 mb-2">
-                  נמצאו {presenterDetection.allSpeakers.length - 1} דוברים נוספים:
-                </p>
-                <div className="space-y-1.5">
-                  {presenterDetection.allSpeakers
-                    .filter((s: any) => s.speakerId !== presenterDetection.presenterId)
-                    .map((speaker: any, i: number) => {
-                      const roleLabels: Record<string, string> = {
-                        director: 'במאי (מתן הוראות)',
-                        assistant: 'עוזר (מקריא טקסט)',
-                        interviewer: 'מראיין',
-                        background: 'רקע',
-                        unknown: 'לא מזוהה',
-                        presenter: 'פרזנטור',
-                      };
-                      const isKept = speaker.role === 'interviewer' && speaker.isOnCamera;
-                      return (
-                        <div
-                          key={i}
-                          className={`flex items-center gap-2 text-[11px] rounded-lg px-3 py-2 ${
-                            isKept
-                              ? 'bg-blue-500/5 border border-blue-500/20'
-                              : 'bg-red-500/5 border border-red-500/20'
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                            isKept ? 'bg-blue-400' : 'bg-red-400'
-                          }`} />
-                          <span className="text-gray-300">
-                            דובר #{speaker.speakerId}: {speaker.description}
-                          </span>
-                          <span className="text-gray-500">
-                            ({roleLabels[speaker.role] || speaker.role})
-                          </span>
-                          <span className={`mr-auto text-[10px] ${
-                            isKept ? 'text-blue-400' : 'text-red-400'
-                          }`}>
-                            {isKept ? 'נשמר (על המסך)' : 'יוסר'}
-                          </span>
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-            )}
-
-            {/* Override hint */}
-            <p className="text-[10px] text-gray-600 mt-3 text-center">
-              זה לא הפרזנטור? בקשו שינוי בצ׳אט למטה
-            </p>
-          </div>
-        )}
-
-        {/* Content Selection Panel — 12-dimension scoring */}
-        {contentSelection && (
-          <ContentSelectionPanel selection={contentSelection} />
-        )}
-
-        {/* Footage Diagnosis Section */}
-        {footageDiagnosis && (
-          <div className="bg-dark-card border border-accent-purple/30 rounded-xl p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-accent-purple-light flex items-center gap-2">
-              <span className="text-lg">📋</span>
-              אבחון חומר גלם
-            </h3>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="bg-gray-800/50 rounded-lg p-2">
-                <span className="text-gray-400">רזולוציה: </span>
-                <span className="text-white">{footageDiagnosis.resolution.width}x{footageDiagnosis.resolution.height}</span>
-                {footageDiagnosis.resolution.needsUpscale && (
-                  <span className="text-green-400 mr-1"> → שודרג ל-{footageDiagnosis.resolution.targetRes.replace(':', 'x')} ✅</span>
-                )}
-              </div>
-              <div className="bg-gray-800/50 rounded-lg p-2">
-                <span className="text-gray-400">פסים שחורים: </span>
-                {footageDiagnosis.blackBars.detected ? (
-                  <span className="text-green-400">נמצאו → נחתכו ✅</span>
-                ) : (
-                  <span className="text-gray-500">לא נמצאו</span>
-                )}
-              </div>
-              <div className="bg-gray-800/50 rounded-lg p-2">
-                <span className="text-gray-400">פריימים כפולים: </span>
-                {footageDiagnosis.freezeFrames.detected ? (
-                  <span className="text-green-400">{footageDiagnosis.freezeFrames.count} → הוסרו ✅</span>
-                ) : (
-                  <span className="text-gray-500">תקין</span>
-                )}
-              </div>
-              <div className="bg-gray-800/50 rounded-lg p-2">
-                <span className="text-gray-400">משך: </span>
-                <span className="text-white">
-                  {Math.floor(footageDiagnosis.duration / 60)}:{String(Math.floor(footageDiagnosis.duration % 60)).padStart(2, '0')}
-                </span>
-                <span className="text-gray-500 mr-1">
-                  ({footageDiagnosis.durationCategory === 'too-short' ? 'קצר מאוד' :
-                    footageDiagnosis.durationCategory === 'short' ? 'קצר' :
-                    footageDiagnosis.durationCategory === 'normal' ? 'רגיל' :
-                    footageDiagnosis.durationCategory === 'long' ? 'ארוך — חיתוך אגרסיבי' :
-                    'ארוך מאוד — חיתוך אגרסיבי'})
-                </span>
-              </div>
-            </div>
-            {footageDiagnosis.flashFrames.detected && (
-              <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded-lg p-2">
-                זוהו {footageDiagnosis.flashFrames.timestamps.length} פריימים שחורים/הבזקים
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Content Analysis Section */}
-        {contentAnalysis && (
-          <div className="space-y-4">
-            {/* Summary banner */}
-            <div className="bg-dark-card border border-accent-purple/30 rounded-xl p-4">
-              <h3 className="text-sm font-semibold text-accent-purple-light mb-3 flex items-center gap-2">
-                <span className="text-lg">🧠</span>
-                ניתוח תוכן
-              </h3>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="bg-gray-800/50 rounded-lg p-3 text-center">
-                  <div className="text-2xl font-bold text-green-400">
-                    {Math.round(contentAnalysis.recommendedEdit?.totalDuration || 0)}
-                    <span className="text-xs text-gray-400 font-normal mr-1">שניות</span>
-                  </div>
-                  <div className="text-[10px] text-gray-500 mt-1">משך מומלץ</div>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-3 text-center">
-                  <div className="text-2xl font-bold text-blue-400">
-                    {Math.round(contentAnalysis.presenter?.totalSpeakingTime || 0)}
-                    <span className="text-xs text-gray-400 font-normal mr-1">שניות</span>
-                  </div>
-                  <div className="text-[10px] text-gray-500 mt-1">תוכן איכותי</div>
-                </div>
-              </div>
-              {contentAnalysis.recommendedEdit?.totalDuration && contentAnalysis.presenter?.totalSpeakingTime && (
-                <p className="text-xs text-gray-400 mt-3 text-center">
-                  זיהינו {Math.round(contentAnalysis.presenter.totalSpeakingTime / 60)} דקות של תוכן איכותי
-                  מתוך {Math.round((contentAnalysis.presenter.totalSpeakingTime + contentAnalysis.presenter.totalSilentTime) / 60)} דקות צולמו
-                  {' — '}
-                  מומלץ לקצר ל-{contentAnalysis.recommendedEdit.totalDuration} שניות
-                </p>
-              )}
-            </div>
-
-            {/* Quality segments timeline */}
-            {contentAnalysis.segments && contentAnalysis.segments.length > 0 && (
-              <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-                <h3 className="text-xs text-gray-500 mb-3">ציר זמן איכות תוכן</h3>
-                <div className="flex h-6 rounded-full overflow-hidden bg-gray-800">
-                  {contentAnalysis.segments.map((seg: any, i: number) => {
-                    const totalDuration = contentAnalysis.segments.reduce(
-                      (sum: number, s: any) => sum + (s.end - s.start), 0
-                    );
-                    const width = ((seg.end - seg.start) / totalDuration) * 100;
-                    const color =
-                      seg.keepRecommendation === 'must-keep' ? 'bg-green-500' :
-                      seg.keepRecommendation === 'keep' ? 'bg-blue-500' :
-                      seg.keepRecommendation === 'optional' ? 'bg-gray-500' :
-                      'bg-red-500';
-                    return (
-                      <div
-                        key={i}
-                        className={`${color} relative group cursor-pointer transition-opacity hover:opacity-80`}
-                        style={{ width: `${Math.max(width, 0.5)}%` }}
-                        title={`${seg.start.toFixed(1)}s - ${seg.end.toFixed(1)}s | ${seg.reason} (${seg.quality}/10)`}
-                      />
-                    );
-                  })}
-                </div>
-                <div className="flex items-center justify-center gap-4 mt-2 text-[10px] text-gray-500">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> חובה</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> שמור</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500 inline-block" /> אופציונלי</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> חתוך</span>
-                </div>
-              </div>
-            )}
-
-            {/* Best moments */}
-            {contentAnalysis.bestMoments && contentAnalysis.bestMoments.length > 0 && (
-              <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-                <h3 className="text-xs text-gray-500 mb-3">רגעים מובחרים</h3>
-                <div className="space-y-2">
-                  {contentAnalysis.bestMoments.map((moment: any, i: number) => (
-                    <div key={i} className="bg-gray-800/50 rounded-lg p-3 flex items-start gap-3">
-                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center">
-                        <span className="text-amber-400 text-xs font-bold">{moment.score}</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-white font-medium truncate">"{moment.text}"</p>
-                        <p className="text-[10px] text-gray-500 mt-0.5">
-                          {moment.start.toFixed(1)}s - {moment.end.toFixed(1)}s
-                          {' | '}
-                          {moment.suggestedUse}
-                        </p>
-                      </div>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-purple/10 text-accent-purple-light flex-shrink-0">
-                        {moment.type}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Hook recommendation */}
-            {contentAnalysis.hookOptions && contentAnalysis.hookOptions.length > 0 && (
-              <div className="bg-dark-card border border-amber-500/30 rounded-xl p-4">
-                <h3 className="text-xs text-amber-400 mb-3 flex items-center gap-1">
-                  <span>🎯</span> אפשרויות הוק (3 המובילות)
-                </h3>
-                <div className="space-y-2">
-                  {contentAnalysis.hookOptions.map((hook: any, i: number) => (
-                    <div
-                      key={i}
-                      className={`rounded-lg p-3 border transition-colors cursor-pointer ${
-                        i === 0
-                          ? 'bg-amber-500/10 border-amber-500/30'
-                          : 'bg-gray-800/50 border-dark-border-light hover:border-amber-500/20'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-white font-medium">
-                          {i === 0 ? 'מומלץ: ' : ''}"{hook.text}"
-                        </span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">
-                          ויראליות: {hook.viralScore}/10
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-gray-500">
-                        בשנייה {hook.start.toFixed(1)} | {hook.reason}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Advanced analysis section */}
-            <div className="bg-dark-card border border-dark-border-light rounded-xl p-4">
-              <h3 className="text-xs text-gray-500 mb-3">ניתוח תוכן מתקדם</h3>
-              <div className="space-y-3">
-                {/* Footage issues */}
-                {contentAnalysis.footageIssues && contentAnalysis.footageIssues.length > 0 && (
-                  <div>
-                    <p className="text-[11px] text-red-400 mb-1.5">
-                      מצאנו {contentAnalysis.footageIssues.length} בעיות בחומר הגלם:
-                    </p>
-                    {contentAnalysis.footageIssues.map((issue: any, i: number) => (
-                      <div key={i} className="flex items-center gap-2 text-[10px] mb-1">
-                        <span className="text-red-400">&#x2022;</span>
-                        <span className="text-gray-400">{issue.issue}</span>
-                        <span className="text-green-400 mr-auto">← {issue.solution}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Auto-fixes summary */}
-                <div className="flex flex-wrap gap-2 text-[10px]">
-                  {contentAnalysis.brollCoverMoments?.length > 0 && (
-                    <span className="px-2 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                      {contentAnalysis.brollCoverMoments.length} קטעים יכוסו ב-B-Roll
-                    </span>
-                  )}
-                  {contentAnalysis.reconstructedSentences?.length > 0 && (
-                    <span className="px-2 py-1 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
-                      {contentAnalysis.reconstructedSentences.length} משפטים ישוחזרו מכמה טייקים
-                    </span>
-                  )}
-                  {contentAnalysis.cutTransitions?.length > 0 && (
-                    <span className="px-2 py-1 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                      {contentAnalysis.cutTransitions.length} מעברים חכמים
-                    </span>
-                  )}
-                </div>
-
-                {/* Detailed Emotional Arc (Rollercoaster) */}
-                {contentAnalysis.detailedEmotionalArc && contentAnalysis.detailedEmotionalArc.length > 0 && (
-                  <div>
-                    <p className="text-[11px] text-gray-400 mb-2">עקומת אנרגיה (רכבת הרים):</p>
-                    <div className="flex items-end gap-0.5 h-16">
-                      {contentAnalysis.detailedEmotionalArc.map((phase: any, i: number) => {
-                        const totalDur = contentAnalysis.detailedEmotionalArc.reduce(
-                          (sum: number, a: any) => sum + (a.end - a.start), 0
-                        );
-                        const width = ((phase.end - phase.start) / totalDur) * 100;
-                        const height = (phase.energy / 10) * 100;
-                        const color =
-                          phase.phase === 'hook' ? 'bg-red-500' :
-                          phase.phase === 'peak' ? 'bg-amber-500' :
-                          phase.phase === 'build' ? 'bg-blue-500' :
-                          phase.phase === 'dip' || phase.phase === 'breathe' ? 'bg-cyan-500' :
-                          phase.phase === 'resolve' ? 'bg-green-500' :
-                          'bg-purple-500';
-                        return (
-                          <div
-                            key={i}
-                            className="flex flex-col items-center justify-end"
-                            style={{ width: `${width}%` }}
-                            title={`${phase.phase} | אנרגיה: ${phase.energy}/10 | ${phase.editStyle}`}
-                          >
-                            <span className="text-[8px] text-white font-bold mb-0.5">{phase.energy}</span>
-                            <div
-                              className={`${color} rounded-t w-full opacity-70 transition-all`}
-                              style={{ height: `${height}%` }}
-                            />
-                            <span className="text-[8px] text-gray-500 mt-0.5 uppercase tracking-tight">{phase.phase}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Legacy Emotional arc visualization (fallback) */}
-                {(!contentAnalysis.detailedEmotionalArc || contentAnalysis.detailedEmotionalArc.length === 0) &&
-                  contentAnalysis.emotionalArc && contentAnalysis.emotionalArc.length > 0 && (
-                  <div>
-                    <p className="text-[11px] text-gray-400 mb-2">עקומת אנרגיה:</p>
-                    <div className="flex items-end gap-0.5 h-12">
-                      {contentAnalysis.emotionalArc.map((arc: any, i: number) => {
-                        const totalDur = contentAnalysis.emotionalArc.reduce(
-                          (sum: number, a: any) => sum + (a.end - a.start), 0
-                        );
-                        const width = ((arc.end - arc.start) / totalDur) * 100;
-                        const height = (arc.energy / 10) * 100;
-                        const color =
-                          arc.section === 'hook' ? 'bg-red-500' :
-                          arc.section === 'peak' ? 'bg-amber-500' :
-                          arc.section === 'build' ? 'bg-blue-500' :
-                          'bg-green-500';
-                        return (
-                          <div
-                            key={i}
-                            className="flex flex-col items-center justify-end"
-                            style={{ width: `${width}%` }}
-                            title={`${arc.section} | ${arc.musicMood} | אנרגיה: ${arc.energy}/10`}
-                          >
-                            <div
-                              className={`${color} rounded-t w-full opacity-70`}
-                              style={{ height: `${height}%` }}
-                            />
-                            <span className="text-[8px] text-gray-600 mt-0.5">{arc.section}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Editing Blueprint Summary */}
-        {contentAnalysis?.editingBlueprint && (
-          <div className="bg-dark-card border border-accent-purple/30 rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-accent-purple-light mb-3 flex items-center gap-2">
-              <span className="text-lg">🎬</span>
-              תוכנית עריכה מקצועית
-            </h3>
-            <div className="space-y-1.5 text-xs text-gray-300">
-              {contentAnalysis.editingBlueprint.cuts?.length > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-purple-400">•</span>
-                  <span>{contentAnalysis.editingBlueprint.cuts.length} חיתוכים</span>
-                  <span className="text-gray-500">
-                    ({(() => {
-                      const types = contentAnalysis.editingBlueprint.cuts.reduce((acc: Record<string, number>, c: any) => {
-                        acc[c.type] = (acc[c.type] || 0) + 1;
-                        return acc;
-                      }, {});
-                      return Object.entries(types).map(([t, n]) => `${n} ${t}`).join(', ');
-                    })()})
-                  </span>
-                </div>
-              )}
-              {contentAnalysis.editingBlueprint.zooms?.length > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-blue-400">•</span>
-                  <span>{contentAnalysis.editingBlueprint.zooms.length} זומים חכמים</span>
-                </div>
-              )}
-              {contentAnalysis.editingBlueprint.soundDesign?.sfx?.length > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-green-400">•</span>
-                  <span>{contentAnalysis.editingBlueprint.soundDesign.sfx.length} אפקטי סאונד</span>
-                  <span className="text-gray-500">
-                    ({[...new Set(contentAnalysis.editingBlueprint.soundDesign.sfx.map((s: any) => s.type))].join(', ')})
-                  </span>
-                </div>
-              )}
-              {contentAnalysis.editingBlueprint.colorPlan?.length > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-yellow-400">•</span>
-                  <span>תוכנית צבע: {contentAnalysis.editingBlueprint.colorPlan.map((c: any) => c.temperature).join(' → ')}</span>
-                </div>
-              )}
-              {contentAnalysis.editingBlueprint.platformOptimization && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-pink-400">•</span>
-                  <span>
-                    אופטימיזציה: {contentAnalysis.editingBlueprint.platformOptimization.platform}
-                    {contentAnalysis.editingBlueprint.platformOptimization.hookStrategy?.duration && (
-                      <span className="text-gray-500"> (הוק {contentAnalysis.editingBlueprint.platformOptimization.hookStrategy.duration} שניות)</span>
-                    )}
-                  </span>
-                </div>
-              )}
-              {contentAnalysis.editingBlueprint.murchAverageScore > 0 && (
-                <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-700/50">
-                  <span className="text-orange-400">★</span>
-                  <span>ציון Murch ממוצע: <span className="font-bold text-white">{contentAnalysis.editingBlueprint.murchAverageScore.toFixed(1)}/10</span></span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Transcript */}
-        <TranscriptPreview text={transcriptText} />
-
-        {/* Full Editing Plan Preview — ALL effects */}
+        {/* ===== SECTION 2: Editing Plan — simple stats ===== */}
         {editingBlueprint && (
           <EditingPlanPreview
             editingBlueprint={editingBlueprint}
@@ -961,19 +256,31 @@ export default function PreviewPage() {
           />
         )}
 
-        {/* Detailed Cost Breakdown (updated) */}
-        <CostBreakdownDetailed blueprint={editingBlueprint} selectedModel={currentJob?.videoModel} />
+        {/* ===== SECTION 3: B-Roll — user-friendly ===== */}
+        <BRollPreview prompts={preview.brollPrompts} pricePerClip={pricePerClip} />
 
-        {/* Brain Suggestions Checklist — toggle individual AI additions */}
-        {(preview.brollPrompts?.length > 0 || editingBlueprint) && (
-          <BrainSuggestionsChecklist
-            brollPrompts={preview.brollPrompts || []}
-            editingBlueprint={editingBlueprint}
-            onSuggestionsChange={setEnabledSuggestionIds}
-          />
-        )}
+        {/* Script (prompt-only mode) */}
+        {preview.script && <ScriptPreviewPanel script={preview.script} />}
 
-        {/* Chat input */}
+        {/* ===== SECTION 4: Cost — one clean summary ===== */}
+        <CostBreakdownDetailed
+          blueprint={editingBlueprint}
+          selectedModel={currentJob?.videoModel}
+          hasMusic={hasMusic}
+          hasFiles={hasFiles}
+        />
+
+        {/* ===== SECTION 5: Processing time ===== */}
+        <div className="bg-dark-card border border-dark-border-light rounded-xl p-4 flex items-center justify-between">
+          <span className="text-sm text-gray-300 flex items-center gap-2">
+            <span>⏱️</span> זמן עיבוד משוער
+          </span>
+          <span className="font-bold text-white font-mono">
+            {preview.estimatedRenderTime}
+          </span>
+        </div>
+
+        {/* Chat input for changes */}
         {chatError && (
           <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-400 text-center">
             {chatError}
@@ -985,7 +292,7 @@ export default function PreviewPage() {
           changeHistory={changeHistory}
         />
 
-        {/* Approve / Undo buttons */}
+        {/* ===== SECTION 6: Approve button ===== */}
         <ApproveButton
           onApprove={handleApprove}
           onUndo={handleUndo}

@@ -342,6 +342,8 @@ export interface BRollPreviewItem {
   duration: number;
   prompt: string;
   reason: string;
+  userDescription?: string;
+  triggerWord?: string;
 }
 
 export interface ScriptPreview {
